@@ -274,30 +274,38 @@ export async function createBulkEmailCampaign({ subject, text, html, source, rec
   }
 
   // Mirror the campaign into the sender's mailbox "Sent" folder so the Mailbox
-  // tab can show exactly what went out, attachments included. The attachment
-  // bytes stay in bulk_email_attachments and are linked by id, so nothing is
-  // duplicated. Best effort: a mirror failure must never fail the campaign.
+  // tab can show exactly what went out. One row PER RECIPIENT, like Gmail, so a
+  // 39-recipient campaign lists 39 sent messages instead of one "39 recipients"
+  // row. Bodies are not duplicated: the reading pane falls back to the campaign
+  // copy on bulk_email_logs when the Sent row has none. Best effort only.
   try {
     const domain = String(sender.email).split('@')[1] || 'ucs-crm';
+    const snippet = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    const recipientRows = rows.map((recipient, index) => ({
+      idx: index,
+      email: recipient.email,
+      name: recipient.name || null,
+    }));
     await db._pool.query(
       `INSERT INTO email_messages
-         (account_email, folder, message_id, from_email, from_name, to_email, subject, snippet,
+         (account_email, folder, message_id, from_email, from_name, to_email, to_name, subject, snippet,
           body_text, body_html, has_attachments, attachments, received_at, is_read, campaign_id)
-       VALUES ($1, 'Sent', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW(), TRUE, $12)
+       SELECT $1::text, 'Sent',
+              'sent-campaign-' || $2::bigint || '-' || r.idx || '@' || $3::text,
+              $1::text, $4::text, r.email, r.name, $5::text, $6::text,
+              NULL, NULL, $7::boolean, $8::jsonb, NOW(), TRUE, $2::bigint
+         FROM jsonb_to_recordset($9::jsonb) AS r(idx int, email text, name text)
        ON CONFLICT (account_email, message_id) DO NOTHING`,
       [
         sender.email,
-        `sent-campaign-${campaignId}@${domain}`,
-        sender.email,
+        campaignId,
+        domain,
         sender.display_name || null,
-        `${rows.length} recipient${rows.length === 1 ? '' : 's'}`,
         String(subject).trim(),
-        String(text || '').replace(/\s+/g, ' ').trim().slice(0, 240),
-        text || '',
-        html || null,
+        snippet,
         attachmentMeta.length > 0,
         JSON.stringify(attachmentMeta),
-        campaignId,
+        JSON.stringify(recipientRows),
       ],
     );
   } catch (error) {

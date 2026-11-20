@@ -239,6 +239,9 @@ export async function ensureBulkEmailSchema() {
   await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_email_messages_list ON email_messages(account_email, received_at DESC);`);
   await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_email_messages_campaign ON email_messages(campaign_id);`);
 
+  // Recipient display name for the per-recipient Sent rows.
+  await db._pool.query(`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS to_name TEXT;`);
+
   // Incremental sync bookmark: the highest UID already stored for a mailbox, so
   // a poll only asks IMAP for what is new instead of re-reading the inbox.
   await db._pool.query(`
@@ -253,23 +256,34 @@ export async function ensureBulkEmailSchema() {
   `);
 
   // One-time backfill so campaigns sent before the Sent mirror existed still
-  // show up in Bulk Email > Mailbox > Sent, with their attachment metadata
-  // linked back to bulk_email_attachments. Runs only while Sent is still empty.
+  // show up in Bulk Email > Mailbox > Sent. One row PER RECIPIENT, like Gmail,
+  // with attachment metadata linked back to bulk_email_attachments.
+  //
+  // The first version of this mirror stored a single "N recipients" row per
+  // campaign; those rows are removed first so the per-recipient rows replace
+  // them instead of sitting alongside them.
+  await db._pool.query(`
+    DELETE FROM email_messages
+     WHERE folder = 'Sent'
+       AND message_id ~ '^sent-campaign-[0-9]+@';
+  `);
   await db._pool.query(`
     INSERT INTO email_messages
-      (account_email, folder, message_id, from_email, from_name, to_email, subject, snippet,
+      (account_email, folder, message_id, from_email, from_name, to_email, to_name, subject, snippet,
        body_text, body_html, has_attachments, attachments, received_at, is_read, campaign_id)
     SELECT
       l.sender_email,
       'Sent',
-      'sent-campaign-' || l.id || '@' || COALESCE(NULLIF(split_part(l.sender_email, '@', 2), ''), 'ucs-crm'),
+      'sent-campaign-' || l.id || '-' || recipients.rn || '@'
+        || COALESCE(NULLIF(split_part(l.sender_email, '@', 2), ''), 'ucs-crm'),
       l.sender_email,
       NULL,
-      CONCAT(l.total_recipients, ' recipients'),
+      COALESCE(recipients.rec->>'email', ''),
+      NULLIF(recipients.rec->>'name', ''),
       l.subject,
       LEFT(regexp_replace(COALESCE(l.body, ''), '\\s+', ' ', 'g'), 240),
-      l.body,
-      l.html,
+      NULL,
+      NULL,
       EXISTS (SELECT 1 FROM bulk_email_attachments a WHERE a.owner_type = 'campaign' AND a.owner_id = l.id),
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
@@ -290,6 +304,12 @@ export async function ensureBulkEmailSchema() {
       TRUE,
       l.id
     FROM bulk_email_logs l
+    CROSS JOIN LATERAL (
+      SELECT rec, row_number() OVER () AS rn
+        FROM jsonb_array_elements(
+               CASE WHEN jsonb_typeof(l.recipients) = 'array' THEN l.recipients ELSE '[]'::jsonb END
+             ) AS rec
+    ) recipients
     WHERE l.sender_email IS NOT NULL
       AND l.sender_email <> ''
       AND NOT EXISTS (SELECT 1 FROM email_messages m WHERE m.folder = 'Sent')
