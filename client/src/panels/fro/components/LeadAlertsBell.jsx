@@ -172,7 +172,17 @@ function AlertRow({ alert, onOpen }) {
               NEW
             </span>
           )}
-          {seen && <span style={{ whiteSpace: 'nowrap' }}>· Seen</span>}
+          {seen && (
+            <span
+              style={{
+                marginLeft: 2, padding: '0 6px', borderRadius: 999,
+                background: 'rgba(180,83,9,.12)', color: '#b45309',
+                fontSize: 8.5, fontWeight: 800, letterSpacing: '.05em', lineHeight: '14px',
+              }}
+            >
+              PENDING
+            </span>
+          )}
         </span>
       </span>
 
@@ -256,6 +266,20 @@ export default function LeadAlertsBell({
   const pending = Number(counts?.pending) || 0;
   const badge = unseen > 0 ? unseen : pending;
   const hasUnseen = unseen > 0;
+  const hasPending = pending > 0;
+
+  // Three bell states: red for unread, amber for "seen but not worked yet", and
+  // quiet when nothing is open. The halo is continuous so a lead cannot sit
+  // unnoticed just because the one-shot shake already played.
+  const bellState = hasUnseen ? 'unseen' : hasPending ? 'pending' : 'clear';
+  const bellHalo = hasUnseen ? 'rgba(220,38,38,.35)' : 'rgba(180,83,9,.28)';
+  const bellColor = hasUnseen ? '#dc2626' : hasPending ? '#b45309' : 'var(--ink-soft, #64748b)';
+
+  const status = hasUnseen
+    ? { label: `${unseen} new`, color: '#dc2626', bg: 'rgba(220,38,38,.1)' }
+    : hasPending
+      ? { label: `${pending} pending`, color: '#b45309', bg: 'rgba(180,83,9,.12)' }
+      : { label: 'All caught up', color: '#64748b', bg: 'var(--bg, #f1f5f9)' };
 
   const { unseenAlerts, seenAlerts } = useMemo(() => {
     const next = alerts || [];
@@ -271,23 +295,35 @@ export default function LeadAlertsBell({
         ref={btnRef}
         type="button"
         aria-label="New lead alerts"
-        title={hasUnseen ? `${unseen} unseen new lead${unseen === 1 ? '' : 's'}` : 'New leads'}
+        title={hasUnseen
+          ? `${unseen} unseen new lead${unseen === 1 ? '' : 's'}`
+          : hasPending
+            ? `${pending} lead${pending === 1 ? '' : 's'} still pending`
+            : 'New leads'}
         onClick={() => {
           const next = !open;
           if (next) placePanel();
           setOpen(next);
           if (next) onRefresh?.();
         }}
-        className={hasUnseen ? 'lead-bell-attention' : undefined}
+        className={
+          bellState === 'unseen'
+            ? 'lead-bell-attention'
+            : bellState === 'pending'
+              ? 'lead-bell-pending'
+              : undefined
+        }
         style={{
           position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           padding: 6, borderRadius: 999, border: 'none', background: 'transparent', cursor: 'pointer',
-          color: hasUnseen ? '#dc2626' : 'var(--ink-soft, #64748b)',
+          color: bellColor,
           // Consumed by the halo keyframes in the style block below.
-          '--bell-halo': hasUnseen ? 'rgba(220,38,38,.35)' : 'rgba(180,83,9,.3)',
+          '--bell-halo': bellHalo,
         }}
       >
-        {hasUnseen && <span className="lead-bell-ping" aria-hidden />}
+        {bellState !== 'clear' && (
+          <span className={`lead-bell-ping ${bellState === 'unseen' ? 'is-red' : 'is-amber'}`} aria-hidden />
+        )}
         <Bell size={20} strokeWidth={2} className={pulse ? 'lead-bell-ring' : undefined} />
         {badge > 0 && <Badge value={badge} color={unseen > 0 ? '#dc2626' : '#b45309'} />}
       </button>
@@ -318,12 +354,11 @@ export default function LeadAlertsBell({
               <span
                 style={{
                   fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999,
-                  color: hasUnseen ? '#dc2626' : '#64748b',
-                  background: hasUnseen ? 'rgba(220,38,38,.1)' : 'var(--bg, #f1f5f9)',
+                  color: status.color, background: status.bg,
                   whiteSpace: 'nowrap',
                 }}
               >
-                {hasUnseen ? `${unseen} new` : `${pending} pending`}
+                {status.label}
               </span>
             </span>
 
@@ -431,13 +466,15 @@ export default function LeadAlertsBell({
         @keyframes lead-bell-rotate { to { transform: rotate(360deg); } }
         .lead-bell-spin { animation: lead-bell-rotate .8s linear infinite; }
 
-        /* Continuous halo while any alert is still unseen. */
+        /* Continuous halo: red while unread, amber while a seen lead is still
+           pending (no disposition logged yet). */
         @keyframes lead-bell-halo {
           0%   { box-shadow: 0 0 0 0 var(--bell-halo, rgba(220,38,38,.35)); }
-          70%  { box-shadow: 0 0 0 10px rgba(220,38,38,0); }
-          100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+          70%  { box-shadow: 0 0 0 10px transparent; }
+          100% { box-shadow: 0 0 0 0 transparent; }
         }
         .lead-bell-attention { animation: lead-bell-halo 2s ease-out infinite; }
+        .lead-bell-pending { animation: lead-bell-halo 3s ease-out infinite; }
 
         @keyframes lead-bell-ping {
           0%   { transform: scale(.9); opacity: .7; }
@@ -446,12 +483,14 @@ export default function LeadAlertsBell({
         }
         .lead-bell-ping {
           position: absolute; top: -1px; right: -1px; width: 14px; height: 14px;
-          border-radius: 999px; background: #dc2626; pointer-events: none;
+          border-radius: 999px; pointer-events: none;
           animation: lead-bell-ping 1.8s ease-out infinite;
         }
+        .lead-bell-ping.is-red { background: #dc2626; }
+        .lead-bell-ping.is-amber { background: #b45309; animation-duration: 2.6s; }
 
         @media (prefers-reduced-motion: reduce) {
-          .lead-bell-attention, .lead-bell-ping, .lead-bell-ring { animation: none; }
+          .lead-bell-attention, .lead-bell-pending, .lead-bell-ping, .lead-bell-ring { animation: none; }
         }
       `}</style>
     </div>

@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>New Leads — UI mockup</title>
+<style>
+  :root {
+    --bg: #eef2f1;
+    --card: #ffffff;
+    --line: #e2e8f0;
+    --ink: #0f172a;
+    --soft: #64748b;
+    --sage: #16a34a;
+    --red: #dc2626;
+    --amber: #b45309;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 28px 24px 64px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+    font-size: 14px;
+  }
+
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--soft); font-size: 12.5px; margin-bottom: 28px; }
+
+  .section { margin-bottom: 34px; }
+  .section h2 {
+    font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--soft); margin: 0 0 12px; font-weight: 800;
+  }
+
+  .row-flex { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+
+  /* ---------- bell ---------- */
+
+  .bell-demo { text-align: center; width: 130px; }
+  .bell-demo .caption { font-size: 11px; color: var(--soft); margin-top: 14px; line-height: 1.5; }
+
+  .bell-wrap { position: relative; display: inline-flex; }
+
+  .bell {
+    position: relative;
+    width: 44px; height: 44px; border-radius: 999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #fff; border: 1px solid var(--line);
+    color: var(--soft);
+  }
+  .bell svg { width: 21px; height: 21px; }
+
+  .bell.is-unseen { color: var(--red); animation: haloRed 2s ease-out infinite; }
+  .bell.is-pending { color: var(--amber); animation: haloAmber 3s ease-out infinite; }
+
+  .badge {
+    position: absolute; top: -3px; right: -3px;
+    min-width: 17px; height: 17px; padding: 0 4px;
+    border-radius: 999px; color: #fff;
+    font-size: 10px; font-weight: 800; line-height: 17px; text-align: center;
+    box-shadow: 0 0 0 2px #fff;
+  }
+  .badge.red { background: var(--red); }
+  .badge.amber { background: var(--amber); }
+
+  .ping {
+    position: absolute; top: -1px; right: -1px;
+    width: 15px; height: 15px; border-radius: 999px;
+    pointer-events: none;
+  }
+  .ping.red { background: var(--red); animation: ping 1.8s ease-out infinite; }
+  .ping.amber { background: var(--amber); animation: ping 2.6s ease-out infinite; }
+
+  @keyframes haloRed {
+    0%   { box-shadow: 0 0 0 0 rgba(220,38,38,.38); }
+    70%  { box-shadow: 0 0 0 11px rgba(220,38,38,0); }
+    100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+  }
+  @keyframes haloAmber {
+    0%   { box-shadow: 0 0 0 0 rgba(180,83,9,.3); }
+    70%  { box-shadow: 0 0 0 10px rgba(180,83,9,0); }
+    100% { box-shadow: 0 0 0 0 rgba(180,83,9,0); }
+  }
+  @keyframes ping {
+    0%   { transform: scale(.9); opacity: .65; }
+    70%  { transform: scale(1.9); opacity: 0; }
+    100% { transform: scale(1.9); opacity: 0; }
+  }
+
+  /* ---------- popup ---------- */
+
+  .panel {
+    width: 440px; max-width: 100%;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 22px 48px rgba(15,23,42,.14);
+    overflow: hidden;
+  }
+
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 13px 14px; border-bottom: 1px solid var(--line);
+  }
+  .panel-title { display: flex; align-items: center; gap: 8px; }
+  .panel-title strong { font-size: 14px; }
+  .pill {
+    font-size: 10.5px; font-weight: 800; padding: 2px 8px; border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.red { color: var(--red); background: rgba(220,38,38,.1); }
+  .pill.amber { color: var(--amber); background: rgba(180,83,9,.12); }
+  .pill.neutral { color: var(--soft); background: #f1f5f9; }
+
+  .head-actions { display: inline-flex; align-items: center; gap: 6px; }
+
+  .btn-mark {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line);
+    background: #fff; color: var(--ink);
+    font-family: inherit; font-size: 10.5px; font-weight: 700; cursor: pointer;
+  }
+  .btn-mark:hover { background: #f6f8fa; }
+
+  .icon-btn {
+    display: inline-flex; padding: 4px; border: 0; background: transparent;
+    color: var(--soft); cursor: pointer;
+  }
+
+  .sect {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 14px 7px;
+    font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--soft); background: #f8fafc;
+    border-top: 1px solid var(--line);
+  }
+  .sect .n {
+    min-width: 18px; padding: 1px 6px; border-radius: 999px;
+    background: rgba(220,38,38,.12); color: var(--red);
+    font-size: 9.5px; text-align: center;
+  }
+  .sect.amber .n { background: rgba(180,83,9,.12); color: var(--amber); }
+
+  .alert {
+    position: relative;
+    display: flex; gap: 11px; align-items: flex-start;
+    width: 100%; padding: 11px 14px 11px 17px;
+    border-top: 1px solid var(--line);
+    background: #fff; text-align: left;
+  }
+  .alert.unseen { background: rgba(22,163,74,.055); }
+  .alert.unseen::before {
+    content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+    width: 3px; border-radius: 0 3px 3px 0; background: var(--sage);
+  }
+  .alert:hover { background: #f6f8fa; }
+  .alert.unseen:hover { background: rgba(22,163,74,.1); }
+
+  .avatar {
+    width: 32px; height: 32px; border-radius: 999px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800; margin-top: 1px;
+  }
+  .avatar.wa { background: #dcfce7; color: #128C7E; }
+  .avatar.meta { background: #e7f0ff; color: #0866FF; }
+  .avatar.email { background: #ede9fe; color: #7c3aed; }
+
+  .alert-body { flex: 1; min-width: 0; }
+
+  .alert-top { display: flex; align-items: center; gap: 8px; }
+  .alert-name {
+    flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .alert.unseen .alert-name { font-weight: 800; }
+  .alert.pending .alert-name { font-weight: 600; }
+
+  .src {
+    flex: none; font-size: 10px; font-weight: 800;
+    padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+  }
+  .src.wa { color: #128C7E; background: #dcfce7; }
+  .src.meta { color: #0866FF; background: #e7f0ff; }
+  .src.email { color: #7c3aed; background: #ede9fe; }
+
+  .alert-meta {
+    display: flex; align-items: center; gap: 6px; margin-top: 3px;
+    font-size: 10.5px; color: var(--soft);
+  }
+  .alert-meta .dot { opacity: .5; }
+
+  .chip {
+    padding: 0 6px; border-radius: 999px; line-height: 14px;
+    font-size: 8.5px; font-weight: 800; letter-spacing: .05em;
+  }
+  .chip.new { background: var(--red); color: #fff; }
+  .chip.pend { background: rgba(180,83,9,.12); color: var(--amber); }
+
+  .open-btn {
+    align-self: center; flex: none;
+    font-size: 10.5px; font-weight: 800; color: var(--sage);
+    padding: 4px 9px; border-radius: 7px; border: 1px solid var(--sage);
+    background: #fff; white-space: nowrap; cursor: pointer;
+  }
+  .alert.seen .open-btn { color: var(--soft); border-color: var(--line); }
+
+  .panel-foot {
+    width: 100%; padding: 12px; border: 0; border-top: 1px solid var(--line);
+    background: #f8fafc; color: var(--ink); font-family: inherit;
+    font-size: 12px; font-weight: 700; text-align: center; cursor: pointer;
+  }
+  .panel-foot:hover { background: #f1f5f9; }
+
+  .empty { padding: 44px 20px 40px; text-align: center; }
+  .empty .circle {
+    width: 52px; height: 52px; margin: 0 auto 12px; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center;
+    background: #f1f5f9; color: var(--soft);
+  }
+  .empty .t { font-size: 13.5px; font-weight: 800; }
+  .empty .s { font-size: 11.5px; color: var(--soft); margin-top: 4px; line-height: 1.5; }
+
+  .legend {
+    margin-top: 16px; display: flex; gap: 18px; flex-wrap: wrap;
+    font-size: 11.5px; color: var(--soft);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 999px; }
+</style>
+</head>
+<body>
+
+  <h1>New Leads — bell &amp; popup</h1>
+  <div class="sub">Static mockup. Animations run live in the browser.</div>
+
+  <!-- 1. bell states -->
+  <div class="section">
+    <h2>1 · Bell — three states</h2>
+    <div class="row-flex">
+
+      <div class="bell-demo">
+        <div class="bell-wrap">
+          <div class="bell is-unseen">
+            <span class="ping red"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+            <span class="badge red">3</span>
+          </div>
+        </div>
+        <div class="caption"><strong>Unseen</strong><br />red halo, 2s loop</div>
+      </div>
+
+      <div class="bell-demo">
+        <div class="bell-wrap">
+          <div class="bell is-pending">
+            <span class="ping amber"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+            <span class="badge amber">1</span>
+          </div>
+        </div>
+        <div class="caption"><strong>Seen · pending</strong><br />amber halo, 3s loop</div>
+      </div>
+
+      <div class="bell-demo">
+        <div class="bell-wrap">
+          <div class="bell">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          </div>
+        </div>
+        <div class="caption"><strong>All clear</strong><br />no halo</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 2. popup mixed -->
+  <div class="section">
+    <h2>2 · Popup — 1 new + 2 pending</h2>
+    <div class="panel">
+
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>New Leads</strong>
+          <span class="pill red">1 new</span>
+          <span class="pill neutral">3 open</span>
+        </div>
+        <div class="head-actions">
+          <button class="btn-mark">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m2 12 5.25 5L17 7"/><path d="m11 17 2 2L22 9"/></svg>
+            Mark all read
+          </button>
+          <button class="icon-btn" aria-label="Refresh">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="sect">New <span class="n">1</span></div>
+
+      <div class="alert unseen">
+        <span class="avatar wa">AK</span>
+        <span class="alert-body">
+          <span class="alert-top">
+            <span class="alert-name">Asha Kulkarni</span>
+            <span class="src wa">WhatsApp · 87%</span>
+          </span>
+          <span class="alert-meta">
+            <span>Station Pune</span><span class="dot">·</span><span>2 min ago</span>
+            <span class="chip new">NEW</span>
+          </span>
+        </span>
+        <button class="open-btn">Open ›</button>
+      </div>
+
+      <div class="sect amber">Earlier <span class="n">2</span></div>
+
+      <div class="alert pending">
+        <span class="avatar meta">RM</span>
+        <span class="alert-body">
+          <span class="alert-top">
+            <span class="alert-name">Ramesh Mane</span>
+            <span class="src meta">Meta · 62%</span>
+          </span>
+          <span class="alert-meta">
+            <span>Station Mumbai</span><span class="dot">·</span><span>11 min ago</span>
+            <span class="chip pend">PENDING</span>
+          </span>
+        </span>
+        <button class="open-btn">Open ›</button>
+      </div>
+
+      <div class="alert pending">
+        <span class="avatar email">SP</span>
+        <span class="alert-body">
+          <span class="alert-top">
+            <span class="alert-name">Suresh Patil</span>
+            <span class="src email">Email · 45%</span>
+          </span>
+          <span class="alert-meta">
+            <span>Station pending</span><span class="dot">·</span><span>26 min ago</span>
+            <span class="chip pend">PENDING</span>
+          </span>
+        </span>
+        <button class="open-btn">Open ›</button>
+      </div>
+
+      <button class="panel-foot">View all in My Leads →</button>
+    </div>
+
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--sage)"></i> green bar / tint = unseen</span>
+      <span><i class="swatch" style="background:var(--red)"></i> NEW chip</span>
+      <span><i class="swatch" style="background:var(--amber)"></i> PENDING chip</span>
+    </div>
+  </div>
+
+  <!-- 3. all caught up -->
+  <div class="section">
+    <h2>3 · After “Mark all read”</h2>
+    <div class="panel">
+
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>New Leads</strong>
+          <span class="pill neutral">All caught up</span>
+        </div>
+        <div class="head-actions">
+          <button class="icon-btn" aria-label="Refresh">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="sect amber">Earlier <span class="n">2</span></div>
+
+      <div class="alert seen pending">
+        <span class="avatar meta">SA</span>
+        <span class="alert-body">
+          <span class="alert-top">
+            <span class="alert-name">Sanjana</span>
+            <span class="src meta">Meta · 85%</span>
+          </span>
+          <span class="alert-meta">
+            <span>B-MetaLeads</span><span class="dot">·</span><span>3 min ago</span>
+            <span class="chip pend">PENDING</span>
+          </span>
+        </span>
+        <button class="open-btn">Open ›</button>
+      </div>
+
+      <div class="alert seen pending">
+        <span class="avatar email">SU</span>
+        <span class="alert-body">
+          <span class="alert-top">
+            <span class="alert-name">Suresh Patil</span>
+            <span class="src email">Email · 45%</span>
+          </span>
+          <span class="alert-meta">
+            <span>Station pending</span><span class="dot">·</span><span>26 min ago</span>
+            <span class="chip pend">PENDING</span>
+          </span>
+        </span>
+        <button class="open-btn">Open ›</button>
+      </div>
+
+      <button class="panel-foot">View all in My Leads →</button>
+    </div>
+    <div class="legend">
+      <span>Halo ab amber hai — disposition save hone tak pulse chalta rahega.</span>
+    </div>
+  </div>
+
+  <!-- 4. empty -->
+  <div class="section">
+    <h2>4 · Empty</h2>
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>New Leads</strong>
+          <span class="pill neutral">0 pending</span>
+        </div>
+        <div class="head-actions">
+          <button class="icon-btn" aria-label="Refresh">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="empty">
+        <div class="circle">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.7 4H7.3a2 2 0 0 0-1.8 1.1z"/></svg>
+        </div>
+        <div class="t">No new leads right now</div>
+        <div class="s">New leads on your station will appear here.</div>
+      </div>
+      <button class="panel-foot">View all in My Leads →</button>
+    </div>
+  </div>
+
+</body>
+</html>
