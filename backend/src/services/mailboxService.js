@@ -450,7 +450,7 @@ export async function listMailboxMessages({ email, folder = 'INBOX', search = ''
 
   const [{ rows }, { rows: counts }] = await Promise.all([
     db._pool.query(
-      `SELECT id, account_email, folder, from_email, from_name, to_email, subject, snippet,
+      `SELECT id, account_email, folder, from_email, from_name, to_email, to_name, subject, snippet,
               has_attachments, attachments, size_bytes, received_at, is_read, campaign_id, lead_id
          FROM email_messages
         WHERE ${where.join(' AND ')}
@@ -487,7 +487,29 @@ export async function getMailboxMessage(id) {
   const numeric = Number(id);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   const { rows } = await db._pool.query('SELECT * FROM email_messages WHERE id = $1', [numeric]);
-  return rows[0] || null;
+  const message = rows[0];
+  if (!message) return null;
+
+  // Sent rows are created per recipient without duplicating the body, so the
+  // reading pane borrows the campaign copy. Attachments already point at
+  // bulk_email_attachments via their metadata.
+  if (message.folder === 'Sent' && !message.body_html && !message.body_text && message.campaign_id) {
+    try {
+      const { rows: campaigns } = await db._pool.query(
+        'SELECT body, html FROM bulk_email_logs WHERE id = $1::bigint',
+        [message.campaign_id],
+      );
+      const campaign = campaigns[0];
+      if (campaign) {
+        message.body_text = campaign.body || message.body_text || null;
+        message.body_html = campaign.html || message.body_html || null;
+      }
+    } catch (error) {
+      console.error('[mailbox] campaign body lookup failed:', error?.message || error);
+    }
+  }
+
+  return message;
 }
 
 async function withImapFor(accountEmail, run) {

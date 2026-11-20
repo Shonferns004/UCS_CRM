@@ -428,7 +428,9 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
                     onClick={() => openMessage(row)}
                   >
                     <span className="be-gmail-sender">
-                      {isSent ? (row.to_email || 'Recipients') : senderLabel(row)}
+                      {isSent
+                        ? (row.to_name || row.to_email || 'Recipients')
+                        : senderLabel(row)}
                     </span>
                     <span className="be-gmail-summary">
                       <span className="be-gmail-line">
@@ -489,7 +491,11 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
                         <strong>{senderLabel(message)}</strong>
                         {message.from_email ? <span className="be-gmail-address"> &lt;{message.from_email}&gt;</span> : null}
                       </div>
-                      <div className="be-gmail-address">to {message.to_email || mailbox}</div>
+                      <div className="be-gmail-address">
+                        to {message.to_name
+                          ? `${message.to_name}${message.to_email ? ` <${message.to_email}>` : ''}`
+                          : (message.to_email || mailbox)}
+                      </div>
                     </div>
                     <span className="be-gmail-read-date">{formatFullDate(message.received_at)}</span>
                   </div>
