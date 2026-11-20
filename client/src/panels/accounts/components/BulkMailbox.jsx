@@ -85,6 +85,12 @@ function attachmentsOf(message) {
   return Array.isArray(message?.attachments) ? message.attachments : [];
 }
 
+function replySubjectFor(subject) {
+  const text = String(subject || '').trim();
+  if (!text) return 'Re: (no subject)';
+  return /^re\s*:/i.test(text) ? text : `Re: ${text}`;
+}
+
 /**
  * Strip what a sandboxed iframe does not already neutralise, and block remote
  * images until the reader asks for them (tracking pixels).
@@ -136,6 +142,12 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
   const [toasts, setToasts] = useState([]);
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [replyTo, setReplyTo] = useState('');
+  const [replyCc, setReplyCc] = useState('');
+  const [replyBcc, setReplyBcc] = useState('');
+  const [replySubject, setReplySubject] = useState('');
+  const [showCc, setShowCc] = useState(false);
+  const [showBcc, setShowBcc] = useState(false);
   const [replyFiles, setReplyFiles] = useState([]);
   const [sendingReply, setSendingReply] = useState(false);
   const [replyError, setReplyError] = useState(null);
@@ -240,6 +252,12 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
   const clearReply = () => {
     setReplyOpen(false);
     setReplyText('');
+    setReplyTo('');
+    setReplyCc('');
+    setReplyBcc('');
+    setReplySubject('');
+    setShowCc(false);
+    setShowBcc(false);
     setReplyFiles([]);
     setReplyError(null);
   };
@@ -278,6 +296,8 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     try {
       const data = await apiGet(`/accounts/bulk-email/mailbox/messages/${row.id}`);
       setMessage(data);
+      setReplyTo(data.from_email || '');
+      setReplySubject(replySubjectFor(data.subject));
       if (!isSent && !row.is_read) {
         setMessages((prev) => prev.map((item) => (item.id === row.id ? { ...item, is_read: true } : item)));
         setUnread((prev) => Math.max(0, prev - 1));
@@ -335,6 +355,10 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     try {
       const form = new FormData();
       form.append('text', replyText);
+      form.append('to', replyTo.trim());
+      form.append('subject', replySubject.trim());
+      if (replyCc.trim()) form.append('cc', replyCc.trim());
+      if (replyBcc.trim()) form.append('bcc', replyBcc.trim());
       replyFiles.forEach((file) => form.append('attachments', file));
       await apiPost(`/accounts/bulk-email/mailbox/messages/${message.id}/reply`, form, 180000);
       clearReply();
@@ -585,6 +609,9 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
                           ? `${message.to_name}${message.to_email ? ` <${message.to_email}>` : ''}`
                           : (message.to_email || mailbox)}
                       </div>
+                      {message.cc ? (
+                        <div className="be-gmail-address">cc {message.cc}</div>
+                      ) : null}
                     </div>
                     <span className="be-gmail-read-date">{formatFullDate(message.received_at)}</span>
                   </div>
@@ -649,15 +676,60 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
                       ) : (
                         <div className="be-gmail-composer">
                           <div className="be-gmail-composer-head">
-                            <span>
-                              To: {message.from_name
-                                ? `${message.from_name} <${message.from_email}>`
-                                : message.from_email}
+                            <span>Reply</span>
+                            <span className="be-gmail-composer-head-actions">
+                              <button type="button" className="be-link-btn" onClick={() => setShowCc((v) => !v)}>
+                                Cc
+                              </button>
+                              <button type="button" className="be-link-btn" onClick={() => setShowBcc((v) => !v)}>
+                                Bcc
+                              </button>
+                              <button type="button" onClick={clearReply} aria-label="Close reply">
+                                <X size={14} strokeWidth={2} />
+                              </button>
                             </span>
-                            <button type="button" onClick={clearReply} aria-label="Close reply">
-                              <X size={14} strokeWidth={2} />
-                            </button>
                           </div>
+
+                          <label className="be-gmail-composer-field">
+                            <span>To</span>
+                            <input
+                              value={replyTo}
+                              onChange={(e) => setReplyTo(e.target.value)}
+                              placeholder="name@example.com"
+                            />
+                          </label>
+
+                          {showCc && (
+                            <label className="be-gmail-composer-field">
+                              <span>Cc</span>
+                              <input
+                                value={replyCc}
+                                onChange={(e) => setReplyCc(e.target.value)}
+                                placeholder="cc@example.com, another@example.com"
+                              />
+                            </label>
+                          )}
+
+                          {showBcc && (
+                            <label className="be-gmail-composer-field">
+                              <span>Bcc</span>
+                              <input
+                                value={replyBcc}
+                                onChange={(e) => setReplyBcc(e.target.value)}
+                                placeholder="bcc@example.com"
+                              />
+                            </label>
+                          )}
+
+                          <label className="be-gmail-composer-field">
+                            <span>Subject</span>
+                            <input
+                              value={replySubject}
+                              onChange={(e) => setReplySubject(e.target.value)}
+                              placeholder="Subject"
+                            />
+                          </label>
+
                           <textarea
                             className="be-gmail-composer-input"
                             value={replyText}

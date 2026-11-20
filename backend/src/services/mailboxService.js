@@ -624,12 +624,26 @@ function textToReplyHtml(text) {
   return `<div style="font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1f2937;">${escaped.replace(/\n/g, '<br />')}</div>`;
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Split "a@x.com, b@y.com" into validated addresses. */
+export function parseAddressList(value, fieldLabel = 'recipient') {
+  const list = String(value || '')
+    .split(/[,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const bad = list.find((email) => !EMAIL_RE.test(email));
+  if (bad) throw new Error(`"${bad}" is not a valid ${fieldLabel} address`);
+  return list;
+}
+
 /**
  * Reply to an inbound message from the CRM. Sends over the same SMTP sender the
  * campaign used, threads with In-Reply-To/References, and mirrors the outgoing
- * mail into the Sent folder so the mailbox stays a complete record.
+ * mail into the Sent folder so the mailbox stays a complete record. To, Cc, Bcc
+ * and Subject are all editable, like a normal mail client.
  */
-export async function sendMailboxReply(id, { text, html, attachments } = {}) {
+export async function sendMailboxReply(id, { text, html, attachments, to, cc, bcc, subject } = {}) {
   const message = await getMailboxMessage(id);
   if (!message) throw new Error('Message not found');
   if (message.folder === 'Sent') throw new Error('You cannot reply to a sent message');
@@ -638,6 +652,11 @@ export async function sendMailboxReply(id, { text, html, attachments } = {}) {
   const body = String(text || '').trim();
   const bodyHtml = String(html || '').trim();
   if (!body && !bodyHtml) throw new Error('Write a reply before sending');
+
+  const toList = parseAddressList(to || message.from_email, 'recipient');
+  if (!toList.length) throw new Error('Add at least one recipient');
+  const ccList = parseAddressList(cc, 'Cc');
+  const bccList = parseAddressList(bcc, 'Bcc');
 
   const sender = await getSenderByEmail(message.account_email);
   if (!sender) throw new Error(`${message.account_email} is not added as a sender email`);
@@ -651,12 +670,14 @@ export async function sendMailboxReply(id, { text, html, attachments } = {}) {
     headers.References = headers['In-Reply-To'];
   }
 
-  const subject = replySubject(message.subject);
+  const finalSubject = String(subject || '').trim() || replySubject(message.subject);
   const transport = getTransportForSender(sender);
   await transport.sendMail({
     from: buildSenderFromHeader(sender),
-    to: message.from_email,
-    subject,
+    to: toList.join(', '),
+    cc: ccList.length ? ccList.join(', ') : undefined,
+    bcc: bccList.length ? bccList.join(', ') : undefined,
+    subject: finalSubject,
     text: body || bodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
     html: bodyHtml || textToReplyHtml(body),
     headers,
@@ -672,20 +693,29 @@ export async function sendMailboxReply(id, { text, html, attachments } = {}) {
   const snippet = (body || bodyHtml.replace(/<[^>]+>/g, ' '))
     .replace(/\s+/g, ' ').trim().slice(0, 240);
 
+  const primaryTo = toList[0];
+  const toName = toList.length === 1
+    && message.from_email
+    && primaryTo.toLowerCase() === String(message.from_email).toLowerCase()
+    ? message.from_name || null
+    : null;
+
   const { rows } = await db._pool.query(
     `INSERT INTO email_messages
-       (account_email, folder, message_id, from_email, from_name, to_email, to_name, subject, snippet,
-        body_text, body_html, has_attachments, attachments, received_at, is_read, campaign_id)
-     VALUES ($1, 'Sent', $2, $1, $3, $4, $5, $6, $7, $8, $9, $10, '[]'::jsonb, NOW(), TRUE, $11)
+       (account_email, folder, message_id, from_email, from_name, to_email, to_name, cc, bcc,
+        subject, snippet, body_text, body_html, has_attachments, attachments, received_at, is_read, campaign_id)
+     VALUES ($1, 'Sent', $2, $1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, '[]'::jsonb, NOW(), TRUE, $13)
      ON CONFLICT (account_email, message_id) DO NOTHING
      RETURNING id`,
     [
       message.account_email,
       messageId,
       sender.display_name || null,
-      message.from_email,
-      message.from_name || null,
-      subject,
+      toList.join(', '),
+      toName,
+      ccList.join(', ') || null,
+      bccList.join(', ') || null,
+      finalSubject,
       snippet,
       body || null,
       bodyHtml || textToReplyHtml(body),
@@ -736,9 +766,10 @@ export async function sendMailboxReply(id, { text, html, attachments } = {}) {
           account_email: message.account_email,
           folder: 'Sent',
           message_id: messageId,
-          to_email: message.from_email,
-          to_name: message.from_name || null,
-          subject,
+          to_email: toList.join(', '),
+          to_name: toName,
+          cc: ccList.join(', ') || null,
+          subject: finalSubject,
           snippet,
           received_at: new Date(),
           is_read: true,
@@ -748,7 +779,7 @@ export async function sendMailboxReply(id, { text, html, attachments } = {}) {
     } catch { /* best effort */ }
   }
 
-  return { id: sentId, to: message.from_email, subject };
+  return { id: sentId, to: toList.join(', '), cc: ccList.join(', ') || null, subject: finalSubject };
 }
 
 let schedulerTimer = null;

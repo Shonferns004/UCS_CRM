@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { imapConfigForSender, replySubject } from './mailboxService.js';
+import { imapConfigForSender, parseAddressList, replySubject } from './mailboxService.js';
 
 test('IMAP host follows the SMTP provider instead of always Gmail', () => {
   assert.equal(
@@ -45,4 +45,12 @@ test('reply subjects get a single Re: prefix', () => {
   assert.equal(replySubject('Re: An update'), 'Re: An update');
   assert.equal(replySubject('RE: donation'), 'RE: donation');
   assert.equal(replySubject(''), 'Re: (no subject)');
+});
+
+test('cc and bcc lists accept commas, semicolons and reject bad addresses', () => {
+  assert.deepEqual(parseAddressList('a@x.com, b@y.com'), ['a@x.com', 'b@y.com']);
+  assert.deepEqual(parseAddressList('a@x.com; b@y.com'), ['a@x.com', 'b@y.com']);
+  assert.deepEqual(parseAddressList('  '), []);
+  assert.deepEqual(parseAddressList(null), []);
+  assert.throws(() => parseAddressList('not-an-email', 'Cc'), /valid Cc address/);
 });

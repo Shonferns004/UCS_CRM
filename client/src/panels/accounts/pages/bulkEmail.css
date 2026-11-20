@@ -2241,6 +2241,42 @@
   cursor: pointer;
 }
 
+.be-gmail-composer-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.be-gmail-composer-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-bottom: 1px solid #eef1f4;
+}
+
+.be-gmail-composer-field > span {
+  flex: none;
+  width: 54px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.be-gmail-composer-field > input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
 .be-gmail-composer-input {
   width: 100%;
   box-sizing: border-box;

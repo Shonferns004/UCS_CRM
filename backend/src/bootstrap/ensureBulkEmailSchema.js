@@ -241,6 +241,10 @@ export async function ensureBulkEmailSchema() {
 
   // Recipient display name for the per-recipient Sent rows.
   await db._pool.query(`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS to_name TEXT;`);
+  // Cc/Bcc recorded on the Sent copy so the reading pane can show the real
+  // recipient list of a reply.
+  await db._pool.query(`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS cc TEXT;`);
+  await db._pool.query(`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS bcc TEXT;`);
 
   // Incremental sync bookmark: the highest UID already stored for a mailbox, so
   // a poll only asks IMAP for what is new instead of re-reading the inbox.

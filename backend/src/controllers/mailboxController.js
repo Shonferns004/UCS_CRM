@@ -91,6 +91,10 @@ export async function reply(req, res) {
     const result = await sendMailboxReply(req.params.id, {
       text: req.body?.text || '',
       html: req.body?.html || '',
+      to: req.body?.to || '',
+      cc: req.body?.cc || '',
+      bcc: req.body?.bcc || '',
+      subject: req.body?.subject || '',
       attachments: files,
     });
     return res.status(201).json(result);
