@@ -205,6 +205,96 @@ export async function ensureBulkEmailSchema() {
        'system')
     ON CONFLICT (name) DO NOTHING;
   `);
+
+  // Inbound mailbox mirror behind Accounts > Bulk Email > Mailbox. One row per
+  // message seen in a sender mailbox. Attachments are metadata only (name,
+  // type, size) because the binary is re-fetched from IMAP on demand, so large
+  // files never sit in Postgres.
+  await db._pool.query(`
+    CREATE TABLE IF NOT EXISTS email_messages (
+      id BIGSERIAL PRIMARY KEY,
+      account_email TEXT NOT NULL,
+      folder TEXT NOT NULL DEFAULT 'INBOX',
+      uid BIGINT,
+      uid_validity BIGINT,
+      message_id TEXT NOT NULL,
+      from_email TEXT,
+      from_name TEXT,
+      to_email TEXT,
+      subject TEXT,
+      snippet TEXT,
+      body_text TEXT,
+      body_html TEXT,
+      has_attachments BOOLEAN NOT NULL DEFAULT FALSE,
+      attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+      size_bytes INT,
+      received_at TIMESTAMPTZ,
+      is_read BOOLEAN NOT NULL DEFAULT FALSE,
+      campaign_id BIGINT,
+      lead_id BIGINT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await db._pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_messages_unique ON email_messages(account_email, message_id);`);
+  await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_email_messages_list ON email_messages(account_email, received_at DESC);`);
+  await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_email_messages_campaign ON email_messages(campaign_id);`);
+
+  // Incremental sync bookmark: the highest UID already stored for a mailbox, so
+  // a poll only asks IMAP for what is new instead of re-reading the inbox.
+  await db._pool.query(`
+    CREATE TABLE IF NOT EXISTS email_mailbox_state (
+      account_email TEXT PRIMARY KEY,
+      folder TEXT NOT NULL DEFAULT 'INBOX',
+      uid_validity BIGINT,
+      last_uid BIGINT,
+      last_synced_at TIMESTAMPTZ,
+      last_error TEXT
+    );
+  `);
+
+  // One-time backfill so campaigns sent before the Sent mirror existed still
+  // show up in Bulk Email > Mailbox > Sent, with their attachment metadata
+  // linked back to bulk_email_attachments. Runs only while Sent is still empty.
+  await db._pool.query(`
+    INSERT INTO email_messages
+      (account_email, folder, message_id, from_email, from_name, to_email, subject, snippet,
+       body_text, body_html, has_attachments, attachments, received_at, is_read, campaign_id)
+    SELECT
+      l.sender_email,
+      'Sent',
+      'sent-campaign-' || l.id || '@' || COALESCE(NULLIF(split_part(l.sender_email, '@', 2), ''), 'ucs-crm'),
+      l.sender_email,
+      NULL,
+      CONCAT(l.total_recipients, ' recipients'),
+      l.subject,
+      LEFT(regexp_replace(COALESCE(l.body, ''), '\\s+', ' ', 'g'), 240),
+      l.body,
+      l.html,
+      EXISTS (SELECT 1 FROM bulk_email_attachments a WHERE a.owner_type = 'campaign' AND a.owner_id = l.id),
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+                 'index', files.rn - 1,
+                 'filename', files.filename,
+                 'contentType', files.content_type,
+                 'size', octet_length(files.data),
+                 'campaignAttachmentId', files.id
+               ) ORDER BY files.rn)
+          FROM (
+            SELECT id, filename, content_type, data, sort_order,
+                   row_number() OVER (ORDER BY sort_order, id) AS rn
+              FROM bulk_email_attachments
+             WHERE owner_type = 'campaign' AND owner_id = l.id
+          ) files
+      ), '[]'::jsonb),
+      l.created_at,
+      TRUE,
+      l.id
+    FROM bulk_email_logs l
+    WHERE l.sender_email IS NOT NULL
+      AND l.sender_email <> ''
+      AND NOT EXISTS (SELECT 1 FROM email_messages m WHERE m.folder = 'Sent')
+    ON CONFLICT (account_email, message_id) DO NOTHING;
+  `);
 }
 
 export default ensureBulkEmailSchema;

@@ -176,6 +176,7 @@ import { ensureWhatsAppBulkSchema } from './bootstrap/ensureWhatsAppBulkSchema.j
 import { ensureCampaignSchema } from './bootstrap/ensureCampaignSchema.js';
 import { ensureMetaAdsSchema } from './bootstrap/ensureMetaAdsSchema.js';
 import { loadMetaConfigFromDb } from './services/metaAdsConfigStore.js';
+import { ensureLeadWhatsAppAlertSchema } from './bootstrap/ensureLeadWhatsAppAlertSchema.js';
 import { ensureGoogleAdsSchema } from './bootstrap/ensureGoogleAdsSchema.js';
 import { loadGoogleAdsConfigFromDb } from './services/googleAdsConfigStore.js';
 import { ensureBulkEmailSchema } from './bootstrap/ensureBulkEmailSchema.js';
@@ -1438,6 +1439,7 @@ await ensureSsLeadAiSchema().catch(e => console.error('ensureSsLeadAiSchema fail
   await ensureCampaignSchema().catch(e => console.error('ensureCampaignSchema failed:', e?.message || e));
   await ensureMetaAdsSchema().catch(e => console.error('ensureMetaAdsSchema failed:', e?.message || e));
   await ensureGoogleAdsSchema().catch(e => console.error('ensureGoogleAdsSchema failed:', e?.message || e));
+  await ensureLeadWhatsAppAlertSchema().catch(e => console.error('ensureLeadWhatsAppAlertSchema failed:', e?.message || e));
   // Credentials saved from the panel live in `settings`; copy them into the
   // process env before the pollers below decide whether they can start.
   await loadMetaConfigFromDb()
@@ -1455,6 +1457,9 @@ await ensureSsLeadAiSchema().catch(e => console.error('ensureSsLeadAiSchema fail
   await import('./services/metaAdsService.js')
     .then((m) => m.startMetaInsightsSync?.())
     .catch(e => console.error('startMetaInsightsSync failed:', e?.message || e));
+  await import('./services/leadWhatsAppAlertService.js')
+    .then((m) => m.startLeadAlertSweeper?.())
+    .catch(e => console.error('startLeadAlertSweeper failed:', e?.message || e));
   await import('./services/whatsappBulkCampaignService.js')
       .then((m) => m.recoverInterruptedWhatsAppCampaigns?.())
       .catch(e => console.error('recoverInterruptedWhatsAppCampaigns failed:', e?.message || e));
@@ -1463,6 +1468,11 @@ await ensureSsLeadAiSchema().catch(e => console.error('ensureSsLeadAiSchema fail
     await import('./services/bulkEmailService.js')
       .then((m) => m.recoverInterruptedBulkEmails?.())
       .catch(e => console.error('recoverInterruptedBulkEmails failed:', e?.message || e));
+    // Keeps the Bulk Email > Mailbox tab populated: polls every sender mailbox
+    // over IMAP (host derived from the SMTP provider) every 15 minutes.
+    await import('./services/mailboxService.js')
+      .then((m) => m.startMailboxScheduler?.())
+      .catch(e => console.error('startMailboxScheduler failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');

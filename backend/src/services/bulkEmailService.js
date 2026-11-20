@@ -254,14 +254,54 @@ export async function createBulkEmailCampaign({ subject, text, html, source, rec
 
   const campaignId = inserted[0].id;
   const files = Array.isArray(attachments) ? attachments : [];
+  const attachmentMeta = [];
   for (let i = 0; i < files.length; i += 1) {
     const file = files[i];
     if (!file?.content) continue;
-    await db._pool.query(
+    const { rows: savedFile } = await db._pool.query(
       `INSERT INTO bulk_email_attachments (owner_type, owner_id, filename, content_type, data, sort_order)
-       VALUES ('campaign', $1, $2, $3, $4, $5)`,
+       VALUES ('campaign', $1, $2, $3, $4, $5)
+       RETURNING id`,
       [campaignId, file.filename || 'attachment', file.contentType || 'application/octet-stream', file.content, i],
     );
+    attachmentMeta.push({
+      index: attachmentMeta.length,
+      filename: file.filename || 'attachment',
+      contentType: file.contentType || 'application/octet-stream',
+      size: file.content?.length || 0,
+      campaignAttachmentId: savedFile[0]?.id || null,
+    });
+  }
+
+  // Mirror the campaign into the sender's mailbox "Sent" folder so the Mailbox
+  // tab can show exactly what went out, attachments included. The attachment
+  // bytes stay in bulk_email_attachments and are linked by id, so nothing is
+  // duplicated. Best effort: a mirror failure must never fail the campaign.
+  try {
+    const domain = String(sender.email).split('@')[1] || 'ucs-crm';
+    await db._pool.query(
+      `INSERT INTO email_messages
+         (account_email, folder, message_id, from_email, from_name, to_email, subject, snippet,
+          body_text, body_html, has_attachments, attachments, received_at, is_read, campaign_id)
+       VALUES ($1, 'Sent', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW(), TRUE, $12)
+       ON CONFLICT (account_email, message_id) DO NOTHING`,
+      [
+        sender.email,
+        `sent-campaign-${campaignId}@${domain}`,
+        sender.email,
+        sender.display_name || null,
+        `${rows.length} recipient${rows.length === 1 ? '' : 's'}`,
+        String(subject).trim(),
+        String(text || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+        text || '',
+        html || null,
+        attachmentMeta.length > 0,
+        JSON.stringify(attachmentMeta),
+        campaignId,
+      ],
+    );
+  } catch (error) {
+    console.error('Bulk email sent-mail mirror failed:', error?.message || error);
   }
 
   // Mirror each recipient as a CRM lead so bulk-email audiences show up in the
