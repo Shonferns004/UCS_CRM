@@ -29,6 +29,16 @@ test('IMAP always uses port 993 over TLS with the full email as username', () =>
   assert.equal(config.auth.pass, 'secret');
 });
 
+test('IMAP sessions carry a bounded socket timeout so a dead mailbox cannot hang forever', () => {
+  const previous = process.env.IMAP_SOCKET_TIMEOUT_MS;
+  delete process.env.IMAP_SOCKET_TIMEOUT_MS;
+  try {
+    assert.equal(imapConfigForSender({ email: 'a@b.c' }).socketTimeout, 5 * 60 * 1000);
+  } finally {
+    if (previous !== undefined) process.env.IMAP_SOCKET_TIMEOUT_MS = previous;
+  }
+});
+
 test('password normalisation stays provider aware for IMAP too', () => {
   assert.equal(
     imapConfigForSender({ email: 'x@gmail.com', smtp_host: 'smtp.gmail.com', app_password: 'abcd efgh ijkl mnop' }).auth.pass,

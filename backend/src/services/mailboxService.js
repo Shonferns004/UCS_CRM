@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
+import { closeImapClient, createImapClient } from './imapClient.js';
 import db from '../config/db.js';
 import { emitDbChange } from '../socket.js';
 import { getSenderByEmail, listActiveSenders } from '../models/bulkEmailSenderModel.js';
@@ -34,6 +34,18 @@ const normalizeEmail = (value) => String(value || '').toLowerCase().trim();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * How long a mailbox socket may stay completely silent before it is treated as
+ * dead. ImapFlow defaults to 5 minutes; IMAP_SOCKET_TIMEOUT_MS raises it for
+ * very large mailboxes (a slow local loop can starve the socket) or lowers it
+ * when a dead host should fail fast.
+ */
+function imapSocketTimeoutMs() {
+  const value = Number(process.env.IMAP_SOCKET_TIMEOUT_MS);
+  if (Number.isFinite(value) && value >= 15000) return Math.floor(value);
+  return 5 * 60 * 1000;
+}
+
+/**
  * IMAP endpoint for a sender. The SMTP host already tells us the provider, so
  * a Hostinger mailbox maps to imap.hostinger.com instead of Gmail (which is
  * what the old reply importer assumed for every sender).
@@ -62,6 +74,7 @@ export function imapConfigForSender(sender) {
     },
     tls: true,
     tlsOptions: { rejectUnauthorized: false },
+    socketTimeout: imapSocketTimeoutMs(),
   };
 }
 
@@ -194,10 +207,7 @@ async function upsertLeadForReply({ campaign, senderEmail, senderName, receivedA
  * Pull new messages for one sender mailbox. Returns a summary instead of
  * throwing for IMAP problems, so the sync button always has something to show.
  */
-export async function syncMailbox(email, { sinceDays = DEFAULT_SINCE_DAYS, limit = DEFAULT_FETCH_LIMIT } = {}) {
-  const accountEmail = normalizeEmail(email);
-  if (!accountEmail) throw new Error('Mailbox email is required');
-
+async function runMailboxSync(accountEmail, { sinceDays = DEFAULT_SINCE_DAYS, limit = DEFAULT_FETCH_LIMIT } = {}) {
   const sender = await getSenderByEmail(accountEmail);
   if (!sender) throw new Error(`${accountEmail} is not added as a sender email`);
   if (sender.is_active === false) throw new Error(`${accountEmail} is inactive`);
@@ -206,7 +216,7 @@ export async function syncMailbox(email, { sinceDays = DEFAULT_SINCE_DAYS, limit
   const state = await readState(accountEmail);
   const since = new Date(Date.now() - Math.max(1, sinceDays) * 24 * 3600 * 1000);
 
-  const client = new ImapFlow(imapConfigForSender(sender));
+  const client = createImapClient(imapConfigForSender(sender), `mailbox:${accountEmail}`);
   const stats = { account: accountEmail, synced: 0, skipped: 0, error: null };
 
   try {
@@ -214,6 +224,7 @@ export async function syncMailbox(email, { sinceDays = DEFAULT_SINCE_DAYS, limit
   } catch (error) {
     const message = `Could not connect to the mail server: ${error?.message || error}`;
     await writeState(accountEmail, { uidValidity: state?.uid_validity, lastUid: state?.last_uid, error: message }).catch(() => {});
+    await closeImapClient(client);
     return { ...stats, error: message };
   }
 
@@ -402,8 +413,29 @@ export async function syncMailbox(email, { sinceDays = DEFAULT_SINCE_DAYS, limit
     return { ...stats, error: message };
   } finally {
     try { lock?.release(); } catch { /* best effort */ }
-    try { await client.logout(); } catch { /* best effort */ }
+    await closeImapClient(client);
   }
+}
+
+// The 2 minute scheduler and the "Sync" button can fire at the same moment.
+// Two overlapping IMAP sessions for the same mailbox is what makes one of them
+// sit idle until the 5 minute socket timeout (and, before the error listener
+// existed, kill the process). One sync per mailbox at a time; a second caller
+// simply waits for the run that is already going.
+const inFlightSyncs = new Map();
+
+export function syncMailbox(email, options = {}) {
+  const accountEmail = normalizeEmail(email);
+  if (!accountEmail) return Promise.reject(new Error('Mailbox email is required'));
+
+  const running = inFlightSyncs.get(accountEmail);
+  if (running) return running;
+
+  const task = runMailboxSync(accountEmail, options).finally(() => {
+    if (inFlightSyncs.get(accountEmail) === task) inFlightSyncs.delete(accountEmail);
+  });
+  inFlightSyncs.set(accountEmail, task);
+  return task;
 }
 
 /** Senders are polled one at a time so a shared mailbox never opens 4 sessions. */
@@ -523,7 +555,7 @@ export async function getMailboxMessage(id) {
 async function withImapFor(accountEmail, run) {
   const sender = await getSenderByEmail(accountEmail);
   if (!sender) throw new Error(`${accountEmail} is not added as a sender email`);
-  const client = new ImapFlow(imapConfigForSender(sender));
+  const client = createImapClient(imapConfigForSender(sender), `mailbox:${accountEmail}`);
   let lock = null;
   try {
     await client.connect();
@@ -531,7 +563,7 @@ async function withImapFor(accountEmail, run) {
     return await run(client);
   } finally {
     try { lock?.release(); } catch { /* best effort */ }
-    try { await client.logout(); } catch { /* best effort */ }
+    await closeImapClient(client);
   }
 }
 

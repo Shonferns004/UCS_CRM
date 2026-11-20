@@ -1353,6 +1353,32 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
 });
 
+// Last-resort guard. Mail clients (IMAP) and other socket libraries can emit
+// transport errors ('Socket timeout', ECONNRESET, EPIPE) outside any promise
+// chain. Those only mean one background session died — a full process crash
+// takes the whole CRM down for every user. Swallow only transport errors from
+// a socket; anything else still terminates the process like Node does by
+// default, so real bugs are not hidden.
+const TRANSIENT_SOCKET_CODES = new Set([
+  'ETIMEOUT',
+  'ECONNRESET',
+  'ECONNABORTED',
+  'EPIPE',
+  'ESOCKET',
+  'NoConnection',
+]);
+
+process.on('uncaughtException', (error) => {
+  const code = String(error?.code || '');
+  if (error?._connId || TRANSIENT_SOCKET_CODES.has(code)) {
+    console.error(`[socket] transient ${code || 'IMAP'} error ignored, API stays up:`, error?.message || error);
+    return;
+  }
+  console.error('Uncaught Exception:', error);
+  process.exitCode = 1;
+  setTimeout(() => process.exit(1), 100).unref?.();
+});
+
 app.get('/api/debug', authenticate, async (req, res) => {
   const tables = ['rejected_lead_tickets', 'fcm_tokens'];
   const results = {};
