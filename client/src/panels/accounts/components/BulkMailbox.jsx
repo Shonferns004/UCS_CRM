@@ -10,6 +10,7 @@ import {
   Mail,
   MailOpen,
   Paperclip,
+  Pencil,
   RefreshCw,
   Reply,
   Search,
@@ -145,6 +146,18 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
   const [toasts, setToasts] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeTo, setComposeTo] = useState('');
+  const [composeCc, setComposeCc] = useState('');
+  const [composeBcc, setComposeBcc] = useState('');
+  const [composeSubject, setComposeSubject] = useState('');
+  const [composeText, setComposeText] = useState('');
+  const [composeShowCc, setComposeShowCc] = useState(false);
+  const [composeShowBcc, setComposeShowBcc] = useState(false);
+  const [composeFiles, setComposeFiles] = useState([]);
+  const [composeSending, setComposeSending] = useState(false);
+  const [composeError, setComposeError] = useState(null);
+  const [composeNotice, setComposeNotice] = useState(null);
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [replyTo, setReplyTo] = useState('');
@@ -336,6 +349,56 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
       setMessages((prev) => prev.map((item) => (item.id === row.id ? { ...item, is_starred: row.is_starred } : item)));
       setMessage((prev) => (prev && prev.id === row.id ? { ...prev, is_starred: row.is_starred } : prev));
       setError(e?.message || 'Could not update the star.');
+    }
+  };
+
+  const openCompose = () => {
+    setComposeError(null);
+    setComposeNotice(null);
+    setComposeOpen(true);
+  };
+
+  const resetCompose = () => {
+    setComposeOpen(false);
+    setComposeTo('');
+    setComposeCc('');
+    setComposeBcc('');
+    setComposeSubject('');
+    setComposeText('');
+    setComposeShowCc(false);
+    setComposeShowBcc(false);
+    setComposeFiles([]);
+    setComposeError(null);
+  };
+
+  const sendCompose = async () => {
+    if (!mailbox) { setComposeError('Choose a mailbox first.'); return; }
+    if (!composeTo.trim()) { setComposeError('Add at least one recipient.'); return; }
+    if (!composeSubject.trim()) { setComposeError('Subject is required.'); return; }
+    if (!composeText.trim()) { setComposeError('Write a message before sending.'); return; }
+    if (composeSending) return;
+
+    setComposeSending(true);
+    setComposeError(null);
+    try {
+      const form = new FormData();
+      form.append('email', mailbox);
+      form.append('to', composeTo.trim());
+      form.append('subject', composeSubject.trim());
+      form.append('text', composeText);
+      if (composeCc.trim()) form.append('cc', composeCc.trim());
+      if (composeBcc.trim()) form.append('bcc', composeBcc.trim());
+      composeFiles.forEach((file) => form.append('attachments', file));
+      await apiPost('/accounts/bulk-email/mailbox/compose', form, 180000);
+      resetCompose();
+      setComposeNotice('Message sent.');
+      setSentTotal((prev) => prev + 1);
+      setTimeout(() => setComposeNotice(null), 6000);
+      if (isSent) loadMessages({ silent: true });
+    } catch (e) {
+      setComposeError(e?.message || 'Could not send the message.');
+    } finally {
+      setComposeSending(false);
     }
   };
 
@@ -570,6 +633,12 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
         </div>
       )}
 
+      {composeNotice && (
+        <div className="be-gmail-sentnotice">
+          <Mail size={14} strokeWidth={2} aria-hidden="true" /> {composeNotice}
+        </div>
+      )}
+
       <div className="be-gmail-toasts" aria-live="polite">
         {toasts.map((toast) => (
           <div key={toast.id} className="be-gmail-toast">
@@ -601,6 +670,10 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
 
       <div className="be-gmail-body">
         <nav className="be-gmail-nav" aria-label="Mailbox folders">
+          <button type="button" className="be-gmail-compose" onClick={openCompose}>
+            <Pencil size={15} strokeWidth={2} aria-hidden="true" />
+            <span>Compose</span>
+          </button>
           <div className="be-gmail-nav-label">Mailbox</div>
           {FOLDERS.map((item) => {
             const Icon = item.Icon;
@@ -950,6 +1023,104 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
           )}
         </div>
       </div>
+
+      {composeOpen && (
+        <div className="be-compose-overlay" onClick={resetCompose}>
+          <div className="be-compose" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="New message">
+            <div className="be-compose-head">
+              <strong>New message</strong>
+              <span className="be-compose-head-actions">
+                <button type="button" className="be-link-btn" onClick={() => setComposeShowCc((v) => !v)}>Cc</button>
+                <button type="button" className="be-link-btn" onClick={() => setComposeShowBcc((v) => !v)}>Bcc</button>
+                <button type="button" onClick={resetCompose} aria-label="Close compose">
+                  <X size={15} strokeWidth={2} />
+                </button>
+              </span>
+            </div>
+
+            <label className="be-gmail-composer-field">
+              <span>From</span>
+              <input value={mailbox} readOnly />
+            </label>
+
+            <label className="be-gmail-composer-field">
+              <span>To</span>
+              <input
+                value={composeTo}
+                onChange={(e) => setComposeTo(e.target.value)}
+                placeholder="name@example.com, another@example.com"
+                autoFocus
+              />
+            </label>
+
+            {composeShowCc && (
+              <label className="be-gmail-composer-field">
+                <span>Cc</span>
+                <input
+                  value={composeCc}
+                  onChange={(e) => setComposeCc(e.target.value)}
+                  placeholder="cc@example.com"
+                />
+              </label>
+            )}
+
+            {composeShowBcc && (
+              <label className="be-gmail-composer-field">
+                <span>Bcc</span>
+                <input
+                  value={composeBcc}
+                  onChange={(e) => setComposeBcc(e.target.value)}
+                  placeholder="bcc@example.com"
+                />
+              </label>
+            )}
+
+            <label className="be-gmail-composer-field">
+              <span>Subject</span>
+              <input
+                value={composeSubject}
+                onChange={(e) => setComposeSubject(e.target.value)}
+                placeholder="Subject"
+              />
+            </label>
+
+            <textarea
+              className="be-gmail-composer-input be-compose-body"
+              value={composeText}
+              onChange={(e) => setComposeText(e.target.value)}
+              placeholder="Write your message…"
+              rows={10}
+            />
+
+            {composeError && <div className="be-compose-error">{composeError}</div>}
+
+            <div className="be-gmail-composer-actions">
+              <label className="be-gmail-composer-attach" title="Attach files">
+                <Paperclip size={15} strokeWidth={2} />
+                <input
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => setComposeFiles(Array.from(e.target.files || []))}
+                />
+              </label>
+              {composeFiles.length > 0 && (
+                <span className="be-gmail-composer-files">{composeFiles.length} file(s)</span>
+              )}
+              <button
+                type="button"
+                className="be-gmail-send"
+                onClick={sendCompose}
+                disabled={composeSending}
+              >
+                {composeSending
+                  ? <><Loader2 size={14} className="be-spin" /> Sending…</>
+                  : <><Send size={14} strokeWidth={2} /> Send</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

@@ -27,6 +27,7 @@ import {
 } from '../controllers/bulkEmailController.js';
 import {
   bulk,
+  compose,
   downloadAttachment,
   getMessage,
   listMessages,
@@ -88,6 +89,7 @@ router.get('/mailbox/messages', roles, listMessages);
 router.get('/mailbox/messages/:id', roles, getMessage);
 router.get('/mailbox/messages/:id/attachments/:index', roles, downloadAttachment);
 router.post('/mailbox/messages/bulk', roles, bulk);
+router.post('/mailbox/compose', roles, handleUpload, compose);
 router.post('/mailbox/messages/:id/read', roles, markRead);
 router.post('/mailbox/messages/:id/reply', roles, handleUpload, reply);
 router.post('/mailbox/sync', roles, sync);
