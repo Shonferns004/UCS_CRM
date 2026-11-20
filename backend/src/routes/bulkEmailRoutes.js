@@ -26,6 +26,7 @@ import {
   uploadAsset,
 } from '../controllers/bulkEmailController.js';
 import {
+  bulk,
   downloadAttachment,
   getMessage,
   listMessages,
@@ -86,6 +87,7 @@ router.post('/replies/poll', roles, pollReplies);
 router.get('/mailbox/messages', roles, listMessages);
 router.get('/mailbox/messages/:id', roles, getMessage);
 router.get('/mailbox/messages/:id/attachments/:index', roles, downloadAttachment);
+router.post('/mailbox/messages/bulk', roles, bulk);
 router.post('/mailbox/messages/:id/read', roles, markRead);
 router.post('/mailbox/messages/:id/reply', roles, handleUpload, reply);
 router.post('/mailbox/sync', roles, sync);

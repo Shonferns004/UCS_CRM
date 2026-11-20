@@ -140,6 +140,16 @@ export function getTransportForSender(sender) {
     maxConnections: Math.min(10, Math.max(1, Number(process.env.SMTP_MAX_CONNECTIONS) || 3)),
     maxMessages: 100,
   });
+
+  // A pooled SMTP transport is an EventEmitter too. When a pooled connection
+  // drops, nodemailer emits 'error' — without a listener Node throws it as an
+  // uncaught exception and the API restarts mid-campaign. sendMail() already
+  // rejects per message, so the event only needs to be consumed (same class of
+  // crash as the IMAP socket timeout).
+  transport.on('error', (error) => {
+    console.error(`[smtp:${email}] pooled connection error (server stays up):`, error?.message || error);
+  });
+
   transports.set(key, transport);
   return transport;
 }

@@ -1,9 +1,9 @@
-import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import db from '../config/db.js';
 import emailConfig from '../config/emailConfig.js';
 import { getActiveAccounts } from '../models/emailAccountModel.js';
 import { syncAllMailboxes } from './mailboxService.js';
+import { closeImapClient, createImapClient } from './imapClient.js';
 
 // Polls the bulk-email sender inbox and turns replies to a campaign into CRM
 // leads. Matching is by sender address (a campaign recipient replying) with the
@@ -116,14 +116,14 @@ async function upsertLeadForReply({ campaign, senderEmail, senderName, receivedA
 }
 
 async function pollAccount(account, maps, stats) {
-  const client = new ImapFlow({
+  const client = createImapClient({
     host: account.imap_host || 'imap.gmail.com',
     port: account.imap_port || 993,
     secure: true,
     auth: { user: account.email, pass: account.app_password },
     tls: true,
     tlsOptions: { rejectUnauthorized: false },
-  });
+  }, `bulkReplies:${account.email || 'default'}`);
 
   try {
     await client.connect();
@@ -136,7 +136,7 @@ async function pollAccount(account, maps, stats) {
       uids = [];
     }
     if (!uids || !uids.length) {
-      await client.logout();
+      await closeImapClient(client);
       return;
     }
     if (uids.length > 200) uids = uids.slice(-200);
@@ -205,9 +205,9 @@ async function pollAccount(account, maps, stats) {
       }
     }
 
-    await client.logout();
+    await closeImapClient(client);
   } catch (err) {
-    try { await client.logout(); } catch {}
+    await closeImapClient(client);
     stats.errors += 1;
     stats.error = err.message;
   }

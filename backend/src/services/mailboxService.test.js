@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { imapConfigForSender, replySubject } from './mailboxService.js';
+import { imapConfigForSender, parseAddressList, replySubject } from './mailboxService.js';
 
 test('IMAP host follows the SMTP provider instead of always Gmail', () => {
   assert.equal(
@@ -29,6 +29,16 @@ test('IMAP always uses port 993 over TLS with the full email as username', () =>
   assert.equal(config.auth.pass, 'secret');
 });
 
+test('IMAP sessions carry a bounded socket timeout so a dead mailbox cannot hang forever', () => {
+  const previous = process.env.IMAP_SOCKET_TIMEOUT_MS;
+  delete process.env.IMAP_SOCKET_TIMEOUT_MS;
+  try {
+    assert.equal(imapConfigForSender({ email: 'a@b.c' }).socketTimeout, 5 * 60 * 1000);
+  } finally {
+    if (previous !== undefined) process.env.IMAP_SOCKET_TIMEOUT_MS = previous;
+  }
+});
+
 test('password normalisation stays provider aware for IMAP too', () => {
   assert.equal(
     imapConfigForSender({ email: 'x@gmail.com', smtp_host: 'smtp.gmail.com', app_password: 'abcd efgh ijkl mnop' }).auth.pass,
@@ -45,4 +55,12 @@ test('reply subjects get a single Re: prefix', () => {
   assert.equal(replySubject('Re: An update'), 'Re: An update');
   assert.equal(replySubject('RE: donation'), 'RE: donation');
   assert.equal(replySubject(''), 'Re: (no subject)');
+});
+
+test('cc and bcc lists accept commas, semicolons and reject bad addresses', () => {
+  assert.deepEqual(parseAddressList('a@x.com, b@y.com'), ['a@x.com', 'b@y.com']);
+  assert.deepEqual(parseAddressList('a@x.com; b@y.com'), ['a@x.com', 'b@y.com']);
+  assert.deepEqual(parseAddressList('  '), []);
+  assert.deepEqual(parseAddressList(null), []);
+  assert.throws(() => parseAddressList('not-an-email', 'Cc'), /valid Cc address/);
 });

@@ -5,7 +5,7 @@ import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt, isBlankSuspenseValue, canonicalProject, projectCodeFromNgoId } from '../models/bankAuditModel.js';
 import { receiptsForDonor } from '../services/receiptLookup.js';
 import { ALL_LEAD_STATIONS } from '../services/ssLeadService.js';
-import { listLeadAlerts, leadAlertCounts, markLeadAlertSeen as markLeadAlertSeenRow, markAlertsAttended } from '../services/leadAlertService.js';
+import { listLeadAlerts, leadAlertCounts, markLeadAlertSeen as markLeadAlertSeenRow, markAllLeadAlertsSeen as markAllLeadAlertsSeenRows, markAlertsAttended } from '../services/leadAlertService.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
@@ -8251,6 +8251,17 @@ export const markLeadAlertSeen = async (req, res) => {
   try {
     const row = await markLeadAlertSeenRow(req.user.id, req.params.id);
     return res.json({ ok: true, already: !row, alert: row || null });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const markAllLeadAlertsSeen = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const marked = await markAllLeadAlertsSeenRows(workerId);
+    const counts = await leadAlertCounts(workerId);
+    return res.json({ ok: true, marked, counts });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

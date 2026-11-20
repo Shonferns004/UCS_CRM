@@ -45,6 +45,7 @@ import {
   getLeadAlerts,
   getLeadAlertCount,
   markLeadAlertSeen,
+  markAllLeadAlertsSeen,
   deleteSsLead,
   updateLiveStatus,
   getLiveStatuses,
@@ -143,6 +144,7 @@ router.get('/whatsapp-leads', getWhatsAppLeads);
 // fallback when the realtime socket is down.
 router.get('/lead-alerts', getLeadAlerts);
 router.get('/lead-alerts/count', getLeadAlertCount);
+router.post('/lead-alerts/seen-all', markAllLeadAlertsSeen);
 router.post('/lead-alerts/:id/seen', markLeadAlertSeen);
 router.delete('/ss-leads/:id', deleteSsLead);
 router.put('/donors/:id/status', updateDonorStatus);

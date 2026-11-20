@@ -1,4 +1,5 @@
 import {
+  bulkMailboxAction,
   getMailboxAttachment,
   getMailboxMessage,
   listMailboxMessages,
@@ -78,6 +79,17 @@ export async function markRead(req, res) {
   }
 }
 
+export async function bulk(req, res) {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const action = String(req.body?.action || '').trim();
+    const result = await bulkMailboxAction(ids, action);
+    return res.json(result);
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
+
 export async function reply(req, res) {
   try {
     const files = Array.isArray(req.files)
@@ -91,6 +103,10 @@ export async function reply(req, res) {
     const result = await sendMailboxReply(req.params.id, {
       text: req.body?.text || '',
       html: req.body?.html || '',
+      to: req.body?.to || '',
+      cc: req.body?.cc || '',
+      bcc: req.body?.bcc || '',
+      subject: req.body?.subject || '',
       attachments: files,
     });
     return res.status(201).json(result);

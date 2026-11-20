@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
+import { closeImapClient, createImapClient } from './imapClient.js';
 import db from '../config/db.js';
 import { emitDbChange } from '../socket.js';
 import { getSenderByEmail, listActiveSenders } from '../models/bulkEmailSenderModel.js';
@@ -34,6 +34,18 @@ const normalizeEmail = (value) => String(value || '').toLowerCase().trim();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * How long a mailbox socket may stay completely silent before it is treated as
+ * dead. ImapFlow defaults to 5 minutes; IMAP_SOCKET_TIMEOUT_MS raises it for
+ * very large mailboxes (a slow local loop can starve the socket) or lowers it
+ * when a dead host should fail fast.
+ */
+function imapSocketTimeoutMs() {
+  const value = Number(process.env.IMAP_SOCKET_TIMEOUT_MS);
+  if (Number.isFinite(value) && value >= 15000) return Math.floor(value);
+  return 5 * 60 * 1000;
+}
+
+/**
  * IMAP endpoint for a sender. The SMTP host already tells us the provider, so
  * a Hostinger mailbox maps to imap.hostinger.com instead of Gmail (which is
  * what the old reply importer assumed for every sender).
@@ -62,6 +74,7 @@ export function imapConfigForSender(sender) {
     },
     tls: true,
     tlsOptions: { rejectUnauthorized: false },
+    socketTimeout: imapSocketTimeoutMs(),
   };
 }
 
@@ -194,10 +207,7 @@ async function upsertLeadForReply({ campaign, senderEmail, senderName, receivedA
  * Pull new messages for one sender mailbox. Returns a summary instead of
  * throwing for IMAP problems, so the sync button always has something to show.
  */
-export async function syncMailbox(email, { sinceDays = DEFAULT_SINCE_DAYS, limit = DEFAULT_FETCH_LIMIT } = {}) {
-  const accountEmail = normalizeEmail(email);
-  if (!accountEmail) throw new Error('Mailbox email is required');
-
+async function runMailboxSync(accountEmail, { sinceDays = DEFAULT_SINCE_DAYS, limit = DEFAULT_FETCH_LIMIT } = {}) {
   const sender = await getSenderByEmail(accountEmail);
   if (!sender) throw new Error(`${accountEmail} is not added as a sender email`);
   if (sender.is_active === false) throw new Error(`${accountEmail} is inactive`);
@@ -206,7 +216,7 @@ export async function syncMailbox(email, { sinceDays = DEFAULT_SINCE_DAYS, limit
   const state = await readState(accountEmail);
   const since = new Date(Date.now() - Math.max(1, sinceDays) * 24 * 3600 * 1000);
 
-  const client = new ImapFlow(imapConfigForSender(sender));
+  const client = createImapClient(imapConfigForSender(sender), `mailbox:${accountEmail}`);
   const stats = { account: accountEmail, synced: 0, skipped: 0, error: null };
 
   try {
@@ -214,6 +224,7 @@ export async function syncMailbox(email, { sinceDays = DEFAULT_SINCE_DAYS, limit
   } catch (error) {
     const message = `Could not connect to the mail server: ${error?.message || error}`;
     await writeState(accountEmail, { uidValidity: state?.uid_validity, lastUid: state?.last_uid, error: message }).catch(() => {});
+    await closeImapClient(client);
     return { ...stats, error: message };
   }
 
@@ -402,8 +413,29 @@ export async function syncMailbox(email, { sinceDays = DEFAULT_SINCE_DAYS, limit
     return { ...stats, error: message };
   } finally {
     try { lock?.release(); } catch { /* best effort */ }
-    try { await client.logout(); } catch { /* best effort */ }
+    await closeImapClient(client);
   }
+}
+
+// The 2 minute scheduler and the "Sync" button can fire at the same moment.
+// Two overlapping IMAP sessions for the same mailbox is what makes one of them
+// sit idle until the 5 minute socket timeout (and, before the error listener
+// existed, kill the process). One sync per mailbox at a time; a second caller
+// simply waits for the run that is already going.
+const inFlightSyncs = new Map();
+
+export function syncMailbox(email, options = {}) {
+  const accountEmail = normalizeEmail(email);
+  if (!accountEmail) return Promise.reject(new Error('Mailbox email is required'));
+
+  const running = inFlightSyncs.get(accountEmail);
+  if (running) return running;
+
+  const task = runMailboxSync(accountEmail, options).finally(() => {
+    if (inFlightSyncs.get(accountEmail) === task) inFlightSyncs.delete(accountEmail);
+  });
+  inFlightSyncs.set(accountEmail, task);
+  return task;
 }
 
 /** Senders are polled one at a time so a shared mailbox never opens 4 sessions. */
@@ -454,7 +486,8 @@ export async function listMailboxMessages({ email, folder = 'INBOX', search = ''
   const [{ rows }, { rows: counts }, { rows: filtered }] = await Promise.all([
     db._pool.query(
       `SELECT id, account_email, folder, from_email, from_name, to_email, to_name, subject, snippet,
-              has_attachments, attachments, size_bytes, received_at, is_read, campaign_id, lead_id
+              has_attachments, attachments, size_bytes, received_at, is_read, is_starred,
+              campaign_id, lead_id
          FROM email_messages
         WHERE ${where.join(' AND ')}
         ORDER BY received_at DESC NULLS LAST, id DESC
@@ -522,7 +555,7 @@ export async function getMailboxMessage(id) {
 async function withImapFor(accountEmail, run) {
   const sender = await getSenderByEmail(accountEmail);
   if (!sender) throw new Error(`${accountEmail} is not added as a sender email`);
-  const client = new ImapFlow(imapConfigForSender(sender));
+  const client = createImapClient(imapConfigForSender(sender), `mailbox:${accountEmail}`);
   let lock = null;
   try {
     await client.connect();
@@ -530,7 +563,7 @@ async function withImapFor(accountEmail, run) {
     return await run(client);
   } finally {
     try { lock?.release(); } catch { /* best effort */ }
-    try { await client.logout(); } catch { /* best effort */ }
+    await closeImapClient(client);
   }
 }
 
@@ -624,12 +657,119 @@ function textToReplyHtml(text) {
   return `<div style="font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1f2937;">${escaped.replace(/\n/g, '<br />')}</div>`;
 }
 
+/** Apply a bulk action (read/unread/star/unstar/delete) to message ids. */
+export async function bulkMailboxAction(ids, action) {
+  const list = (Array.isArray(ids) ? ids : [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (!list.length) throw new Error('Select at least one message');
+
+  const allowed = new Set(['read', 'unread', 'star', 'unstar', 'delete']);
+  if (!allowed.has(action)) throw new Error('Unknown action');
+
+  if (action === 'read' || action === 'unread') {
+    const read = action === 'read';
+    const { rows } = await db._pool.query(
+      `UPDATE email_messages SET is_read = $2 WHERE id = ANY($1::bigint[])
+       RETURNING id, account_email, folder, uid`,
+      [list, read],
+    );
+    await syncSeenFlags(rows, read);
+    return { action, updated: rows.length };
+  }
+
+  if (action === 'star' || action === 'unstar') {
+    const { rowCount } = await db._pool.query(
+      'UPDATE email_messages SET is_starred = $2 WHERE id = ANY($1::bigint[])',
+      [list, action === 'star'],
+    );
+    return { action, updated: rowCount };
+  }
+
+  const { rows } = await db._pool.query(
+    'SELECT id, account_email, folder, uid FROM email_messages WHERE id = ANY($1::bigint[])',
+    [list],
+  );
+
+  const grouped = new Map();
+  for (const row of rows) {
+    if (row.folder === 'Sent' || !row.uid) continue;
+    if (!grouped.has(row.account_email)) grouped.set(row.account_email, []);
+    grouped.get(row.account_email).push(row);
+  }
+
+  // Move real mailbox messages to Trash first. If that fails the row stays, so
+  // the list never claims a message is gone while it is still on the server.
+  for (const [accountEmail, items] of grouped) {
+    await withImapFor(accountEmail, async (client) => {
+      const trash = await findTrashFolder(client);
+      for (const item of items) {
+        await client.messageMove(String(item.uid), trash, { uid: true });
+      }
+    });
+  }
+
+  const { rowCount } = await db._pool.query(
+    'DELETE FROM email_messages WHERE id = ANY($1::bigint[])',
+    [list],
+  );
+  return { action, deleted: rowCount };
+}
+
+async function syncSeenFlags(rows, read) {
+  const grouped = new Map();
+  for (const row of rows) {
+    if (!row.uid || row.folder === 'Sent') continue;
+    if (!grouped.has(row.account_email)) grouped.set(row.account_email, []);
+    grouped.get(row.account_email).push(row.uid);
+  }
+
+  for (const [accountEmail, uids] of grouped) {
+    try {
+      await withImapFor(accountEmail, async (client) => {
+        for (const uid of uids) {
+          if (read) await client.messageFlagsAdd(`${uid}`, ['\\Seen'], { uid: true });
+          else await client.messageFlagsRemove(`${uid}`, ['\\Seen'], { uid: true });
+        }
+      });
+    } catch (error) {
+      // Local flag is already saved; the next sync re-reads the server flag.
+      console.error('[mailbox] could not sync seen flags:', error?.message || error);
+    }
+  }
+}
+
+async function findTrashFolder(client) {
+  try {
+    const boxes = await client.list();
+    const special = boxes.find((box) => String(box.specialUse || '').toLowerCase() === '\\trash');
+    if (special) return special.path;
+    const named = boxes.find((box) => /trash|deleted/i.test(box.path || ''));
+    if (named) return named.path;
+  } catch { /* fall through */ }
+  return 'Trash';
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Split "a@x.com, b@y.com" into validated addresses. */
+export function parseAddressList(value, fieldLabel = 'recipient') {
+  const list = String(value || '')
+    .split(/[,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const bad = list.find((email) => !EMAIL_RE.test(email));
+  if (bad) throw new Error(`"${bad}" is not a valid ${fieldLabel} address`);
+  return list;
+}
+
 /**
  * Reply to an inbound message from the CRM. Sends over the same SMTP sender the
  * campaign used, threads with In-Reply-To/References, and mirrors the outgoing
- * mail into the Sent folder so the mailbox stays a complete record.
+ * mail into the Sent folder so the mailbox stays a complete record. To, Cc, Bcc
+ * and Subject are all editable, like a normal mail client.
  */
-export async function sendMailboxReply(id, { text, html, attachments } = {}) {
+export async function sendMailboxReply(id, { text, html, attachments, to, cc, bcc, subject } = {}) {
   const message = await getMailboxMessage(id);
   if (!message) throw new Error('Message not found');
   if (message.folder === 'Sent') throw new Error('You cannot reply to a sent message');
@@ -638,6 +778,11 @@ export async function sendMailboxReply(id, { text, html, attachments } = {}) {
   const body = String(text || '').trim();
   const bodyHtml = String(html || '').trim();
   if (!body && !bodyHtml) throw new Error('Write a reply before sending');
+
+  const toList = parseAddressList(to || message.from_email, 'recipient');
+  if (!toList.length) throw new Error('Add at least one recipient');
+  const ccList = parseAddressList(cc, 'Cc');
+  const bccList = parseAddressList(bcc, 'Bcc');
 
   const sender = await getSenderByEmail(message.account_email);
   if (!sender) throw new Error(`${message.account_email} is not added as a sender email`);
@@ -651,12 +796,14 @@ export async function sendMailboxReply(id, { text, html, attachments } = {}) {
     headers.References = headers['In-Reply-To'];
   }
 
-  const subject = replySubject(message.subject);
+  const finalSubject = String(subject || '').trim() || replySubject(message.subject);
   const transport = getTransportForSender(sender);
   await transport.sendMail({
     from: buildSenderFromHeader(sender),
-    to: message.from_email,
-    subject,
+    to: toList.join(', '),
+    cc: ccList.length ? ccList.join(', ') : undefined,
+    bcc: bccList.length ? bccList.join(', ') : undefined,
+    subject: finalSubject,
     text: body || bodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
     html: bodyHtml || textToReplyHtml(body),
     headers,
@@ -672,20 +819,29 @@ export async function sendMailboxReply(id, { text, html, attachments } = {}) {
   const snippet = (body || bodyHtml.replace(/<[^>]+>/g, ' '))
     .replace(/\s+/g, ' ').trim().slice(0, 240);
 
+  const primaryTo = toList[0];
+  const toName = toList.length === 1
+    && message.from_email
+    && primaryTo.toLowerCase() === String(message.from_email).toLowerCase()
+    ? message.from_name || null
+    : null;
+
   const { rows } = await db._pool.query(
     `INSERT INTO email_messages
-       (account_email, folder, message_id, from_email, from_name, to_email, to_name, subject, snippet,
-        body_text, body_html, has_attachments, attachments, received_at, is_read, campaign_id)
-     VALUES ($1, 'Sent', $2, $1, $3, $4, $5, $6, $7, $8, $9, $10, '[]'::jsonb, NOW(), TRUE, $11)
+       (account_email, folder, message_id, from_email, from_name, to_email, to_name, cc, bcc,
+        subject, snippet, body_text, body_html, has_attachments, attachments, received_at, is_read, campaign_id)
+     VALUES ($1, 'Sent', $2, $1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, '[]'::jsonb, NOW(), TRUE, $13)
      ON CONFLICT (account_email, message_id) DO NOTHING
      RETURNING id`,
     [
       message.account_email,
       messageId,
       sender.display_name || null,
-      message.from_email,
-      message.from_name || null,
-      subject,
+      toList.join(', '),
+      toName,
+      ccList.join(', ') || null,
+      bccList.join(', ') || null,
+      finalSubject,
       snippet,
       body || null,
       bodyHtml || textToReplyHtml(body),
@@ -736,9 +892,10 @@ export async function sendMailboxReply(id, { text, html, attachments } = {}) {
           account_email: message.account_email,
           folder: 'Sent',
           message_id: messageId,
-          to_email: message.from_email,
-          to_name: message.from_name || null,
-          subject,
+          to_email: toList.join(', '),
+          to_name: toName,
+          cc: ccList.join(', ') || null,
+          subject: finalSubject,
           snippet,
           received_at: new Date(),
           is_read: true,
@@ -748,7 +905,7 @@ export async function sendMailboxReply(id, { text, html, attachments } = {}) {
     } catch { /* best effort */ }
   }
 
-  return { id: sentId, to: message.from_email, subject };
+  return { id: sentId, to: toList.join(', '), cc: ccList.join(', ') || null, subject: finalSubject };
 }
 
 let schedulerTimer = null;
