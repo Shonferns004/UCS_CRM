@@ -814,17 +814,52 @@ export async function sendMailboxReply(id, { text, html, attachments, to, cc, bc
     })),
   });
 
-  const domain = String(message.account_email).split('@')[1] || 'ucs-crm';
-  const messageId = `reply-${Date.now()}-${crypto.randomBytes(4).toString('hex')}@${domain}`;
-  const snippet = (body || bodyHtml.replace(/<[^>]+>/g, ' '))
-    .replace(/\s+/g, ' ').trim().slice(0, 240);
-
   const primaryTo = toList[0];
   const toName = toList.length === 1
     && message.from_email
     && primaryTo.toLowerCase() === String(message.from_email).toLowerCase()
     ? message.from_name || null
     : null;
+
+  return recordSentMessage({
+    accountEmail: message.account_email,
+    senderName: sender.display_name || null,
+    toList,
+    ccList,
+    bccList,
+    subject: finalSubject,
+    text: body || null,
+    html: bodyHtml || textToReplyHtml(body),
+    files,
+    campaignId: message.campaign_id || null,
+    toName,
+    prefix: 'reply',
+  });
+}
+
+/**
+ * Mirror a mail we just sent into the sender's Sent folder, storing attachment
+ * metadata and pointing at the binary in bulk_email_attachments. Shared by the
+ * reply and the new-message paths.
+ */
+async function recordSentMessage({
+  accountEmail,
+  senderName,
+  toList,
+  ccList = [],
+  bccList = [],
+  subject,
+  text,
+  html,
+  files = [],
+  campaignId = null,
+  toName = null,
+  prefix = 'sent',
+}) {
+  const domain = String(accountEmail).split('@')[1] || 'ucs-crm';
+  const messageId = `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}@${domain}`;
+  const snippet = (text || String(html || '').replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ').trim().slice(0, 240);
 
   const { rows } = await db._pool.query(
     `INSERT INTO email_messages
@@ -834,23 +869,24 @@ export async function sendMailboxReply(id, { text, html, attachments, to, cc, bc
      ON CONFLICT (account_email, message_id) DO NOTHING
      RETURNING id`,
     [
-      message.account_email,
+      accountEmail,
       messageId,
-      sender.display_name || null,
+      senderName,
       toList.join(', '),
       toName,
       ccList.join(', ') || null,
       bccList.join(', ') || null,
-      finalSubject,
+      subject,
       snippet,
-      body || null,
-      bodyHtml || textToReplyHtml(body),
+      text || null,
+      html || null,
       files.length > 0,
-      message.campaign_id || null,
+      campaignId,
     ],
   );
 
   const sentId = rows[0]?.id || null;
+
   if (sentId && files.length) {
     const meta = [];
     for (let i = 0; i < files.length; i += 1) {
@@ -889,13 +925,13 @@ export async function sendMailboxReply(id, { text, html, attachments, to, cc, bc
         eventType: 'INSERT',
         new: {
           id: sentId,
-          account_email: message.account_email,
+          account_email: accountEmail,
           folder: 'Sent',
           message_id: messageId,
           to_email: toList.join(', '),
           to_name: toName,
           cc: ccList.join(', ') || null,
-          subject: finalSubject,
+          subject,
           snippet,
           received_at: new Date(),
           is_read: true,
@@ -905,7 +941,73 @@ export async function sendMailboxReply(id, { text, html, attachments, to, cc, bc
     } catch { /* best effort */ }
   }
 
-  return { id: sentId, to: toList.join(', '), cc: ccList.join(', ') || null, subject: finalSubject };
+  return { id: sentId, to: toList.join(', '), cc: ccList.join(', ') || null, subject };
+}
+
+/**
+ * Send a brand new message (not a reply) from a sender mailbox and mirror it
+ * into Sent so the Mailbox list stays a complete record.
+ */
+export async function sendMailboxMessage({
+  accountEmail,
+  to,
+  cc,
+  bcc,
+  subject,
+  text,
+  html,
+  attachments,
+} = {}) {
+  const email = String(accountEmail || '').trim().toLowerCase();
+  if (!email) throw new Error('Choose the mailbox to send from');
+
+  const sender = await getSenderByEmail(email);
+  if (!sender) throw new Error(`${email} is not added as a sender email`);
+  if (!sender.app_password) throw new Error(`Password is missing for ${email}`);
+
+  const toList = parseAddressList(to, 'recipient');
+  if (!toList.length) throw new Error('Add at least one recipient');
+  const ccList = parseAddressList(cc, 'Cc');
+  const bccList = parseAddressList(bcc, 'Bcc');
+
+  const body = String(text || '').trim();
+  const bodyHtml = String(html || '').trim();
+  if (!body && !bodyHtml) throw new Error('Write a message before sending');
+
+  const finalSubject = String(subject || '').trim();
+  if (!finalSubject) throw new Error('Subject is required');
+
+  const files = (Array.isArray(attachments) ? attachments : []).filter((file) => file?.content);
+
+  await getTransportForSender(sender).sendMail({
+    from: buildSenderFromHeader(sender),
+    to: toList.join(', '),
+    cc: ccList.length ? ccList.join(', ') : undefined,
+    bcc: bccList.length ? bccList.join(', ') : undefined,
+    subject: finalSubject,
+    text: body || bodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    html: bodyHtml || textToReplyHtml(body),
+    attachments: files.map((file) => ({
+      filename: file.filename || 'attachment',
+      content: file.content,
+      contentType: file.contentType || 'application/octet-stream',
+    })),
+  });
+
+  return recordSentMessage({
+    accountEmail: email,
+    senderName: sender.display_name || null,
+    toList,
+    ccList,
+    bccList,
+    subject: finalSubject,
+    text: body || null,
+    html: bodyHtml || textToReplyHtml(body),
+    files,
+    campaignId: null,
+    toName: null,
+    prefix: 'mail',
+  });
 }
 
 let schedulerTimer = null;

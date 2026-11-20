@@ -3,6 +3,7 @@ import {
   getMailboxAttachment,
   getMailboxMessage,
   listMailboxMessages,
+  sendMailboxMessage,
   sendMailboxReply,
   setMailboxMessageRead,
   syncMailbox,
@@ -85,6 +86,32 @@ export async function bulk(req, res) {
     const action = String(req.body?.action || '').trim();
     const result = await bulkMailboxAction(ids, action);
     return res.json(result);
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
+
+export async function compose(req, res) {
+  try {
+    const files = Array.isArray(req.files)
+      ? req.files.map((file) => ({
+        filename: file.originalname,
+        content: file.buffer,
+        contentType: file.mimetype,
+      }))
+      : [];
+
+    const result = await sendMailboxMessage({
+      accountEmail: req.body?.email,
+      to: req.body?.to,
+      cc: req.body?.cc,
+      bcc: req.body?.bcc,
+      subject: req.body?.subject,
+      text: req.body?.text,
+      html: req.body?.html,
+      attachments: files,
+    });
+    return res.status(201).json(result);
   } catch (error) {
     return res.status(400).json({ message: error.message });
   }
