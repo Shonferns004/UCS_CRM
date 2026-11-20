@@ -128,6 +128,22 @@ export async function markLeadAlertSeen(workerId, alertId) {
   return data;
 }
 
+// "Mark all read" from the bell header: clears the unseen flag for every open
+// alert on this station in one round trip, so the bell stops pulsing.
+export async function markAllLeadAlertsSeen(workerId) {
+  if (!workerId) return 0;
+  const { rows } = await db._pool.query(
+    `update fro_lead_alerts a
+        set seen_at = now()
+      where a.worker_id = $1
+        and a.seen_at is null
+        and a.attended_at is null
+      returning a.id`,
+    [workerId],
+  );
+  return rows.length;
+}
+
 // Opening a lead from the normal queue (not from the bell) is the same "seen"
 // signal. Keyed by donor because that is what the FRO screen knows.
 export async function markAlertsSeenForDonor(workerId, donorId) {

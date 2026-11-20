@@ -790,6 +790,7 @@ export default function FROPanel() {
   const [alertLoading, setAlertLoading] = useState(false)
   const [alertError, setAlertError] = useState('')
   const [alertPulse, setAlertPulse] = useState(false)
+  const [markingAllAlerts, setMarkingAllAlerts] = useState(false)
   const [toastAlert, setToastAlert] = useState(null)
   const [toastMore, setToastMore] = useState(0)
   const toastVisibleRef = useRef(false)
@@ -913,6 +914,25 @@ export default function FROPanel() {
     api(`/fro/lead-alerts/${alert.id}/seen`, { method: 'POST', _prefix: 'ucs' }).catch(() => {})
     navigate(`/fro/my-leads?alert=${alert.assignment_id}`)
   }, [navigate])
+
+  // One tap clears every unseen alert so the bell stops pulsing without forcing
+  // the FRO to open each lead first.
+  const markAllAlertsRead = useCallback(async () => {
+    if (markingAllAlerts) return
+    setMarkingAllAlerts(true)
+    try {
+      const res = await api('/fro/lead-alerts/seen-all', { method: 'POST', _prefix: 'ucs' })
+      const now = new Date().toISOString()
+      setLeadAlerts((prev) => prev.map((a) => (a.seen_at ? a : { ...a, seen_at: now })))
+      const next = { pending: Number(res?.counts?.pending) || 0, unseen: 0 }
+      countsRef.current = next
+      setAlertCounts(next)
+    } catch {
+      // Leave the halo on: the request failed, so the alerts really are unseen.
+    } finally {
+      setMarkingAllAlerts(false)
+    }
+  }, [markingAllAlerts])
 
 // An idle warning reaches this panel on the `fro:action` socket: either an admin
 // pressed Warn on the Telecaller Performance board, or the server's idle sweep
@@ -1132,6 +1152,8 @@ useEffect(() => onFroAction((action) => {
               onViewAll={() => navigate('/fro/my-leads')}
               onRefresh={loadLeadAlerts}
               onOpenChange={(v) => { bellOpenRef.current = v }}
+              onMarkAllRead={markAllAlertsRead}
+              markingAll={markingAllAlerts}
             />
             <BirthdayPopup />
             <WorkAnniversaryPopup />
