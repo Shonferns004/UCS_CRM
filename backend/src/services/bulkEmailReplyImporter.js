@@ -3,7 +3,7 @@ import { simpleParser } from 'mailparser';
 import db from '../config/db.js';
 import emailConfig from '../config/emailConfig.js';
 import { getActiveAccounts } from '../models/emailAccountModel.js';
-import { listActiveSenders } from '../models/bulkEmailSenderModel.js';
+import { syncAllMailboxes } from './mailboxService.js';
 
 // Polls the bulk-email sender inbox and turns replies to a campaign into CRM
 // leads. Matching is by sender address (a campaign recipient replying) with the
@@ -221,27 +221,18 @@ export async function pollBulkEmailReplies() {
     accounts = [];
   }
 
-  // Bulk sender mailboxes are polled too: a campaign can go out from any of
-  // them, so the reply can land in any of those inboxes. Dedupe by address so
-  // an account that exists in both places is only opened once.
+  // Bulk sender mailboxes are synced by the mailbox service instead of being
+  // polled here. It is UID based (each message is read exactly once, not just
+  // the unseen ones) and it resolves the IMAP host from the SMTP provider, so
+  // csr@beingsevak.org talks to imap.hostinger.com rather than Gmail.
+  const mailbox = { synced: 0, failed: 0 };
   try {
-    const senders = await listActiveSenders();
-    const known = new Set(accounts.map((account) => normalizeEmail(account.email)));
-    for (const sender of senders) {
-      const email = normalizeEmail(sender.email);
-      if (!email || known.has(email)) continue;
-      known.add(email);
-      accounts.push({
-        id: `sender-${sender.id}`,
-        name: sender.display_name || sender.email,
-        email: sender.email,
-        app_password: sender.app_password,
-        imap_host: 'imap.gmail.com',
-        imap_port: 993,
-      });
-    }
+    const results = await syncAllMailboxes();
+    mailbox.synced = results.reduce((sum, result) => sum + (Number(result?.synced) || 0), 0);
+    mailbox.failed = results.filter((result) => result?.error).length;
   } catch (error) {
-    console.error('[bulkEmailReplies] could not load sender mailboxes:', error?.message || error);
+    console.error('[bulkEmailReplies] mailbox sync failed:', error?.message || error);
+    mailbox.failed += 1;
   }
 
   if (!accounts || accounts.length === 0) {
@@ -254,16 +245,6 @@ export async function pollBulkEmailReplies() {
         imap_host: emailConfig.imap.host,
         imap_port: emailConfig.imap.port,
       }];
-    } else {
-      lastResult = {
-        success: null,
-        message: 'No email account configured for bulk email replies.',
-        processed: 0,
-        skipped: 0,
-        timestamp: new Date().toISOString(),
-        error: null,
-      };
-      return lastResult;
     }
   }
 
@@ -273,13 +254,26 @@ export async function pollBulkEmailReplies() {
     await pollAccount(account, maps, stats);
   }
 
+  if (!accounts.length && mailbox.synced === 0 && mailbox.failed === 0) {
+    lastResult = {
+      success: null,
+      message: 'No email account configured for bulk email replies.',
+      processed: 0,
+      skipped: 0,
+      timestamp: new Date().toISOString(),
+      error: null,
+    };
+    return lastResult;
+  }
+
+  const processed = stats.processed + mailbox.synced;
   lastResult = {
-    success: stats.errors === 0,
-    message: `Replies captured: ${stats.processed} | skipped: ${stats.skipped} | accounts: ${accounts.length}`,
-    processed: stats.processed,
+    success: stats.errors === 0 && mailbox.failed === 0,
+    message: `Replies captured: ${processed} (mailbox synced: ${mailbox.synced}) | skipped: ${stats.skipped}`,
+    processed,
     skipped: stats.skipped,
     timestamp: new Date().toISOString(),
-    error: stats.error,
+    error: stats.error || (mailbox.failed ? `${mailbox.failed} mailbox(es) could not be synced` : null),
   };
   return lastResult;
 }

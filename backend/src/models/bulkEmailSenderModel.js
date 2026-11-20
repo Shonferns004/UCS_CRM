@@ -4,6 +4,8 @@ import {
   maskSenderPassword,
   normalizeAppPassword,
   normalizeSenderEmail,
+  normalizeSmtpHost,
+  normalizeSmtpPort,
 } from '../services/bulkEmailSenderService.js';
 
 // Sender mailboxes for bulk campaigns. The app password is stored here so the
@@ -80,8 +82,10 @@ export async function createSender({ display_name, email, app_password, smtp_hos
   const normalizedEmail = normalizeSenderEmail(email);
   if (!normalizedEmail) throw new Error('Email address is required');
   if (!isValidSenderEmail(normalizedEmail)) throw new Error('Enter a valid email address');
-  const password = normalizeAppPassword(app_password);
-  if (!password) throw new Error('App password is required');
+  const host = normalizeSmtpHost(smtp_host);
+  const port = normalizeSmtpPort(smtp_port);
+  const password = normalizeAppPassword(app_password, host);
+  if (!password) throw new Error('Email password is required');
 
   try {
     const { rows } = await db._pool.query(
@@ -92,8 +96,8 @@ export async function createSender({ display_name, email, app_password, smtp_hos
         String(display_name || '').trim() || null,
         normalizedEmail,
         password,
-        String(smtp_host || '').trim() || 'smtp.gmail.com',
-        Number(smtp_port) || 465,
+        host,
+        port,
       ],
     );
     return normalizeRow(rows[0]);
@@ -108,6 +112,15 @@ export async function createSender({ display_name, email, app_password, smtp_hos
 export async function updateSender(id, updates = {}) {
   const numeric = Number(id);
   if (!Number.isFinite(numeric) || numeric <= 0) throw new Error('Sender not found');
+
+  // Which host decides how the password is normalised. When the caller is only
+  // rotating the password, the stored host is the one the transport will use.
+  let passwordHost = updates.smtp_host;
+  const hasNewPassword = updates.app_password !== undefined && String(updates.app_password || '').trim() !== '';
+  if (hasNewPassword && String(passwordHost ?? '').trim() === '') {
+    const { rows } = await db._pool.query('SELECT smtp_host FROM bulk_email_senders WHERE id = $1', [numeric]);
+    passwordHost = rows[0]?.smtp_host;
+  }
 
   const fields = [];
   const params = [];
@@ -126,14 +139,14 @@ export async function updateSender(id, updates = {}) {
     push('email', normalizedEmail);
   }
   // Blank password means "keep the current one", matching the email accounts UI.
-  if (updates.app_password !== undefined && String(updates.app_password || '').trim()) {
-    push('app_password', normalizeAppPassword(updates.app_password));
+  if (hasNewPassword) {
+    push('app_password', normalizeAppPassword(updates.app_password, passwordHost));
   }
   if (updates.smtp_host !== undefined) {
-    push('smtp_host', String(updates.smtp_host || '').trim() || 'smtp.gmail.com');
+    push('smtp_host', normalizeSmtpHost(updates.smtp_host));
   }
   if (updates.smtp_port !== undefined) {
-    push('smtp_port', Number(updates.smtp_port) || 465);
+    push('smtp_port', normalizeSmtpPort(updates.smtp_port));
   }
   if (updates.is_active !== undefined) {
     push('is_active', updates.is_active !== false);

@@ -4,6 +4,7 @@ import { handleInboundForAi } from '../services/aiReplyService.js';
 import { applyRouting } from '../services/routingService.js';
 import { scheduleAutoRetry } from '../services/messageRetryScheduler.js';
 import { normalizeDonorPhone, phoneVariantsFor } from '../services/whatsappScope.js';
+import { releaseFailedExtractorPhones } from '../services/extractorOutreachService.js';
 import { createLead } from '../models/leadModel.js';
 import { qualifySsReply, shouldAiCheckSsReply, scoreSsReply } from '../services/ssLeadService.js';
 import { placeLeadIfValuable } from '../services/leadIntakeService.js';
@@ -541,7 +542,7 @@ export async function whatsappWebhookEntry(req, res) {
               status_updated_at: new Date().toISOString(),
             })
             .eq('wa_message_id', status.id)
-            .select('wa_message_id, status');
+            .select('wa_message_id, status, phone');
 
           if (bulkUpdateError) {
             console.error('Bulk recipient status update failed:', bulkUpdateError.message);
@@ -549,6 +550,25 @@ export async function whatsappWebhookEntry(req, res) {
             console.warn('No bulk recipient matched webhook message ID:', status.id);
           } else {
             console.log('Bulk recipient status updated:', updatedBulk);
+
+            // The Extractor lead was marked used when Meta accepted the send,
+            // but acceptance is not delivery. A failed status means the number
+            // never got the message, so hand it back to the unused pool for a
+            // retry. Numbers with any still-successful send stay used, which
+            // releaseFailedExtractorPhones() enforces.
+            if (status.status === 'failed') {
+              const phones = updatedBulk.map((row) => row.phone).filter(Boolean);
+              try {
+                const released = await releaseFailedExtractorPhones(phones);
+                if (released.length) {
+                  console.log('Released extractor number(s) back to unused:', released);
+                }
+              } catch (releaseError) {
+                // Never fail the webhook: Meta retries the whole frame, but the
+                // delivery verdict itself was already persisted above.
+                console.error('Extractor release failed:', releaseError?.message || releaseError);
+              }
+            }
           }
         }
       }

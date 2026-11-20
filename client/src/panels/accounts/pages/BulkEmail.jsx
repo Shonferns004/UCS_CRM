@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   History,
+  Inbox,
   LayoutTemplate,
   Mail,
   Paperclip,
@@ -16,6 +17,8 @@ import {
 } from 'lucide-react';
 import { apiDelete, apiGet, apiGetBlob, apiPost, apiPut } from '../api/auth';
 import EmailBuilder from '../components/email-builder/EmailBuilder';
+import BulkMailbox from '../components/BulkMailbox';
+import { useRealtime } from '../../../hooks/useRealtime';
 import './bulkEmail.css';
 
 const SOURCES = [
@@ -43,10 +46,67 @@ const TABS = [
   { id: 'history', label: 'History', Icon: History },
   { id: 'templates', label: 'Templates', Icon: LayoutTemplate },
   { id: 'builder', label: 'Email Builder', Icon: PenLine },
+  { id: 'mailbox', label: 'Mailbox', Icon: Inbox },
 ];
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const SENDER_STORAGE_KEY = 'bulkEmail.senderId';
+
+// Bulk senders are no longer Gmail-only. A preset only prefills the SMTP
+// server; every field stays editable so any provider can be used.
+const SENDER_PROVIDERS = [
+  {
+    id: 'gmail',
+    label: 'Gmail / Google Workspace',
+    host: 'smtp.gmail.com',
+    port: 465,
+    passwordLabel: 'App password',
+    passwordPlaceholder: '16-character Google app password',
+    hint: 'Google Account → Security → 2-Step Verification → App passwords.',
+  },
+  {
+    id: 'hostinger',
+    label: 'Hostinger email',
+    host: 'smtp.hostinger.com',
+    port: 465,
+    passwordLabel: 'Mailbox password',
+    passwordPlaceholder: 'Mailbox password (not an app password)',
+    hint: 'Use the password set for this mailbox in hPanel → Emails. Port 465 (SSL), or 587 for STARTTLS.',
+  },
+  {
+    id: 'custom',
+    label: 'Other SMTP server',
+    host: '',
+    port: 587,
+    passwordLabel: 'Password',
+    passwordPlaceholder: 'SMTP password',
+    hint: 'Copy the SMTP server, port and password from your email provider.',
+  },
+];
+
+function providerPreset(id) {
+  return SENDER_PROVIDERS.find((provider) => provider.id === id) || SENDER_PROVIDERS[0];
+}
+
+function providerFromHost(host) {
+  const value = String(host || '').toLowerCase();
+  if (!value) return 'custom';
+  if (value.includes('gmail') || value.includes('googlemail')) return 'gmail';
+  if (value.includes('hostinger')) return 'hostinger';
+  return 'custom';
+}
+
+function defaultSenderForm() {
+  const preset = SENDER_PROVIDERS[0];
+  return {
+    display_name: '',
+    email: '',
+    app_password: '',
+    provider: preset.id,
+    smtp_host: preset.host,
+    smtp_port: preset.port,
+  };
+}
 
 function parseManualEmails(value) {
   const found = String(value || '').match(EMAIL_RE) || [];
@@ -108,12 +168,14 @@ const [sending, setSending] = useState(false);
   const [senderId, setSenderId] = useState('');
   const [showSenderForm, setShowSenderForm] = useState(false);
   const [showSenderList, setShowSenderList] = useState(false);
-  const [senderForm, setSenderForm] = useState({ display_name: '', email: '', app_password: '' });
+  const [senderForm, setSenderForm] = useState(defaultSenderForm);
+  const [editingSenderId, setEditingSenderId] = useState(null);
   const [senderSaving, setSenderSaving] = useState(false);
   const [senderError, setSenderError] = useState(null);
   const [senderNotice, setSenderNotice] = useState(null);
   const [senderTest, setSenderTest] = useState(null);
   const [showSenderPassword, setShowSenderPassword] = useState(false);
+  const [mailboxUnread, setMailboxUnread] = useState(0);
 
   const stopPolling = useCallback(() => {
     if (pollTimer.current) {
@@ -152,6 +214,28 @@ const [sending, setSending] = useState(false);
     () => senders.find((sender) => String(sender.id) === String(senderId)) || null,
     [senders, senderId],
   );
+
+  const senderPreset = providerPreset(senderForm.provider);
+
+  // Unread mail badge on the Mailbox tab. Refetched when the tab changes so
+  // reading inside the mailbox clears it instead of leaving a stale number.
+  useEffect(() => {
+    const email = selectedSender?.email || senders[0]?.email;
+    if (!email) { setMailboxUnread(0); return undefined; }
+    let cancelled = false;
+    apiGet(`/accounts/bulk-email/mailbox/messages?email=${encodeURIComponent(email)}&limit=1`)
+      .then((data) => { if (!cancelled) setMailboxUnread(Number(data?.unread) || 0); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedSender, senders, activeTab]);
+
+  useRealtime('email_messages', {
+    event: 'INSERT',
+    onInsert: (row) => {
+      if (!row || row.folder !== 'INBOX') return;
+      setMailboxUnread((prev) => prev + 1);
+    },
+  });
 
   const handleExcelUpload = async (file) => {
     if (!file) return;
@@ -526,41 +610,78 @@ if (!mediaFiles.length) form.append('remove_attachments', 'true');
   };
 
   const resetSenderForm = () => {
-    setSenderForm({ display_name: '', email: '', app_password: '' });
+    setSenderForm(defaultSenderForm());
+    setEditingSenderId(null);
     setShowSenderPassword(false);
     setSenderError(null);
     setShowSenderForm(false);
   };
 
+  const startEditSender = (sender) => {
+    setEditingSenderId(sender.id);
+    setSenderForm({
+      display_name: sender.display_name || '',
+      email: sender.email || '',
+      app_password: '',
+      provider: providerFromHost(sender.smtp_host),
+      smtp_host: sender.smtp_host || 'smtp.gmail.com',
+      smtp_port: sender.smtp_port || 465,
+    });
+    setShowSenderPassword(false);
+    setSenderError(null);
+    setSenderNotice(null);
+    setShowSenderForm(true);
+  };
+
   const addSender = async () => {
     const email = senderForm.email.trim();
-    const password = senderForm.app_password.trim();
+    const password = senderForm.app_password;
+    const host = senderForm.smtp_host.trim().toLowerCase();
+    const port = Number(senderForm.smtp_port);
+    const preset = providerPreset(senderForm.provider);
+    const isEdit = Boolean(editingSenderId);
     setSenderNotice(null);
     setSenderError(null);
 
     if (!email) { setSenderError('Email address is required.'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setSenderError('Enter a valid email address.'); return; }
-    if (!password) { setSenderError('App password is required.'); return; }
+    if (!isEdit && !password.trim()) { setSenderError(`${preset.passwordLabel} is required.`); return; }
+    if (!host) { setSenderError('SMTP server is required.'); return; }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      setSenderError('Enter a valid SMTP port, for example 465 or 587.');
+      return;
+    }
 
     setSenderSaving(true);
     try {
-      const created = await apiPost('/accounts/bulk-email/senders', {
+      const payload = {
         display_name: senderForm.display_name.trim(),
         email,
-        app_password: password,
-      }, 120000);
-      setSenderForm({ display_name: '', email: '', app_password: '' });
+        smtp_host: host,
+        smtp_port: port,
+      };
+      // A blank password on edit means "keep the current one".
+      if (password.trim()) payload.app_password = password;
+
+      const saved = isEdit
+        ? await apiPut(`/accounts/bulk-email/senders/${editingSenderId}`, payload)
+        : await apiPost('/accounts/bulk-email/senders', payload, 120000);
+
+      setSenderForm(defaultSenderForm());
+      setEditingSenderId(null);
       setShowSenderPassword(false);
       setShowSenderForm(false);
       await loadSenders();
-      if (created?.id) setSenderId(String(created.id));
+      if (saved?.id) setSenderId(String(saved.id));
       setSenderNotice(
-        created?.verified === false
-          ? `Sender saved, but the login could not be verified. ${created?.verify_message || ''}`.trim()
-          : 'Sender added and login verified.',
+        saved?.verified === false
+          ? `Sender saved, but the login could not be verified. ${saved?.verify_message || ''}`.trim()
+          : isEdit
+            ? 'Sender updated and login verified.'
+            : 'Sender added and login verified.',
       );
     } catch (e) {
-      setSenderError(e?.message || 'Could not add the sender.');
+      setSenderError(e?.message || `Could not ${isEdit ? 'update' : 'add'} the sender.`);
     } finally {
       setSenderSaving(false);
     }
@@ -586,6 +707,7 @@ if (!mediaFiles.length) form.append('remove_attachments', 'true');
     setSenderError(null);
     try {
       await apiDelete(`/accounts/bulk-email/senders/${sender.id}`);
+      if (String(editingSenderId) === String(sender.id)) resetSenderForm();
       await loadSenders();
       setSenderNotice('Sender removed.');
     } catch (e) {
@@ -720,6 +842,9 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
             >
               <Icon size={15} strokeWidth={2} aria-hidden="true" />
               <span>{t.label}</span>
+              {t.id === 'mailbox' && mailboxUnread > 0 && (
+                <span className="be-tab-badge">{mailboxUnread > 99 ? '99+' : mailboxUnread}</span>
+              )}
             </button>
           );
         })}
@@ -899,7 +1024,13 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
                     type="button"
                     className="be-link-btn"
                     onClick={() => {
-                      setShowSenderForm((v) => !v);
+                      if (showSenderForm) {
+                        resetSenderForm();
+                      } else {
+                        setSenderForm(defaultSenderForm());
+                        setEditingSenderId(null);
+                        setShowSenderForm(true);
+                      }
                       setSenderError(null);
                       setSenderNotice(null);
                     }}
@@ -963,9 +1094,14 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
                     <div key={sender.id} className="be-sender-row">
                       <div className="be-sender-row-text">
                         <strong>{sender.email}</strong>
-                        <span>{sender.display_name || 'No display name'} · Password ••••••••</span>
+                        <span>
+                          {sender.display_name || 'No display name'} · {sender.smtp_host || 'smtp.gmail.com'}:{sender.smtp_port || 465} · Password ••••••••
+                        </span>
                       </div>
                       <div className="be-sender-row-actions">
+                        <button type="button" className="be-link-btn" onClick={() => startEditSender(sender)}>
+                          Edit
+                        </button>
                         <button
                           type="button"
                           className="be-link-btn"
@@ -989,6 +1125,31 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
 
             {showSenderForm && (
               <div className="be-sender-form">
+                {editingSenderId && (
+                  <div className="be-hint" style={{ margin: '0 0 8px' }}>
+                    Editing {senderForm.email}. Leave the password blank to keep the current one.
+                  </div>
+                )}
+                <label className="be-field">
+                  <span>Email provider</span>
+                  <select
+                    className="be-select"
+                    value={senderForm.provider}
+                    onChange={(e) => {
+                      const preset = providerPreset(e.target.value);
+                      setSenderForm((prev) => ({
+                        ...prev,
+                        provider: preset.id,
+                        smtp_host: preset.host || prev.smtp_host,
+                        smtp_port: preset.port,
+                      }));
+                    }}
+                  >
+                    {SENDER_PROVIDERS.map((provider) => (
+                      <option key={provider.id} value={provider.id}>{provider.label}</option>
+                    ))}
+                  </select>
+                </label>
                 <div className="be-row">
                   <label className="be-field" style={{ flex: '1 1 200px' }}>
                     <span>Display name (optional)</span>
@@ -1011,9 +1172,33 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
                     />
                   </label>
                 </div>
+                <div className="be-row">
+                  <label className="be-field" style={{ flex: '2 1 220px' }}>
+                    <span>SMTP server</span>
+                    <input
+                      className="be-input"
+                      value={senderForm.smtp_host}
+                      onChange={(e) => setSenderForm((p) => ({ ...p, smtp_host: e.target.value }))}
+                      placeholder="smtp.hostinger.com"
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label className="be-field" style={{ flex: '0 1 130px' }}>
+                    <span>Port</span>
+                    <input
+                      className="be-input"
+                      type="number"
+                      min="1"
+                      max="65535"
+                      value={senderForm.smtp_port}
+                      onChange={(e) => setSenderForm((p) => ({ ...p, smtp_port: e.target.value }))}
+                      placeholder="465"
+                    />
+                  </label>
+                </div>
                 <label className="be-field">
                   <span>
-                    App password
+                    {senderPreset.passwordLabel}{editingSenderId ? ' (blank = keep current)' : ''}
                     <button type="button" className="be-link-btn" onClick={() => setShowSenderPassword((v) => !v)}>
                       {showSenderPassword ? 'Hide' : 'Show'}
                     </button>
@@ -1023,16 +1208,16 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
                     type={showSenderPassword ? 'text' : 'password'}
                     value={senderForm.app_password}
                     onChange={(e) => setSenderForm((p) => ({ ...p, app_password: e.target.value }))}
-                    placeholder="16-character Gmail app password"
+                    placeholder={editingSenderId ? 'Leave blank to keep the current password' : senderPreset.passwordPlaceholder}
                     autoComplete="new-password"
                   />
                 </label>
                 <div className="be-hint" style={{ margin: '-4px 0 10px' }}>
-                  Gmail: Google Account → Security → 2-Step Verification → App passwords.
+                  {senderPreset.hint}
                 </div>
                 <div className="be-sender-form-actions">
                   <button type="button" className="be-btn-small" onClick={addSender} disabled={senderSaving}>
-                    {senderSaving ? 'Saving…' : 'Save sender'}
+                    {senderSaving ? 'Saving…' : editingSenderId ? 'Update sender' : 'Save sender'}
                   </button>
                   <button type="button" className="be-link-btn" onClick={resetSenderForm}>Cancel</button>
                 </div>
@@ -1404,6 +1589,10 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
             setActiveTab('templates');
           }}
         />
+      )}
+
+      {activeTab === 'mailbox' && (
+        <BulkMailbox senders={senders} defaultEmail={selectedSender?.email || ''} />
       )}
 
       {selectedLog && (

@@ -33,7 +33,28 @@ export function ngoFromName(name, fallback = '') {
   return fallback ? String(fallback).trim().toUpperCase() : '';
 }
 
+// Campaign/form names are resolved from Graph and reused across requests. A
+// rename in Ads Manager must not take a process restart (or a new lead) to show
+// up, so entries expire instead of living forever. Failed lookups are never
+// cached: a transient Graph error used to pin an empty name for the whole
+// process lifetime, which is what left recent leads with a null campaign name.
+const NAME_CACHE_TTL_MS = 15 * 60 * 1000;
 const nameCache = new Map();
+
+function cachedEntry(objectId) {
+  const hit = nameCache.get(String(objectId));
+  if (!hit) return '';
+  if (Date.now() - hit.at > NAME_CACHE_TTL_MS) {
+    nameCache.delete(String(objectId));
+    return '';
+  }
+  return hit.name;
+}
+
+function rememberName(objectId, name) {
+  if (!objectId || !name) return;
+  nameCache.set(String(objectId), { name: String(name), at: Date.now() });
+}
 
 export function normalizeAdAccountId(value) {
   const raw = String(value || '').trim();
@@ -253,14 +274,16 @@ async function paginate(path, params, { pages = 5, token } = {}) {
 
 async function cachedName(objectId) {
   if (!objectId) return '';
-  if (nameCache.has(objectId)) return nameCache.get(objectId);
+  const hit = cachedEntry(objectId);
+  if (hit) return hit;
   try {
     const res = await graphRequest(objectId, { fields: 'name' });
     const name = res?.name || '';
-    nameCache.set(objectId, name);
+    rememberName(objectId, name);
     return name;
   } catch {
-    nameCache.set(objectId, '');
+    // Do not memoize the failure: the next call retries instead of returning ''
+    // for the rest of the process lifetime.
     return '';
   }
 }
@@ -352,23 +375,67 @@ export async function fetchCampaigns() {
   }, { pages: 5 });
 }
 
-// Read-time name resolution for campaigns whose stored name is missing (older
-// ingests ran before names were fetched, or the lead webhook carried only the
-// id). Bounded by the caller to the rows actually missing a name, and silent on
-// failure: without ads_read the table keeps its id fallback instead of erroring.
+// Read-time name resolution for campaigns. Graph is the source of truth, so
+// this is also how a rename in Ads Manager reaches the panel: callers pass every
+// campaign in the list, not just the ones missing a name. Cached for a short
+// TTL, and silent on failure so a token without ads_read keeps the stored name.
 export async function resolveCampaignNames(ids = []) {
   const out = new Map();
   if (!isMetaLeadCaptureConfigured()) return out;
   const unique = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
   await Promise.all(unique.map(async (id) => {
+    const hit = cachedEntry(id);
+    if (hit) {
+      out.set(id, hit);
+      return;
+    }
     try {
       const res = await graphRequest(id, { fields: 'name' });
-      if (res?.name) out.set(id, res.name);
+      if (res?.name) {
+        rememberName(id, res.name);
+        out.set(id, res.name);
+      }
     } catch {
       // Campaign not visible to this token — leave it to the caller's fallback.
     }
   }));
   return out;
+}
+
+// Persist names Graph just returned. Leads and delivery events carry a copy
+// taken when the lead arrived, so without this a rename keeps showing the old
+// label in the lead stream, CSV exports and FRO notes forever.
+export async function backfillCampaignNames(names) {
+  const entries = [...(names || new Map()).entries()]
+    .map(([id, name]) => [String(id || '').trim(), String(name || '').trim()])
+    .filter(([id, name]) => id && name && !/^\d+$/.test(name));
+  if (!entries.length) return 0;
+
+  const values = entries.map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::text)`).join(',');
+  const params = entries.flat();
+  const [leads, events] = await Promise.all([
+    db._pool
+      .query(
+        `update leads l set meta_campaign_name = v.name
+           from (values ${values}) as v(campaign_id, name)
+          where l.meta_campaign_id = v.campaign_id
+            and l.meta_campaign_name is distinct from v.name`,
+        params,
+      )
+      .then((r) => r.rowCount || 0)
+      .catch(() => 0),
+    db._pool
+      .query(
+        `update meta_lead_events e set campaign_name = v.name
+           from (values ${values}) as v(campaign_id, name)
+          where e.campaign_id = v.campaign_id
+            and e.campaign_name is distinct from v.name`,
+        params,
+      )
+      .then((r) => r.rowCount || 0)
+      .catch(() => 0),
+  ]);
+  return leads + events;
 }
 
 export async function fetchLeadDetails(leadgenId) {
@@ -652,7 +719,7 @@ export async function getCampaignPerformance({ days = 30 } = {}) {
   const range = metaDateRange(days);
   const { rows } = await db._pool.query(
     `select campaign_id,
-            max(campaign_name) as campaign_name,
+            (array_agg(nullif(campaign_name, '') order by date_start desc))[1] as campaign_name,
             max(objective) as objective,
             sum(spend) as spend,
             sum(impressions) as impressions,

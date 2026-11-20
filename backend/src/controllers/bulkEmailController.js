@@ -40,6 +40,8 @@ import {
   maskSenderPassword,
   normalizeAppPassword,
   normalizeSenderEmail,
+  normalizeSmtpHost,
+  normalizeSmtpPort,
   verifySenderLogin,
 } from '../services/bulkEmailSenderService.js';
 
@@ -454,15 +456,20 @@ export async function createSender(req, res) {
     const normalizedEmail = normalizeSenderEmail(email);
     if (!normalizedEmail) return res.status(400).json({ message: 'Email address is required' });
     if (!isValidSenderEmail(normalizedEmail)) return res.status(400).json({ message: 'Enter a valid email address' });
-    const password = normalizeAppPassword(app_password);
-    if (!password) return res.status(400).json({ message: 'App password is required' });
+
+    // Validated before the password so a typo in the server name is reported as
+    // such, not as a bad password.
+    const host = normalizeSmtpHost(smtp_host);
+    const port = normalizeSmtpPort(smtp_port);
+    const password = normalizeAppPassword(app_password, host);
+    if (!password) return res.status(400).json({ message: 'Email password is required' });
 
     const sender = await createSenderRecord({
       display_name,
       email: normalizedEmail,
       app_password: password,
-      smtp_host,
-      smtp_port,
+      smtp_host: host,
+      smtp_port: port,
     });
     // Saved first, then verified: a temporary SMTP outage must not lose the
     // account, but the UI still needs to know the login was not confirmed.
@@ -498,8 +505,11 @@ export async function updateSender(req, res) {
     });
     if (!sender) return res.status(404).json({ message: 'Sender not found' });
 
+    // A login check is worth running whenever the credentials or the mail server
+    // changed — switching to a different provider is exactly when it matters.
     const passwordChanged = app_password !== undefined && String(app_password || '').trim() !== '';
-    const verification = passwordChanged
+    const connectionChanged = passwordChanged || smtp_host !== undefined || smtp_port !== undefined;
+    const verification = connectionChanged
       ? await verifySenderLogin(sender)
       : { ok: true, message: 'Saved' };
 

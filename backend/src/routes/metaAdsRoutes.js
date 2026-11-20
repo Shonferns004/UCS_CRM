@@ -21,6 +21,11 @@ import {
   getMetaAdsConfig,
   saveMetaAdsConfig,
   listMetaLeads,
+  getLeadAlertConfigHandler,
+  saveLeadAlertConfigHandler,
+  testLeadAlertHandler,
+  listLeadAlertLogHandler,
+  listLeadAlertAccountsHandler,
 } from '../controllers/metaAdsController.js';
 
 const router = Router();
@@ -38,6 +43,15 @@ router.get('/funnel', authenticateRole(...READ_ROLES), getMetaFunnelHandler);
 
 // Captured leads with flattened form answers (state, association choice, inbox).
 router.get('/leads', authenticateRole(...READ_ROLES), listMetaLeads);
+
+// WhatsApp alert for every new lead, Meta and Google alike. Config is shared,
+// so both panels read and write the same settings.
+router.get('/lead-alerts/config', authenticateRole(...READ_ROLES), getLeadAlertConfigHandler);
+router.post('/lead-alerts/config', authenticateRole(...WRITE_ROLES), saveLeadAlertConfigHandler);
+router.post('/lead-alerts/test', authenticateRole(...WRITE_ROLES), testLeadAlertHandler);
+router.get('/lead-alerts/log', authenticateRole(...READ_ROLES), listLeadAlertLogHandler);
+router.get('/lead-alerts/accounts', authenticateRole(...READ_ROLES), listLeadAlertAccountsHandler);
+
 router.post('/insights/sync', authenticateRole(...WRITE_ROLES), syncMetaInsights);
 router.post('/leads/sync', authenticateRole(...WRITE_ROLES), syncMetaLeads);
 router.post('/leads/place-unplaced', authenticateRole(...WRITE_ROLES), placeUnplacedMetaLeadsHandler);

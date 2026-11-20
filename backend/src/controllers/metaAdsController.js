@@ -2,6 +2,7 @@ import db from '../config/db.js';
 import {
   META_LEAD_SOURCE,
   META_NGOS,
+  backfillCampaignNames,
   discoverMetaForms,
   fetchCampaignInsights,
   fetchCampaigns,
@@ -42,6 +43,12 @@ import {
 } from '../services/metaLeadIngestService.js';
 import { placeUnplacedMetaLeads } from '../services/leadIntakeService.js';
 import { metaAnswerPairs, scoreSsReply } from '../services/ssLeadService.js';
+import {
+  getLeadAlertConfig,
+  listLeadAlertDeliveries,
+  saveLeadAlertConfig,
+  sendTestAlert,
+} from '../services/leadWhatsAppAlertService.js';
 import { istDateString } from '../utils/ist.js';
 
 const daysOf = (value, fallback = 30) => Math.min(Math.max(parseInt(value, 10) || fallback, 1), 365);
@@ -160,7 +167,7 @@ export async function listMetaCampaigns(req, res) {
     }
 
     if (graphCampaigns.length) {
-      return res.json(graphCampaigns.map((c) => {
+      const rows = graphCampaigns.map((c) => {
         const p = perfBy.get(String(c.id)) || {};
         return {
           id: c.id,
@@ -184,15 +191,21 @@ export async function listMetaCampaigns(req, res) {
           cpl: p.cpl || 0,
           crm_cpl: p.crm_cpl || 0,
         };
-      }));
+      });
+      // Graph is authoritative: copy these names onto the stored lead/event
+      // rows so the lead stream and CSV exports stop showing a pre-rename name.
+      await backfillCampaignNames(new Map(rows.map((r) => [r.campaign_id, r.campaign_name])));
+      return res.json(rows);
     }
 
     // No ad account / no insight rows: build the campaign list from the leads
     // we actually ingested, so the table is not empty and the counts match.
+    // The newest non-null name wins: older leads keep the name the campaign had
+    // when they arrived, and a plain max() would resurrect that old label.
     const { rows: leadRows } = await db._pool.query(
       `select l.meta_campaign_id as campaign_id,
-              max(nullif(l.meta_campaign_name, '')) as lead_name,
-              max(nullif(e.campaign_name, '')) as event_name,
+              (array_agg(nullif(l.meta_campaign_name, '') order by l.created_at desc))[1] as lead_name,
+              (array_agg(nullif(e.campaign_name, '') order by l.created_at desc))[1] as event_name,
               count(*)::int as crm_leads
          from leads l
          left join meta_lead_events e on e.meta_lead_id = l.meta_lead_id
@@ -227,38 +240,17 @@ export async function listMetaCampaigns(req, res) {
     }
 
     const rowsOut = [...byId.values()];
-    // Last resort: ask Graph for the name of any campaign still showing an id.
-    // Silent without ads_read; the id stays as the label.
-    const missing = rowsOut
-      .filter((r) => !r.campaign_name || /^\d+$/.test(String(r.campaign_name)))
-      .map((r) => r.campaign_id);
-    if (missing.length) {
-      const names = await resolveCampaignNames(missing);
+    // Meta owns campaign names. Re-resolve every campaign in the list from Graph
+    // (a token-only call — no ad account required) so a rename in Ads Manager
+    // shows up on the next load instead of waiting for a new lead. The result is
+    // cached briefly and written back to leads/events for the rest of the app.
+    const liveNames = await resolveCampaignNames(rowsOut.map((r) => r.campaign_id));
+    if (liveNames.size) {
       for (const row of rowsOut) {
-        const name = names.get(String(row.campaign_id));
+        const name = liveNames.get(String(row.campaign_id));
         if (name) row.campaign_name = name;
       }
-      // Persist what Graph just told us so the next load is instant and the
-      // lead stream / FRO notes pick the name up too.
-      const entries = [...names.entries()];
-      if (entries.length) {
-        const values = entries.map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::text)`).join(',');
-        const params = entries.flat();
-        await db._pool.query(
-          `update leads l set meta_campaign_name = v.name
-             from (values ${values}) as v(campaign_id, name)
-            where l.meta_campaign_id = v.campaign_id
-              and coalesce(l.meta_campaign_name, '') = ''`,
-          params,
-        ).catch(() => {});
-        await db._pool.query(
-          `update meta_lead_events e set campaign_name = v.name
-             from (values ${values}) as v(campaign_id, name)
-            where e.campaign_id = v.campaign_id
-              and coalesce(e.campaign_name, '') = ''`,
-          params,
-        ).catch(() => {});
-      }
+      await backfillCampaignNames(liveNames);
     }
 
     return res.json(rowsOut.map((p) => ({
@@ -706,12 +698,19 @@ export async function getMetaLeadAnalytics(req, res) {
       if (platform === 'instagram') day.instagram += 1;
 
       if (campaignId) {
+        const at = row.created_at ? new Date(row.created_at).getTime() : 0;
         const cur = bump(byCampaign, campaignId, () => ({
           campaign_id: campaignId,
-          campaign_name: row.meta_campaign_name || '',
+          campaign_name: '',
+          campaign_name_at: 0,
           leads: 0, hot: 0, placed: 0,
         }));
-        if (!cur.campaign_name && row.meta_campaign_name) cur.campaign_name = row.meta_campaign_name;
+        // Rows are walked oldest → newest, so the latest name wins. Keeping the
+        // first non-empty value is what pinned pre-rename campaign labels.
+        if (row.meta_campaign_name && at >= cur.campaign_name_at) {
+          cur.campaign_name = row.meta_campaign_name;
+          cur.campaign_name_at = at;
+        }
         cur.leads += 1;
         if (label === 'interested') cur.hot += 1;
         cur.placed += placed;
@@ -751,6 +750,8 @@ export async function getMetaLeadAnalytics(req, res) {
       series.push(byDate.get(key) || { date: key, leads: 0, hot: 0, placed: 0, facebook: 0, instagram: 0 });
     }
 
+    for (const c of byCampaign.values()) delete c.campaign_name_at;
+
     return res.json({
       days,
       totals,
@@ -773,9 +774,27 @@ export async function listMetaLeads(req, res) {
     const platform = String(req.query.platform || '').trim().toLowerCase();
     const formId = String(req.query.form_id || '').trim();
     const q = String(req.query.q || '').trim();
+    // Explicit day range wins over the rolling window. Dates are IST calendar
+    // days (the pool pins timezone=Asia/Kolkata), so "today" means today in the
+    // operator's day, not a UTC slice of it.
+    const isIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const fromDate = isIsoDate(String(req.query.from || '').trim()) ? String(req.query.from).trim() : '';
+    const toDate = isIsoDate(String(req.query.to || '').trim()) ? String(req.query.to).trim() : '';
 
-    const params = [days];
-    let where = `l.source = 'Meta Lead Ad' and l.created_at >= now() - ($1::int || ' days')::interval`;
+    const params = [];
+    let where = `l.source = 'Meta Lead Ad'`;
+    if (fromDate) {
+      params.push(fromDate);
+      where += ` and l.created_at >= $${params.length}::date`;
+    }
+    if (toDate) {
+      params.push(toDate);
+      where += ` and l.created_at < ($${params.length}::date + interval '1 day')`;
+    }
+    if (!fromDate && !toDate) {
+      params.push(days);
+      where += ` and l.created_at >= now() - ($${params.length}::int || ' days')::interval`;
+    }
     if (platform) {
       params.push(platform);
       where += ` and lower(coalesce(l.meta_platform, '')) = $${params.length}`;
@@ -846,6 +865,78 @@ export async function listMetaLeads(req, res) {
         };
       }),
     });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// ---- Lead alerts (Meta + Google) ------------------------------------------
+// The WhatsApp alert config is shared by every lead source. Meta calls it from
+// the webhook/poller; Google from the 2-min lead sync and the CSV import.
+export async function getLeadAlertConfigHandler(req, res) {
+  try {
+    const config = await getLeadAlertConfig({ fresh: true });
+    const log = await listLeadAlertDeliveries({ limit: 12 });
+    return res.json({
+      ...config,
+      log: log.rows,
+      pending: log.pending,
+      window_closed: log.window_closed,
+    });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+export async function saveLeadAlertConfigHandler(req, res) {
+  try {
+    const body = req.body || {};
+    const config = await saveLeadAlertConfig({
+      enabled: body.enabled,
+      phones: body.phones,
+      project: body.project,
+      mode: body.mode,
+    });
+    return res.json({ ok: true, config });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+export async function testLeadAlertHandler(req, res) {
+  try {
+    return res.json(await sendTestAlert({ phones: req.body?.phones }));
+  } catch (e) {
+    return res.status(400).json({ message: e.message });
+  }
+}
+
+export async function listLeadAlertLogHandler(req, res) {
+  try {
+    return res.json(await listLeadAlertDeliveries({ limit: req.query?.limit }));
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// Sending accounts for the alert card's dropdown. Read straight from the
+// accounts table so the Meta panel does not depend on the WhatsApp panel's
+// role guard; an account whose WABA has a payment issue can simply be swapped
+// for another active one.
+export async function listLeadAlertAccountsHandler(req, res) {
+  try {
+    const { rows } = await db._pool.query(
+      `select id, name, project, is_default
+         from whatsapp_accounts
+        where is_active = true
+        order by is_default desc, name asc`,
+    );
+    return res.json(rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      project: r.project,
+      is_default: Boolean(r.is_default),
+    })));
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }

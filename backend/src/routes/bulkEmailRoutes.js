@@ -25,6 +25,13 @@ import {
   updateTemplate,
   uploadAsset,
 } from '../controllers/bulkEmailController.js';
+import {
+  downloadAttachment,
+  getMessage,
+  listMessages,
+  markRead,
+  sync,
+} from '../controllers/mailboxController.js';
 
 const router = Router();
 const roles = authenticateRole('accounts', 'admin', 'super_admin');
@@ -72,6 +79,15 @@ router.post('/assets', roles, handleImageUpload, uploadAsset);
 router.get('/logs', roles, listLogs);
 router.get('/replies', roles, listReplies);
 router.post('/replies/poll', roles, pollReplies);
+
+// Inbound mailbox (Bulk Email > Mailbox tab). Read-only mirror of the sender
+// inbox; attachments are streamed from IMAP, never stored in Postgres.
+router.get('/mailbox/messages', roles, listMessages);
+router.get('/mailbox/messages/:id', roles, getMessage);
+router.get('/mailbox/messages/:id/attachments/:index', roles, downloadAttachment);
+router.post('/mailbox/messages/:id/read', roles, markRead);
+router.post('/mailbox/sync', roles, sync);
+
 router.post('/logs/:id/resume', roles, resumeCampaign);
 router.post('/logs/:id/cancel', roles, cancelCampaign);
 router.get('/logs/:id', roles, getLog);

@@ -6,12 +6,15 @@ import {
   fetchLeadDetails,
   discoverMetaForms,
   getMetaConfig,
+  getSyncState,
   isMetaLeadCaptureConfigured,
   mapLeadFields,
   ngoToAccount,
+  resolveCampaignNames,
   setSyncState,
 } from './metaAdsService.js';
 import { placeLeadIfValuable, placeUnplacedMetaLeads } from './leadIntakeService.js';
+import { notifyNewLead } from './leadWhatsAppAlertService.js';
 
 // ---------------------------------------------------------------------------
 // Meta Lead Ads → CRM inbox.
@@ -136,6 +139,16 @@ export async function ingestMetaLead(leadgenId, { payload = null, source = 'webh
   if (!data) return { ok: false, reason: 'empty lead payload' };
   data.id = String(data.id || id);
 
+  // The form-leads edge (poll path) returns campaign_id but never the campaign
+  // name, and the webhook payload carries ids only. Without this the inbox row
+  // and its delivery event are stored with a null campaign name. Cached for a
+  // short TTL in metaAdsService, so this costs one Graph call per campaign.
+  if (data.campaign_id && !data.campaign_name) {
+    const names = await resolveCampaignNames([data.campaign_id]);
+    const resolved = names.get(String(data.campaign_id));
+    if (resolved) data.campaign_name = resolved;
+  }
+
   const mapping = await resolveMapping(data.form_id);
   const fields = mapLeadFields(data);
   const notes = buildMetaLeadNotes(data, mapping);
@@ -192,6 +205,16 @@ export async function ingestMetaLead(leadgenId, { payload = null, source = 'webh
     leadId: created.id,
     payload,
   });
+
+  // Operator WhatsApp alert. Fire-and-forget: the inbox row is already saved,
+  // and a WhatsApp/account failure must never fail the ingest. Delivery is
+  // deduped in lead_alert_deliveries, so the poller re-reading this lead is a
+  // no-op here.
+  notifyNewLead({
+    leadId: created.id,
+    source: META_LEAD_SOURCE,
+    dedupeKey: `meta:${data.id}`,
+  }).catch(() => {});
 
   // Auto-place high-intent leads on their NGO's Meta station. Placement never
   // fails the ingest: a lead without a mapping or a valid mobile simply stays in
@@ -254,6 +277,24 @@ export async function processMetaWebhookPayload(body = {}) {
 export async function pollMetaLeadForms({ sinceDays = 7 } = {}) {
   if (!isMetaLeadCaptureConfigured()) {
     return { ok: false, skipped: true, reason: 'Meta access token not configured' };
+  }
+
+  // New forms appear on the Page without warning: someone creates one in Ads
+  // Manager and starts spending the same day. Discovery used to run only when
+  // meta_lead_forms was completely empty, so every form created after the first
+  // run was invisible to the poller and its leads never reached the CRM (the
+  // 19 Nov "BSCT Mission Aurat" form is exactly that case). Refresh the list on
+  // a slow timer — two Graph calls, independent of what is already mapped.
+  const FORM_DISCOVERY_MS = 30 * 60 * 1000;
+  try {
+    const lastDiscovery = await getSyncState('forms').catch(() => null);
+    const lastAt = lastDiscovery?.last_run_at ? new Date(lastDiscovery.last_run_at).getTime() : 0;
+    if (Date.now() - lastAt >= FORM_DISCOVERY_MS) {
+      await discoverMetaForms();
+      await setSyncState('forms', { source: 'poll' }).catch(() => {});
+    }
+  } catch (e) {
+    console.error('Meta form discovery failed:', e?.message || e);
   }
 
   let { data: forms, error } = await db

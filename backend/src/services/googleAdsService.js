@@ -5,6 +5,7 @@ import {
   isGoogleAdsConfigured,
 } from './googleAdsConfigStore.js';
 import { placeLeadIfValuable, placeUnplacedGoogleLeads } from './leadIntakeService.js';
+import { notifyNewLead } from './leadWhatsAppAlertService.js';
 
 // ---------------------------------------------------------------------------
 // Google Ads + GA4 read path.
@@ -683,6 +684,15 @@ export async function syncGoogleAdsLeadForms({ days = 30, limit = 1000 } = {}) {
       // best-effort: a missing phone or an unmapped NGO must not fail the pull.
       const created = inserted[0];
       if (created) {
+        notifyNewLead({
+          leadId: created.id,
+          source: 'Google Ads Lead Form',
+          dedupeKey: lead.googleLeadId
+            ? `google:${lead.googleLeadId}`
+            : lead.gclid
+              ? `gclid:${lead.gclid}`
+              : `lead:${created.id}`,
+        }).catch(() => {});
         await placeLeadIfValuable(created, { ignoreScore: true }).catch((e) => {
           if (errors.length < 3) errors.push(`place: ${e.message}`);
         });
@@ -711,7 +721,15 @@ export async function syncGoogleAdsLeadForms({ days = 30, limit = 1000 } = {}) {
 
 let leadSyncTimer = null;
 
-export function startGoogleAdsLeadSyncScheduler({ intervalMs = 5 * 60 * 1000 } = {}) {
+// Google has no lead webhook in this integration, so the poll interval IS the
+// alert latency. Two minutes keeps a new Google lead close to realtime without
+// hammering the Ads API; override with GOOGLE_LEADS_SYNC_MS.
+const GOOGLE_LEAD_SYNC_MS = Math.max(
+  60 * 1000,
+  Number(process.env.GOOGLE_LEADS_SYNC_MS) || 2 * 60 * 1000,
+);
+
+export function startGoogleAdsLeadSyncScheduler({ intervalMs = GOOGLE_LEAD_SYNC_MS } = {}) {
   if (leadSyncTimer || !isGoogleAdsConfigured()) return false;
   const run = () => {
     // A week is enough for the recurring poll; the manual button can ask for 30.

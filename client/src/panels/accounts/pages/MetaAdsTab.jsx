@@ -157,6 +157,65 @@ const prettyDate = (value) => {
     : '—';
 };
 
+// Local calendar day (YYYY-MM-DD) for <input type="date"> and the API. The
+// backend reads these as IST days, so "today" matches the operator's day.
+const isoDay = (date) => {
+  const d = date instanceof Date ? date : new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// Lead-alert card controls. The panel reaches several panels with different
+// stylesheets, so these are inline: the inputs must look like inputs everywhere.
+const alertLabelStyle = {
+  display: 'block',
+  fontSize: 10,
+  fontWeight: 800,
+  letterSpacing: 0.5,
+  textTransform: 'uppercase',
+  color: '#64748b',
+  marginBottom: 6,
+};
+const alertInputStyle = {
+  width: '100%',
+  height: 38,
+  boxSizing: 'border-box',
+  padding: '0 12px',
+  borderRadius: 8,
+  border: '1px solid #cbd5e1',
+  background: '#fff',
+  color: '#0b1c30',
+  fontSize: 12.5,
+  outline: 'none',
+};
+const alertPrimaryBtn = {
+  height: 38,
+  padding: '0 18px',
+  borderRadius: 8,
+  border: '1px solid #0050cd',
+  background: '#0050cd',
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: 'pointer',
+};
+const alertSecondaryBtn = {
+  height: 38,
+  padding: '0 16px',
+  borderRadius: 8,
+  border: '1px solid #cbd5e1',
+  background: '#fff',
+  color: '#0b1c30',
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: 'pointer',
+};
+const alertChip = (label, value, color, bg, border) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 999, background: bg, border: `1px solid ${border}` }}>
+    <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4, color }}>{label}</span>
+    <span style={{ fontSize: 12.5, fontWeight: 800, color }}>{value}</span>
+  </div>
+);
+
 const PLATFORM_STYLE = {
   fb: { label: 'Facebook', color: '#0866FF', bg: '#eff4ff' },
   ig: { label: 'Instagram', color: '#be185d', bg: '#fdf2f8' },
@@ -191,11 +250,17 @@ export default function MetaAdsTab() {
   const [webhookEvents, setWebhookEvents] = useState([]);
   const [metaConfig, setMetaConfig] = useState(null);
   const [configDraft, setConfigDraft] = useState({});
+  const [leadAlert, setLeadAlert] = useState({ enabled: false, phones_text: '', project: 'bsct2', log: [], pending: 0, window_closed: 0, sent_24h: 0, total_24h: 0 });
+  const [leadAlertDraft, setLeadAlertDraft] = useState({ enabled: false, phones: '', project: 'bsct2' });
+  const [leadAlertAccounts, setLeadAlertAccounts] = useState([]);
+  const [savingLeadAlert, setSavingLeadAlert] = useState(false);
+  const [testingLeadAlert, setTestingLeadAlert] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [leadRows, setLeadRows] = useState([]);
   const [leadTotal, setLeadTotal] = useState(0);
-  const [leadFilters, setLeadFilters] = useState({ days: 30, platform: '', form_id: '', q: '' });
+  const [leadFilters, setLeadFilters] = useState({ days: 30, from: '', to: '', platform: '', form_id: '', q: '' });
+  const [leadRange, setLeadRange] = useState('30');
   const [leadQuery, setLeadQuery] = useState('');
   const [leadLoading, setLeadLoading] = useState(false);
   const [leadPage, setLeadPage] = useState(1);
@@ -214,7 +279,7 @@ export default function MetaAdsTab() {
     setLoading(true);
     setError('');
     try {
-      const [st, cm, sm, fn, fm, wp, mc, an] = await Promise.all([
+      const [st, cm, sm, fn, fm, wp, mc, an, la, laAccounts] = await Promise.all([
         safeGet('/meta-ads/status', null),
         safeGet(`/meta-ads/campaigns?days=${days}`, []),
         safeGet(`/meta-ads/insights/summary?days=${days}`, null),
@@ -223,6 +288,8 @@ export default function MetaAdsTab() {
         safeGet('/meta-ads/webhook/pages', { pages: [] }),
         safeGet('/meta-ads/config', null),
         safeGet(`/meta-ads/analytics?days=${days}`, null),
+        safeGet('/meta-ads/lead-alerts/config', null),
+        safeGet('/meta-ads/lead-alerts/accounts', []),
       ]);
       setStatus(st);
       setCampaigns(Array.isArray(cm) ? cm : []);
@@ -232,6 +299,15 @@ export default function MetaAdsTab() {
       setForms(Array.isArray(fm) ? fm : []);
       setWebhookPages(Array.isArray(wp?.pages) ? wp.pages : []);
       setMetaConfig(mc);
+      setLeadAlertAccounts(Array.isArray(laAccounts) ? laAccounts : []);
+      if (la) {
+        setLeadAlert((prev) => ({ ...prev, ...la }));
+        setLeadAlertDraft({
+          enabled: Boolean(la.enabled),
+          phones: la.phones_text || '',
+          project: la.project || 'bsct2',
+        });
+      }
       setDrafts((prev) => {
         const next = { ...prev };
         for (const f of Array.isArray(fm) ? fm : []) {
@@ -257,6 +333,9 @@ export default function MetaAdsTab() {
     setLeadLoading(true);
     try {
       const params = new URLSearchParams({ days: String(leadFilters.days), limit: '200' });
+      // Explicit day range (From/To) wins over the rolling window on the API.
+      if (leadFilters.from) params.set('from', leadFilters.from);
+      if (leadFilters.to) params.set('to', leadFilters.to);
       if (leadFilters.platform) params.set('platform', leadFilters.platform);
       if (leadFilters.form_id) params.set('form_id', leadFilters.form_id);
       if (leadFilters.q) params.set('q', leadFilters.q);
@@ -269,6 +348,92 @@ export default function MetaAdsTab() {
   }, [leadFilters]);
 
   useEffect(() => { loadLeads(); }, [loadLeads]);
+
+  const refreshLeadAlertLog = useCallback(async () => {
+    const res = await safeGet('/meta-ads/lead-alerts/log?limit=12', null);
+    if (!res) return;
+    setLeadAlert((prev) => ({
+      ...prev,
+      log: Array.isArray(res.rows) ? res.rows : [],
+      pending: Number(res.pending) || 0,
+      window_closed: Number(res.window_closed) || 0,
+      sent_24h: Number(res.sent_24h) || 0,
+      total_24h: Number(res.total_24h) || 0,
+    }));
+  }, []);
+
+  const saveLeadAlertSettings = async () => {
+    setSavingLeadAlert(true);
+    setError('');
+    setNotice('');
+    try {
+      const res = await apiPost('/meta-ads/lead-alerts/config', leadAlertDraft);
+      const cfg = res?.config || {};
+      setLeadAlert((prev) => ({ ...prev, ...cfg }));
+      setLeadAlertDraft({
+        enabled: Boolean(cfg.enabled),
+        phones: cfg.phones_text || '',
+        project: cfg.project || 'bsct2',
+      });
+      setNotice('Lead alerts saved.');
+      refreshLeadAlertLog();
+    } catch (e) {
+      setError(e?.message || 'Could not save lead alert settings');
+    } finally {
+      setSavingLeadAlert(false);
+    }
+  };
+
+  const sendLeadAlertTest = async () => {
+    setTestingLeadAlert(true);
+    setError('');
+    setNotice('');
+    try {
+      const res = await apiPost('/meta-ads/lead-alerts/test', { phones: leadAlertDraft.phones });
+      const results = Array.isArray(res?.results) ? res.results : [];
+      const ok = results.filter((r) => r.ok).length;
+      const failed = results.filter((r) => !r.ok);
+      if (ok) setNotice(`Test alert sent to ${ok} number(s).`);
+      if (failed.length) setError(failed.map((r) => `${r.phone}: ${r.error || 'failed'}`).join(' · '));
+      refreshLeadAlertLog();
+    } catch (e) {
+      setError(e?.message || 'Test alert failed');
+    } finally {
+      setTestingLeadAlert(false);
+    }
+  };
+
+  // Presets fill From/To explicitly, so "Today" really is today (00:00–23:59
+  // IST) instead of "last N×24h". Custom leaves the two date boxes editable.
+  const applyLeadRange = (preset) => {
+    setLeadPage(1);
+    setLeadRange(preset);
+    if (preset === 'custom') return;
+    const today = new Date();
+    const span = preset === 'today' ? 0 : Number(preset) - 1;
+    const start = new Date(today);
+    start.setDate(start.getDate() - span);
+    setLeadFilters((prev) => ({
+      ...prev,
+      days: Math.max(1, Number(preset) || 1),
+      from: isoDay(start),
+      to: isoDay(today),
+    }));
+  };
+
+  const setLeadDate = (key, value) => {
+    setLeadPage(1);
+    setLeadRange('custom');
+    setLeadFilters((prev) => {
+      const next = { ...prev, [key]: value };
+      // A reversed range is a typo, not an empty result: keep the two boxes sane.
+      if (next.from && next.to && next.from > next.to) {
+        if (key === 'from') next.to = next.from;
+        else next.from = next.to;
+      }
+      return next;
+    });
+  };
 
   // The delivery log is a diagnostic, not the main view: it loads on demand and
   // hides duplicate rows unless the operator asks for them.
@@ -1186,6 +1351,167 @@ export default function MetaAdsTab() {
         </div>
       </div>
 
+      <div style={{ ...card, padding: 18 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>💬</div>
+            <div>
+              <div style={{ ...sectionTitle, fontSize: 14 }}>Lead alerts · WhatsApp</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
+                Meta (seconds) + Google (≤ 2 min) — har naya lead seedha WhatsApp par.
+              </div>
+            </div>
+          </div>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              cursor: 'pointer',
+              padding: '6px 12px',
+              borderRadius: 999,
+              border: `1px solid ${leadAlertDraft.enabled ? '#a7f3d0' : '#e2e8f0'}`,
+              background: leadAlertDraft.enabled ? '#ecfdf5' : '#f8fafc',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={leadAlertDraft.enabled}
+              onChange={(e) => setLeadAlertDraft((prev) => ({ ...prev, enabled: e.target.checked }))}
+              style={{ accentColor: '#047857', width: 14, height: 14 }}
+            />
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: leadAlertDraft.enabled ? '#047857' : '#64748b' }}>
+              {leadAlertDraft.enabled ? 'Enabled' : 'Disabled'}
+            </span>
+          </label>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 1fr) 230px', gap: 12, marginTop: 16 }}>
+          <div>
+            <label style={alertLabelStyle}>WhatsApp numbers</label>
+            <input
+              style={alertInputStyle}
+              placeholder="919812345678, 919812345679"
+              value={leadAlertDraft.phones}
+              onChange={(e) => setLeadAlertDraft((prev) => ({ ...prev, phones: e.target.value }))}
+            />
+            <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 5 }}>
+              Comma se separate karo. 10-digit number par +91 apne aap lag jata hai.
+            </div>
+          </div>
+          <div>
+            <label style={alertLabelStyle}>Sending account</label>
+            <select
+              style={{ ...alertInputStyle, paddingRight: 8 }}
+              value={leadAlertDraft.project}
+              onChange={(e) => setLeadAlertDraft((prev) => ({ ...prev, project: e.target.value }))}
+            >
+              {!leadAlertAccounts.length && (
+                <option value={leadAlertDraft.project}>{leadAlertDraft.project}</option>
+              )}
+              {leadAlertAccounts.map((account) => (
+                <option key={account.id} value={account.project}>
+                  {account.name} · {account.project}
+                </option>
+              ))}
+              {leadAlertAccounts.length > 0
+                && !leadAlertAccounts.some((account) => account.project === leadAlertDraft.project)
+                && <option value={leadAlertDraft.project}>{leadAlertDraft.project} (current)</option>}
+            </select>
+            <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 5 }}>
+              Payment issue ho to doosra account choose karo.
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 14 }}>
+          <button style={{ ...alertPrimaryBtn, opacity: savingLeadAlert ? 0.6 : 1 }} onClick={saveLeadAlertSettings} disabled={savingLeadAlert}>
+            {savingLeadAlert ? 'Saving…' : 'Save settings'}
+          </button>
+          <button style={{ ...alertSecondaryBtn, opacity: testingLeadAlert ? 0.6 : 1 }} onClick={sendLeadAlertTest} disabled={testingLeadAlert}>
+            {testingLeadAlert ? 'Sending…' : 'Send test alert'}
+          </button>
+          <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: '#94a3b8' }}>Text mode</span>
+        </div>
+
+        <div style={{ marginTop: 12, padding: '9px 11px', borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 11, color: '#475569', lineHeight: 1.55 }}>
+          <b style={{ color: '#0b1c30' }}>24h window:</b> text tabhi deliver hota hai jab recipient ne last 24h me business ko message kiya ho.
+          Warna alert queue me rehta hai aur us number se reply aate hi agla retry deliver kar deta hai.
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          {alertChip('Sent · 24h', leadAlert.sent_24h || 0, '#047857', '#ecfdf5', '#a7f3d0')}
+          {alertChip('Pending', leadAlert.pending || 0, '#b45309', '#fffbeb', '#fde68a')}
+          {alertChip('Window closed', leadAlert.window_closed || 0, '#b91c1c', '#fef2f2', '#fecaca')}
+        </div>
+
+        {(leadAlert.pending > 0 || leadAlert.window_closed > 0) && (
+          <div style={{ marginTop: 10, padding: '9px 11px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 11, color: '#92400e', lineHeight: 1.5 }}>
+            ⚠️ {leadAlert.pending} alert(s) pending
+            {leadAlert.window_closed ? ` · ${leadAlert.window_closed} ka 24h window band hai` : ''}. Us number se business ko ek “Hi”
+            bhejne par retry automatically deliver ho jayega.
+          </div>
+        )}
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
+            <span style={{ ...alertLabelStyle, marginBottom: 0 }}>Recent deliveries</span>
+            <button
+              style={{ ...alertSecondaryBtn, height: 28, padding: '0 11px', fontSize: 10.5 }}
+              onClick={refreshLeadAlertLog}
+            >
+              Refresh
+            </button>
+          </div>
+
+          {leadAlert.log?.length > 0 ? (
+            <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    {['Time', 'Lead', 'Source', 'Number', 'Status'].map((heading) => (
+                      <th key={heading} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4, color: '#64748b', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{heading}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {leadAlert.log.slice(0, 8).map((row) => {
+                    const color = row.status === 'sent' ? '#047857' : row.status === 'window_closed' ? '#b45309' : '#b91c1c';
+                    const bg = row.status === 'sent' ? '#ecfdf5' : row.status === 'window_closed' ? '#fffbeb' : '#fef2f2';
+                    const border = row.status === 'sent' ? '#a7f3d0' : row.status === 'window_closed' ? '#fde68a' : '#fecaca';
+                    const isGoogle = /google/i.test(String(row.source || ''));
+                    return (
+                      <tr key={row.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '8px 12px', color: '#64748b', fontFamily: 'monospace', fontSize: 10.5, whiteSpace: 'nowrap' }}>{prettyDate(row.created_at)}</td>
+                        <td style={{ padding: '8px 12px', color: '#0b1c30', fontWeight: 600 }}>
+                          {row.lead_name || '—'}
+                          {row.lead_phone ? <span style={{ display: 'block', fontWeight: 400, color: '#94a3b8', fontFamily: 'monospace', fontSize: 10 }}>{row.lead_phone}</span> : null}
+                        </td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, color: isGoogle ? '#b45309' : '#0050cd', background: isGoogle ? '#fffbeb' : '#eff6ff' }}>
+                            {isGoogle ? 'Google' : 'Meta'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: '#475569' }}>{row.phone}</td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span title={row.error || ''} style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, color, background: bg, border: `1px solid ${border}`, textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
+                            {String(row.status || '').replace('_', ' ')}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ padding: '16px 12px', borderRadius: 10, border: '1px dashed #e2e8f0', background: '#fcfdff', textAlign: 'center', fontSize: 11, color: '#94a3b8' }}>
+              Abhi koi delivery nahi. “Send test alert” dabao ya naya lead aane do.
+            </div>
+          )}
+        </div>
+      </div>
+
       <div style={{ ...card, overflow: 'hidden' }}>
         <div style={{ padding: '14px 18px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1256,11 +1582,32 @@ export default function MetaAdsTab() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
-            <select className="wa-select" style={{ width: 120 }} value={leadFilters.days} onChange={(e) => { setLeadPage(1); setLeadFilters((prev) => ({ ...prev, days: Number(e.target.value) })); }}>
-              <option value={7}>Last 7 days</option>
-              <option value={30}>Last 30 days</option>
-              <option value={90}>Last 90 days</option>
+            <select className="wa-select" style={{ width: 132 }} value={leadRange} onChange={(e) => applyLeadRange(e.target.value)}>
+              <option value="today">Today</option>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last 12 months</option>
+              <option value="custom">Custom</option>
             </select>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>From</span>
+            <input
+              type="date"
+              className="wa-input"
+              style={{ width: 150 }}
+              value={leadFilters.from}
+              max={leadFilters.to || undefined}
+              onChange={(e) => setLeadDate('from', e.target.value)}
+            />
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>To</span>
+            <input
+              type="date"
+              className="wa-input"
+              style={{ width: 150 }}
+              value={leadFilters.to}
+              min={leadFilters.from || undefined}
+              onChange={(e) => setLeadDate('to', e.target.value)}
+            />
             <select className="wa-select" style={{ width: 140 }} value={leadFilters.platform} onChange={(e) => { setLeadPage(1); setLeadFilters((prev) => ({ ...prev, platform: e.target.value })); }}>
               <option value="">All platforms</option>
               <option value="fb">Facebook</option>
