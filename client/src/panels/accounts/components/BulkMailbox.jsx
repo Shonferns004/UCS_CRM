@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   FileText,
   Inbox,
   Loader2,
   Mail,
   Paperclip,
   RefreshCw,
+  Reply,
   Search,
   Send,
   X,
@@ -16,13 +19,15 @@ import { apiGet, apiGetBlob, apiPost } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 
 // Inbound mailbox for the Bulk Email page, laid out like Gmail: search bar,
-// folder rail, full-width message rows with attachment chips, and a reading
-// view that replaces the list. Sent mail is mirrored from the campaign itself,
-// so campaigns show up with their attachments without an IMAP round trip.
+// folder rail, full-width message rows with attachment chips, pagination, a
+// reading view that replaces the list, and an inline reply composer.
 //
-// Message HTML is untrusted, so it renders inside a sandboxed iframe.
+// Sent mail is mirrored from the campaign itself, so campaigns show up with
+// their attachments without an IMAP round trip. Message HTML is untrusted, so
+// it renders inside a sandboxed iframe.
 
 const POLL_GRACE_MS = 30000;
+const PAGE_SIZE = 50;
 const FOLDERS = [
   { id: 'INBOX', label: 'Inbox', Icon: Inbox },
   { id: 'Sent', label: 'Sent', Icon: Send },
@@ -110,10 +115,12 @@ export function buildEmailDocument(html, { allowImages = false } = {}) {
 }
 
 export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
-  const [mailbox, setMailbox] = useState('');
+  const [mailbox, setMailbox] = useState(defaultEmail || '');
   const [folder, setFolder] = useState('INBOX');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [messages, setMessages] = useState([]);
+  const [total, setTotal] = useState(0);
   const [inboxTotal, setInboxTotal] = useState(0);
   const [sentTotal, setSentTotal] = useState(0);
   const [unread, setUnread] = useState(0);
@@ -127,6 +134,12 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
   const [allowImages, setAllowImages] = useState(false);
   const [downloading, setDownloading] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [replyFiles, setReplyFiles] = useState([]);
+  const [sendingReply, setSendingReply] = useState(false);
+  const [replyError, setReplyError] = useState(null);
+  const [replyNotice, setReplyNotice] = useState(null);
   const lastAutoSyncRef = useRef(0);
 
   const isSent = folder === 'Sent';
@@ -145,10 +158,16 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     if (!mailbox) return;
     if (!silent) setLoading(true);
     try {
-      const params = new URLSearchParams({ email: mailbox, folder, limit: '50' });
+      const params = new URLSearchParams({
+        email: mailbox,
+        folder,
+        page: String(page),
+        limit: String(PAGE_SIZE),
+      });
       if (search.trim()) params.set('search', search.trim());
       const data = await apiGet(`/accounts/bulk-email/mailbox/messages?${params.toString()}`);
       setMessages(Array.isArray(data?.messages) ? data.messages : []);
+      setTotal(Number(data?.total) || 0);
       setInboxTotal(Number(data?.inbox_total) || 0);
       setSentTotal(Number(data?.sent_total) || 0);
       setUnread(Number(data?.unread) || 0);
@@ -160,7 +179,7 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [mailbox, folder, search]);
+  }, [mailbox, folder, search, page]);
 
   useEffect(() => {
     if (!mailbox) return undefined;
@@ -218,21 +237,32 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     },
   });
 
+  const clearReply = () => {
+    setReplyOpen(false);
+    setReplyText('');
+    setReplyFiles([]);
+    setReplyError(null);
+  };
+
   const resetView = () => {
     setSelectedId(null);
     setMessage(null);
     setAllowImages(false);
+    setReplyNotice(null);
+    clearReply();
   };
 
   const changeFolder = (next) => {
     if (next === folder) return;
     setFolder(next);
+    setPage(1);
     setMessages([]);
     resetView();
   };
 
   const changeMailbox = (next) => {
     setMailbox(next);
+    setPage(1);
     setMessages([]);
     resetView();
   };
@@ -243,6 +273,8 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     setLoadingMessage(true);
     setAllowImages(false);
     setError(null);
+    setReplyNotice(null);
+    clearReply();
     try {
       const data = await apiGet(`/accounts/bulk-email/mailbox/messages/${row.id}`);
       setMessage(data);
@@ -295,6 +327,27 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     }
   };
 
+  const sendReply = async () => {
+    if (!message || sendingReply) return;
+    if (!replyText.trim()) { setReplyError('Write a reply first.'); return; }
+    setSendingReply(true);
+    setReplyError(null);
+    try {
+      const form = new FormData();
+      form.append('text', replyText);
+      replyFiles.forEach((file) => form.append('attachments', file));
+      await apiPost(`/accounts/bulk-email/mailbox/messages/${message.id}/reply`, form, 180000);
+      clearReply();
+      setReplyNotice('Reply sent.');
+      setSentTotal((prev) => prev + 1);
+      setTimeout(() => setReplyNotice(null), 6000);
+    } catch (e) {
+      setReplyError(e?.message || 'Could not send the reply.');
+    } finally {
+      setSendingReply(false);
+    }
+  };
+
   if (!mailboxOptions.length) {
     return (
       <section className="be-card be-gmail-empty">
@@ -306,6 +359,11 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
 
   const attachments = attachmentsOf(message);
   const hasBodyHtml = Boolean(message?.body_html);
+  const pageStart = total ? (page - 1) * PAGE_SIZE + 1 : 0;
+  const pageEnd = Math.min(page * PAGE_SIZE, total);
+  const hasPrev = page > 1;
+  const hasNext = page * PAGE_SIZE < total;
+  const initializing = !mailbox;
 
   return (
     <section className="be-gmail">
@@ -314,7 +372,7 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
           <Search size={16} strokeWidth={2} aria-hidden="true" />
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search mail"
             aria-label="Search mail"
           />
@@ -401,61 +459,92 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
 
         <div className="be-gmail-content">
           {!selectedId && (
-            <div className="be-gmail-list" role="list">
-              {loading && (
-                <div className="be-empty"><Loader2 size={20} className="be-spin" /><span>Loading mailbox…</span></div>
-              )}
+            <>
+              <div className="be-gmail-list" role="list" aria-busy={loading || initializing}>
+                {(loading || initializing) && (
+                  <div className="be-gmail-loading">
+                    <Loader2 size={22} className="be-spin" />
+                    <span>Loading mailbox…</span>
+                  </div>
+                )}
 
-              {!loading && !messages.length && (
-                <div className="be-empty">
-                  <Mail size={24} strokeWidth={1.6} aria-hidden="true" />
-                  <span>
-                    {isSent
-                      ? 'Nothing sent from this mailbox yet. Sent campaigns appear here.'
-                      : 'No messages yet. Press Sync to check the inbox.'}
-                  </span>
-                </div>
-              )}
-
-              {!loading && messages.map((row) => {
-                const files = attachmentsOf(row);
-                return (
-                  <button
-                    key={row.id}
-                    type="button"
-                    role="listitem"
-                    className={`be-gmail-row${row.is_read || isSent ? '' : ' is-unread'}`}
-                    onClick={() => openMessage(row)}
-                  >
-                    <span className="be-gmail-sender">
-                      {isSent
-                        ? (row.to_name || row.to_email || 'Recipients')
-                        : senderLabel(row)}
+                {!loading && !initializing && !messages.length && (
+                  <div className="be-empty">
+                    <Mail size={24} strokeWidth={1.6} aria-hidden="true" />
+                    <span>
+                      {search.trim()
+                        ? 'No mail matches this search.'
+                        : isSent
+                          ? 'Nothing sent from this mailbox yet. Sent campaigns appear here.'
+                          : 'No messages yet. Press Sync to check the inbox.'}
                     </span>
-                    <span className="be-gmail-summary">
-                      <span className="be-gmail-line">
-                        <span className="be-gmail-subject">{row.subject || '(no subject)'}</span>
-                        {row.snippet ? <span className="be-gmail-snippet"> - {row.snippet}</span> : null}
+                  </div>
+                )}
+
+                {!loading && !initializing && messages.map((row) => {
+                  const files = attachmentsOf(row);
+                  return (
+                    <button
+                      key={row.id}
+                      type="button"
+                      role="listitem"
+                      className={`be-gmail-row${row.is_read || isSent ? '' : ' is-unread'}`}
+                      onClick={() => openMessage(row)}
+                    >
+                      <span className="be-gmail-sender">
+                        {isSent
+                          ? (row.to_name || row.to_email || 'Recipients')
+                          : senderLabel(row)}
                       </span>
-                      {files.length > 0 && (
-                        <span className="be-gmail-chips">
-                          {files.slice(0, 3).map((file) => (
-                            <span key={file.index} className="be-gmail-chip">
-                              <FileText size={11} strokeWidth={2} aria-hidden="true" />
-                              {shortFile(file.filename)}
-                            </span>
-                          ))}
-                          {files.length > 3 && (
-                            <span className="be-gmail-chip">+{files.length - 3}</span>
-                          )}
+                      <span className="be-gmail-summary">
+                        <span className="be-gmail-line">
+                          <span className="be-gmail-subject">{row.subject || '(no subject)'}</span>
+                          {row.snippet ? <span className="be-gmail-snippet"> - {row.snippet}</span> : null}
                         </span>
-                      )}
-                    </span>
-                    <span className="be-gmail-time">{formatWhen(row.received_at)}</span>
+                        {files.length > 0 && (
+                          <span className="be-gmail-chips">
+                            {files.slice(0, 3).map((file) => (
+                              <span key={file.index} className="be-gmail-chip">
+                                <FileText size={11} strokeWidth={2} aria-hidden="true" />
+                                {shortFile(file.filename)}
+                              </span>
+                            ))}
+                            {files.length > 3 && (
+                              <span className="be-gmail-chip">+{files.length - 3}</span>
+                            )}
+                          </span>
+                        )}
+                      </span>
+                      <span className="be-gmail-time">{formatWhen(row.received_at)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="be-gmail-pager">
+                <span className="be-gmail-pager-count">
+                  {total ? `${pageStart}–${pageEnd} of ${total}` : '0 messages'}
+                </span>
+                <div className="be-gmail-pager-buttons">
+                  <button
+                    type="button"
+                    onClick={() => setPage((value) => Math.max(1, value - 1))}
+                    disabled={!hasPrev || loading}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft size={16} strokeWidth={2} />
                   </button>
-                );
-              })}
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => setPage((value) => value + 1)}
+                    disabled={!hasNext || loading}
+                    aria-label="Next page"
+                  >
+                    <ChevronRight size={16} strokeWidth={2} />
+                  </button>
+                </div>
+              </div>
+            </>
           )}
 
           {selectedId && (
@@ -470,7 +559,7 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
               </div>
 
               {loadingMessage && (
-                <div className="be-gmail-empty"><Loader2 size={20} className="be-spin" /><span>Opening…</span></div>
+                <div className="be-gmail-loading"><Loader2 size={22} className="be-spin" /><span>Opening…</span></div>
               )}
 
               {!loadingMessage && !message && (
@@ -542,6 +631,67 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
                           <span className="be-gmail-attachment-size">{formatBytes(file.size)}</span>
                         </button>
                       ))}
+                    </div>
+                  )}
+
+                  {!isSent && (
+                    <div className="be-gmail-reply">
+                      {replyNotice && <div className="be-gmail-reply-notice">{replyNotice}</div>}
+
+                      {!replyOpen ? (
+                        <button
+                          type="button"
+                          className="be-gmail-reply-open"
+                          onClick={() => { setReplyOpen(true); setReplyError(null); }}
+                        >
+                          <Reply size={15} strokeWidth={2} /> Reply
+                        </button>
+                      ) : (
+                        <div className="be-gmail-composer">
+                          <div className="be-gmail-composer-head">
+                            <span>
+                              To: {message.from_name
+                                ? `${message.from_name} <${message.from_email}>`
+                                : message.from_email}
+                            </span>
+                            <button type="button" onClick={clearReply} aria-label="Close reply">
+                              <X size={14} strokeWidth={2} />
+                            </button>
+                          </div>
+                          <textarea
+                            className="be-gmail-composer-input"
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            placeholder="Write your reply…"
+                            rows={6}
+                          />
+                          <div className="be-gmail-composer-actions">
+                            <label className="be-gmail-composer-attach" title="Attach files">
+                              <Paperclip size={15} strokeWidth={2} />
+                              <input
+                                type="file"
+                                multiple
+                                hidden
+                                onChange={(e) => setReplyFiles(Array.from(e.target.files || []))}
+                              />
+                            </label>
+                            {replyFiles.length > 0 && (
+                              <span className="be-gmail-composer-files">{replyFiles.length} file(s)</span>
+                            )}
+                            <button
+                              type="button"
+                              className="be-gmail-send"
+                              onClick={sendReply}
+                              disabled={sendingReply || !replyText.trim()}
+                            >
+                              {sendingReply
+                                ? <><Loader2 size={14} className="be-spin" /> Sending…</>
+                                : <><Send size={14} strokeWidth={2} /> Send</>}
+                            </button>
+                          </div>
+                          {replyError && <div className="be-alert">{replyError}</div>}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

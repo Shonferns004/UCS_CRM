@@ -1,9 +1,14 @@
+import crypto from 'crypto';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import db from '../config/db.js';
 import { emitDbChange } from '../socket.js';
 import { getSenderByEmail, listActiveSenders } from '../models/bulkEmailSenderModel.js';
-import { normalizeAppPassword } from './bulkEmailSenderService.js';
+import {
+  buildSenderFromHeader,
+  getTransportForSender,
+  normalizeAppPassword,
+} from './bulkEmailSenderService.js';
 
 // ---------------------------------------------------------------------------
 // Inbound mailbox mirror for the Bulk Email "Mailbox" tab.
@@ -424,7 +429,7 @@ export async function syncAllMailboxes() {
   return results;
 }
 
-export async function listMailboxMessages({ email, folder = 'INBOX', search = '', unreadOnly = false, limit = 50, before = null } = {}) {
+export async function listMailboxMessages({ email, folder = 'INBOX', search = '', unreadOnly = false, page = 1, limit = 50 } = {}) {
   const accountEmail = normalizeEmail(email);
   if (!accountEmail) throw new Error('Mailbox email is required');
 
@@ -436,36 +441,37 @@ export async function listMailboxMessages({ email, folder = 'INBOX', search = ''
   if (term) {
     params.push(`%${term.replace(/[%_\\]/g, '\\$&')}%`);
     where.push(`(subject ILIKE $${params.length} OR from_email ILIKE $${params.length}
-                 OR to_email ILIKE $${params.length}
+                 OR to_email ILIKE $${params.length} OR to_name ILIKE $${params.length}
                  OR from_name ILIKE $${params.length} OR snippet ILIKE $${params.length})`);
   }
   if (unreadOnly) where.push('is_read = FALSE');
-  if (before) {
-    params.push(before);
-    where.push(`received_at < $${params.length}`);
-  }
 
   const limitNum = Math.min(200, Math.max(1, Number(limit) || 50));
-  params.push(limitNum);
+  const pageNum = Math.max(1, Math.floor(Number(page) || 1));
+  const offset = (pageNum - 1) * limitNum;
+  const listParams = [...params, limitNum, offset];
 
-  const [{ rows }, { rows: counts }] = await Promise.all([
+  const [{ rows }, { rows: counts }, { rows: filtered }] = await Promise.all([
     db._pool.query(
       `SELECT id, account_email, folder, from_email, from_name, to_email, to_name, subject, snippet,
               has_attachments, attachments, size_bytes, received_at, is_read, campaign_id, lead_id
          FROM email_messages
         WHERE ${where.join(' AND ')}
         ORDER BY received_at DESC NULLS LAST, id DESC
-        LIMIT $${params.length}`,
-      params,
+        LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
+      listParams,
     ),
     db._pool.query(
       `SELECT COUNT(*) FILTER (WHERE folder = 'INBOX')::int AS inbox_total,
               COUNT(*) FILTER (WHERE folder = 'INBOX' AND is_read = FALSE)::int AS unread,
-              COUNT(*) FILTER (WHERE folder = 'Sent')::int AS sent_total,
-              MAX(received_at) AS latest
+              COUNT(*) FILTER (WHERE folder = 'Sent')::int AS sent_total
          FROM email_messages
         WHERE account_email = $1`,
       [accountEmail],
+    ),
+    db._pool.query(
+      `SELECT COUNT(*)::int AS total FROM email_messages WHERE ${where.join(' AND ')}`,
+      params,
     ),
   ]);
 
@@ -473,11 +479,12 @@ export async function listMailboxMessages({ email, folder = 'INBOX', search = ''
   return {
     messages: rows,
     folder: folderName,
-    total: folderName === 'Sent' ? (counts[0]?.sent_total || 0) : (counts[0]?.inbox_total || 0),
+    page: pageNum,
+    limit: limitNum,
+    total: filtered[0]?.total || 0,
     inbox_total: counts[0]?.inbox_total || 0,
     sent_total: counts[0]?.sent_total || 0,
     unread: counts[0]?.unread || 0,
-    latest: counts[0]?.latest || null,
     last_synced_at: state?.last_synced_at || null,
     last_error: state?.last_error || null,
   };
@@ -598,6 +605,150 @@ export async function setMailboxMessageRead(id, read = true) {
   }
 
   return rows[0] || null;
+}
+
+/** Gmail-style reply subject: only prefix when it is not already a reply. */
+export function replySubject(subject) {
+  const text = String(subject || '').trim();
+  if (!text) return 'Re: (no subject)';
+  return /^re\s*:/i.test(text) ? text : `Re: ${text}`;
+}
+
+function textToReplyHtml(text) {
+  const escaped = String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  return `<div style="font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1f2937;">${escaped.replace(/\n/g, '<br />')}</div>`;
+}
+
+/**
+ * Reply to an inbound message from the CRM. Sends over the same SMTP sender the
+ * campaign used, threads with In-Reply-To/References, and mirrors the outgoing
+ * mail into the Sent folder so the mailbox stays a complete record.
+ */
+export async function sendMailboxReply(id, { text, html, attachments } = {}) {
+  const message = await getMailboxMessage(id);
+  if (!message) throw new Error('Message not found');
+  if (message.folder === 'Sent') throw new Error('You cannot reply to a sent message');
+  if (!message.from_email) throw new Error('This message has no reply address');
+
+  const body = String(text || '').trim();
+  const bodyHtml = String(html || '').trim();
+  if (!body && !bodyHtml) throw new Error('Write a reply before sending');
+
+  const sender = await getSenderByEmail(message.account_email);
+  if (!sender) throw new Error(`${message.account_email} is not added as a sender email`);
+  if (!sender.app_password) throw new Error(`Password is missing for ${message.account_email}`);
+
+  const files = (Array.isArray(attachments) ? attachments : []).filter((file) => file?.content);
+  const headers = {};
+  if (message.message_id) {
+    const ref = String(message.message_id);
+    headers['In-Reply-To'] = ref.startsWith('<') ? ref : `<${ref}>`;
+    headers.References = headers['In-Reply-To'];
+  }
+
+  const subject = replySubject(message.subject);
+  const transport = getTransportForSender(sender);
+  await transport.sendMail({
+    from: buildSenderFromHeader(sender),
+    to: message.from_email,
+    subject,
+    text: body || bodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    html: bodyHtml || textToReplyHtml(body),
+    headers,
+    attachments: files.map((file) => ({
+      filename: file.filename || 'attachment',
+      content: file.content,
+      contentType: file.contentType || 'application/octet-stream',
+    })),
+  });
+
+  const domain = String(message.account_email).split('@')[1] || 'ucs-crm';
+  const messageId = `reply-${Date.now()}-${crypto.randomBytes(4).toString('hex')}@${domain}`;
+  const snippet = (body || bodyHtml.replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ').trim().slice(0, 240);
+
+  const { rows } = await db._pool.query(
+    `INSERT INTO email_messages
+       (account_email, folder, message_id, from_email, from_name, to_email, to_name, subject, snippet,
+        body_text, body_html, has_attachments, attachments, received_at, is_read, campaign_id)
+     VALUES ($1, 'Sent', $2, $1, $3, $4, $5, $6, $7, $8, $9, $10, '[]'::jsonb, NOW(), TRUE, $11)
+     ON CONFLICT (account_email, message_id) DO NOTHING
+     RETURNING id`,
+    [
+      message.account_email,
+      messageId,
+      sender.display_name || null,
+      message.from_email,
+      message.from_name || null,
+      subject,
+      snippet,
+      body || null,
+      bodyHtml || textToReplyHtml(body),
+      files.length > 0,
+      message.campaign_id || null,
+    ],
+  );
+
+  const sentId = rows[0]?.id || null;
+  if (sentId && files.length) {
+    const meta = [];
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      const saved = await db._pool.query(
+        `INSERT INTO bulk_email_attachments (owner_type, owner_id, filename, content_type, data, sort_order)
+         VALUES ('message', $1, $2, $3, $4, $5)
+         RETURNING id`,
+        [
+          sentId,
+          file.filename || `attachment-${i + 1}`,
+          file.contentType || 'application/octet-stream',
+          file.content,
+          i,
+        ],
+      );
+      meta.push({
+        index: i,
+        filename: file.filename || `attachment-${i + 1}`,
+        contentType: file.contentType || 'application/octet-stream',
+        size: file.content?.length || 0,
+        campaignAttachmentId: saved.rows[0]?.id || null,
+      });
+    }
+    await db._pool.query(
+      'UPDATE email_messages SET attachments = $2::jsonb WHERE id = $1',
+      [sentId, JSON.stringify(meta)],
+    );
+  }
+
+  if (sentId) {
+    try {
+      emitDbChange({
+        table: 'email_messages',
+        schema: 'public',
+        eventType: 'INSERT',
+        new: {
+          id: sentId,
+          account_email: message.account_email,
+          folder: 'Sent',
+          message_id: messageId,
+          to_email: message.from_email,
+          to_name: message.from_name || null,
+          subject,
+          snippet,
+          received_at: new Date(),
+          is_read: true,
+        },
+        old: null,
+      });
+    } catch { /* best effort */ }
+  }
+
+  return { id: sentId, to: message.from_email, subject };
 }
 
 let schedulerTimer = null;

@@ -30,6 +30,7 @@ import {
   getMessage,
   listMessages,
   markRead,
+  reply,
   sync,
 } from '../controllers/mailboxController.js';
 
@@ -86,6 +87,7 @@ router.get('/mailbox/messages', roles, listMessages);
 router.get('/mailbox/messages/:id', roles, getMessage);
 router.get('/mailbox/messages/:id/attachments/:index', roles, downloadAttachment);
 router.post('/mailbox/messages/:id/read', roles, markRead);
+router.post('/mailbox/messages/:id/reply', roles, handleUpload, reply);
 router.post('/mailbox/sync', roles, sync);
 
 router.post('/logs/:id/resume', roles, resumeCampaign);
