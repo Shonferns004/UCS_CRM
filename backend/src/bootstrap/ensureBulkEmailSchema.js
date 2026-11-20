@@ -245,6 +245,8 @@ export async function ensureBulkEmailSchema() {
   // recipient list of a reply.
   await db._pool.query(`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS cc TEXT;`);
   await db._pool.query(`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS bcc TEXT;`);
+  // Starred flag for the Mailbox list (local to the CRM, like Gmail's star).
+  await db._pool.query(`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS is_starred BOOLEAN NOT NULL DEFAULT FALSE;`);
 
   // Incremental sync bookmark: the highest UID already stored for a mailbox, so
   // a poll only asks IMAP for what is new instead of re-reading the inbox.

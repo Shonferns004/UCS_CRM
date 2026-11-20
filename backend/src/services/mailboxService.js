@@ -454,7 +454,8 @@ export async function listMailboxMessages({ email, folder = 'INBOX', search = ''
   const [{ rows }, { rows: counts }, { rows: filtered }] = await Promise.all([
     db._pool.query(
       `SELECT id, account_email, folder, from_email, from_name, to_email, to_name, subject, snippet,
-              has_attachments, attachments, size_bytes, received_at, is_read, campaign_id, lead_id
+              has_attachments, attachments, size_bytes, received_at, is_read, is_starred,
+              campaign_id, lead_id
          FROM email_messages
         WHERE ${where.join(' AND ')}
         ORDER BY received_at DESC NULLS LAST, id DESC
@@ -622,6 +623,99 @@ function textToReplyHtml(text) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
   return `<div style="font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1f2937;">${escaped.replace(/\n/g, '<br />')}</div>`;
+}
+
+/** Apply a bulk action (read/unread/star/unstar/delete) to message ids. */
+export async function bulkMailboxAction(ids, action) {
+  const list = (Array.isArray(ids) ? ids : [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (!list.length) throw new Error('Select at least one message');
+
+  const allowed = new Set(['read', 'unread', 'star', 'unstar', 'delete']);
+  if (!allowed.has(action)) throw new Error('Unknown action');
+
+  if (action === 'read' || action === 'unread') {
+    const read = action === 'read';
+    const { rows } = await db._pool.query(
+      `UPDATE email_messages SET is_read = $2 WHERE id = ANY($1::bigint[])
+       RETURNING id, account_email, folder, uid`,
+      [list, read],
+    );
+    await syncSeenFlags(rows, read);
+    return { action, updated: rows.length };
+  }
+
+  if (action === 'star' || action === 'unstar') {
+    const { rowCount } = await db._pool.query(
+      'UPDATE email_messages SET is_starred = $2 WHERE id = ANY($1::bigint[])',
+      [list, action === 'star'],
+    );
+    return { action, updated: rowCount };
+  }
+
+  const { rows } = await db._pool.query(
+    'SELECT id, account_email, folder, uid FROM email_messages WHERE id = ANY($1::bigint[])',
+    [list],
+  );
+
+  const grouped = new Map();
+  for (const row of rows) {
+    if (row.folder === 'Sent' || !row.uid) continue;
+    if (!grouped.has(row.account_email)) grouped.set(row.account_email, []);
+    grouped.get(row.account_email).push(row);
+  }
+
+  // Move real mailbox messages to Trash first. If that fails the row stays, so
+  // the list never claims a message is gone while it is still on the server.
+  for (const [accountEmail, items] of grouped) {
+    await withImapFor(accountEmail, async (client) => {
+      const trash = await findTrashFolder(client);
+      for (const item of items) {
+        await client.messageMove(String(item.uid), trash, { uid: true });
+      }
+    });
+  }
+
+  const { rowCount } = await db._pool.query(
+    'DELETE FROM email_messages WHERE id = ANY($1::bigint[])',
+    [list],
+  );
+  return { action, deleted: rowCount };
+}
+
+async function syncSeenFlags(rows, read) {
+  const grouped = new Map();
+  for (const row of rows) {
+    if (!row.uid || row.folder === 'Sent') continue;
+    if (!grouped.has(row.account_email)) grouped.set(row.account_email, []);
+    grouped.get(row.account_email).push(row.uid);
+  }
+
+  for (const [accountEmail, uids] of grouped) {
+    try {
+      await withImapFor(accountEmail, async (client) => {
+        for (const uid of uids) {
+          if (read) await client.messageFlagsAdd(`${uid}`, ['\\Seen'], { uid: true });
+          else await client.messageFlagsRemove(`${uid}`, ['\\Seen'], { uid: true });
+        }
+      });
+    } catch (error) {
+      // Local flag is already saved; the next sync re-reads the server flag.
+      console.error('[mailbox] could not sync seen flags:', error?.message || error);
+    }
+  }
+}
+
+async function findTrashFolder(client) {
+  try {
+    const boxes = await client.list();
+    const special = boxes.find((box) => String(box.specialUse || '').toLowerCase() === '\\trash');
+    if (special) return special.path;
+    const named = boxes.find((box) => /trash|deleted/i.test(box.path || ''));
+    if (named) return named.path;
+  } catch { /* fall through */ }
+  return 'Trash';
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

@@ -8,11 +8,14 @@ import {
   Inbox,
   Loader2,
   Mail,
+  MailOpen,
   Paperclip,
   RefreshCw,
   Reply,
   Search,
   Send,
+  Star,
+  Trash2,
   X,
 } from 'lucide-react';
 import { apiGet, apiGetBlob, apiPost } from '../api/auth';
@@ -140,6 +143,8 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
   const [allowImages, setAllowImages] = useState(false);
   const [downloading, setDownloading] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [replyTo, setReplyTo] = useState('');
@@ -270,11 +275,76 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     clearReply();
   };
 
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const toggleSelect = (id) => setSelectedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+
+  const toggleSelectAll = () => setSelectedIds((prev) => (
+    messages.length > 0 && prev.size === messages.length
+      ? new Set()
+      : new Set(messages.map((item) => item.id))
+  ));
+
+  const runBulk = async (action, ids) => {
+    const list = Array.isArray(ids) && ids.length ? ids : Array.from(selectedIds);
+    if (!list.length || bulkBusy) return;
+    if (action === 'delete' && !window.confirm(
+      `Delete ${list.length} message${list.length === 1 ? '' : 's'}? This also moves them to Trash on the mail server.`,
+    )) return;
+
+    setBulkBusy(true);
+    setError(null);
+    try {
+      await apiPost('/accounts/bulk-email/mailbox/messages/bulk', { ids: list, action });
+      clearSelection();
+      if (action === 'delete' && selectedId && list.includes(selectedId)) resetView();
+      await loadMessages({ silent: true });
+    } catch (e) {
+      setError(e?.message || 'Could not update the selected messages.');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const toggleRead = async (row) => {
+    const read = !row.is_read;
+    setMessages((prev) => prev.map((item) => (item.id === row.id ? { ...item, is_read: read } : item)));
+    try {
+      await apiPost(`/accounts/bulk-email/mailbox/messages/${row.id}/read`, { read });
+      setUnread((prev) => Math.max(0, prev + (read ? -1 : 1)));
+    } catch (e) {
+      setMessages((prev) => prev.map((item) => (item.id === row.id ? { ...item, is_read: row.is_read } : item)));
+      setError(e?.message || 'Could not change the read state.');
+    }
+  };
+
+  const toggleStar = async (row) => {
+    const starred = !row.is_starred;
+    setMessages((prev) => prev.map((item) => (item.id === row.id ? { ...item, is_starred: starred } : item)));
+    setMessage((prev) => (prev && prev.id === row.id ? { ...prev, is_starred: starred } : prev));
+    try {
+      await apiPost('/accounts/bulk-email/mailbox/messages/bulk', {
+        ids: [row.id],
+        action: starred ? 'star' : 'unstar',
+      });
+    } catch (e) {
+      setMessages((prev) => prev.map((item) => (item.id === row.id ? { ...item, is_starred: row.is_starred } : item)));
+      setMessage((prev) => (prev && prev.id === row.id ? { ...prev, is_starred: row.is_starred } : prev));
+      setError(e?.message || 'Could not update the star.');
+    }
+  };
+
   const changeFolder = (next) => {
     if (next === folder) return;
     setFolder(next);
     setPage(1);
     setMessages([]);
+    clearSelection();
     resetView();
   };
 
@@ -282,6 +352,7 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     setMailbox(next);
     setPage(1);
     setMessages([]);
+    clearSelection();
     resetView();
   };
 
@@ -392,15 +463,72 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
   return (
     <section className="be-gmail">
       <div className="be-gmail-topbar">
+        <div className="be-gmail-tools">
+          <input
+            type="checkbox"
+            className="be-gmail-check"
+            checked={messages.length > 0 && selectedIds.size === messages.length}
+            onChange={toggleSelectAll}
+            aria-label="Select all messages"
+            title="Select all"
+          />
+          <button
+            type="button"
+            className="be-gmail-icon"
+            onClick={runSync}
+            disabled={syncing}
+            title="Refresh"
+            aria-label="Refresh"
+          >
+            <RefreshCw size={15} className={syncing ? 'be-spin' : undefined} />
+          </button>
+          {selectedIds.size > 0 && (
+            <>
+              <span className="be-gmail-selcount">{selectedIds.size} selected</span>
+              <button
+                type="button"
+                className="be-gmail-icon"
+                onClick={() => runBulk('read')}
+                disabled={bulkBusy}
+                title="Mark as read"
+                aria-label="Mark as read"
+              >
+                <MailOpen size={15} />
+              </button>
+              <button
+                type="button"
+                className="be-gmail-icon"
+                onClick={() => runBulk('unread')}
+                disabled={bulkBusy}
+                title="Mark as unread"
+                aria-label="Mark as unread"
+              >
+                <Mail size={15} />
+              </button>
+              <button
+                type="button"
+                className="be-gmail-icon is-danger"
+                onClick={() => runBulk('delete')}
+                disabled={bulkBusy}
+                title="Delete"
+                aria-label="Delete"
+              >
+                <Trash2 size={15} />
+              </button>
+            </>
+          )}
+        </div>
+
         <label className="be-gmail-search">
           <Search size={16} strokeWidth={2} aria-hidden="true" />
           <input
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); clearSelection(); }}
             placeholder="Search mail"
             aria-label="Search mail"
           />
         </label>
+
         <div className="be-gmail-topbar-actions">
           <select
             className="be-gmail-mailbox"
@@ -412,9 +540,25 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
               <option key={email} value={email}>{email}</option>
             ))}
           </select>
-          <button type="button" className="be-gmail-sync" onClick={runSync} disabled={syncing}>
-            {syncing ? <Loader2 size={14} className="be-spin" /> : <RefreshCw size={14} />}
-            {syncing ? 'Syncing…' : 'Sync'}
+        </div>
+
+        <div className="be-gmail-pager-top">
+          <span>{total ? `${pageStart}–${pageEnd} of ${total}` : '0 messages'}</span>
+          <button
+            type="button"
+            onClick={() => { setPage((value) => Math.max(1, value - 1)); clearSelection(); }}
+            disabled={!hasPrev || loading}
+            aria-label="Previous page"
+          >
+            <ChevronLeft size={15} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            onClick={() => { setPage((value) => value + 1); clearSelection(); }}
+            disabled={!hasNext || loading}
+            aria-label="Next page"
+          >
+            <ChevronRight size={15} strokeWidth={2} />
           </button>
         </div>
       </div>
@@ -508,13 +652,32 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
                 {!loading && !initializing && messages.map((row) => {
                   const files = attachmentsOf(row);
                   return (
-                    <button
+                    <div
                       key={row.id}
-                      type="button"
                       role="listitem"
-                      className={`be-gmail-row${row.is_read || isSent ? '' : ' is-unread'}`}
+                      tabIndex={0}
+                      className={`be-gmail-row${row.is_read || isSent ? '' : ' is-unread'}${selectedIds.has(row.id) ? ' is-selected' : ''}`}
                       onClick={() => openMessage(row)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') openMessage(row); }}
                     >
+                      <input
+                        type="checkbox"
+                        className="be-gmail-check"
+                        checked={selectedIds.has(row.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => toggleSelect(row.id)}
+                        aria-label={`Select ${row.subject || 'message'}`}
+                      />
+                      <button
+                        type="button"
+                        className={`be-gmail-star${row.is_starred ? ' is-on' : ''}`}
+                        onClick={(e) => { e.stopPropagation(); toggleStar(row); }}
+                        title={row.is_starred ? 'Unstar' : 'Star'}
+                        aria-label={row.is_starred ? 'Unstar' : 'Star'}
+                      >
+                        <Star size={14} strokeWidth={2} fill={row.is_starred ? 'currentColor' : 'none'} />
+                      </button>
+
                       <span className="be-gmail-sender">
                         {isSent
                           ? (row.to_name || row.to_email || 'Recipients')
@@ -540,33 +703,27 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
                         )}
                       </span>
                       <span className="be-gmail-time">{formatWhen(row.received_at)}</span>
-                    </button>
+                      <span className="be-gmail-row-actions">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); toggleRead(row); }}
+                          title={row.is_read ? 'Mark as unread' : 'Mark as read'}
+                          aria-label={row.is_read ? 'Mark as unread' : 'Mark as read'}
+                        >
+                          {row.is_read ? <Mail size={14} /> : <MailOpen size={14} />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); runBulk('delete', [row.id]); }}
+                          title="Delete"
+                          aria-label="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </span>
+                    </div>
                   );
                 })}
-              </div>
-
-              <div className="be-gmail-pager">
-                <span className="be-gmail-pager-count">
-                  {total ? `${pageStart}–${pageEnd} of ${total}` : '0 messages'}
-                </span>
-                <div className="be-gmail-pager-buttons">
-                  <button
-                    type="button"
-                    onClick={() => setPage((value) => Math.max(1, value - 1))}
-                    disabled={!hasPrev || loading}
-                    aria-label="Previous page"
-                  >
-                    <ChevronLeft size={16} strokeWidth={2} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPage((value) => value + 1)}
-                    disabled={!hasNext || loading}
-                    aria-label="Next page"
-                  >
-                    <ChevronRight size={16} strokeWidth={2} />
-                  </button>
-                </div>
               </div>
             </>
           )}
@@ -580,6 +737,27 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
                 {message?.campaign_id ? (
                   <span className="be-gmail-campaign">Campaign #{message.campaign_id}</span>
                 ) : null}
+                {message && (
+                  <span className="be-gmail-read-tools">
+                    <button
+                      type="button"
+                      className={`be-gmail-star${message.is_starred ? ' is-on' : ''}`}
+                      onClick={() => toggleStar(message)}
+                      title={message.is_starred ? 'Unstar' : 'Star'}
+                      aria-label={message.is_starred ? 'Unstar' : 'Star'}
+                    >
+                      <Star size={15} strokeWidth={2} fill={message.is_starred ? 'currentColor' : 'none'} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => runBulk('delete', [message.id])}
+                      title="Delete"
+                      aria-label="Delete"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </span>
+                )}
               </div>
 
               {loadingMessage && (

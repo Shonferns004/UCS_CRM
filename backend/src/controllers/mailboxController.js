@@ -1,4 +1,5 @@
 import {
+  bulkMailboxAction,
   getMailboxAttachment,
   getMailboxMessage,
   listMailboxMessages,
@@ -73,6 +74,17 @@ export async function markRead(req, res) {
     const updated = await setMailboxMessageRead(req.params.id, read);
     if (!updated) return res.status(404).json({ message: 'Message not found' });
     return res.json(updated);
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
+
+export async function bulk(req, res) {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const action = String(req.body?.action || '').trim();
+    const result = await bulkMailboxAction(ids, action);
+    return res.json(result);
   } catch (error) {
     return res.status(400).json({ message: error.message });
   }
