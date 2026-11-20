@@ -2,8 +2,14 @@
  * Global "already messaged" tracking for Extractor leads.
  *
  * The used key is the phone number, not the lead: WhatsApp identity is the
- * number, and the same number can appear under two captured rows. Only a
- * successful send is recorded, so a failed attempt can be retried later.
+ * number, and the same number can appear under two captured rows.
+ *
+ * A number is marked used when Meta accepts the send (it returns a message id),
+ * because that is the only synchronous proof the CRM gets. Acceptance is not
+ * delivery, though: Meta can fail the message afterwards from a status webhook
+ * (131042 business eligibility, 131026 undeliverable, ...). Those numbers are
+ * released again by releaseFailedExtractorPhones() so the lead becomes
+ * available in Extractor and can be retried once the cause is fixed.
  */
 import db from '../config/db.js';
 
@@ -80,6 +86,39 @@ export async function recordExtractorOutreach({
   const digits = canonicalPhone(phone);
   if (!digits) return { changed: 0 };
   return markExtractorPhones({ phones: [digits], used: true, ngoId, campaignId });
+}
+
+/**
+ * Release numbers whose bulk message was accepted and then failed.
+ *
+ * Called from the delivery-status webhook. A number is freed only when every
+ * bulk message logged for it is failed; if any other send to the same number
+ * was accepted / sent / delivered / read, the number stays used. That keeps a
+ * failure in one campaign from freeing a number that already received another
+ * message.
+ *
+ * Returns the numbers that were actually released.
+ */
+export async function releaseFailedExtractorPhones(phones) {
+  const list = [...new Set((Array.isArray(phones) ? phones : []).map(canonicalPhone).filter(Boolean))];
+  if (list.length === 0) return [];
+
+  const { rows } = await db._pool.query(
+    `DELETE FROM extractor_lead_outreach o
+      WHERE o.phone_e164 = ANY($1::text[])
+        AND EXISTS (
+          SELECT 1 FROM whatsapp_bulk_recipients r
+           WHERE r.phone = o.phone_e164
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM whatsapp_bulk_recipients r
+           WHERE r.phone = o.phone_e164
+             AND COALESCE(r.status, '') <> 'failed'
+        )
+      RETURNING o.phone_e164`,
+    [list],
+  );
+  return rows.map((row) => row.phone_e164);
 }
 
 /** Global totals: distinct mobile numbers, and how many were messaged. */

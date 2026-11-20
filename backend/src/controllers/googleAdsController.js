@@ -27,6 +27,7 @@ import {
   testGoogleConnection,
 } from '../services/googleAdsService.js';
 import { getGoogleAdsOverview } from '../services/googleAdsOverview.js';
+import { notifyNewLead } from '../services/leadWhatsAppAlertService.js';
 
 const clampInt = (value, min, max, fallback) => {
   const n = Number(value);
@@ -416,10 +417,11 @@ export async function importGoogleAdsLeads(req, res) {
       ].filter(Boolean).join('\n');
 
       try {
-        await db._pool.query(
+        const { rows: inserted } = await db._pool.query(
           `INSERT INTO leads
              (name, phone, email, source, status, notes, gclid, google_campaign_id, google_campaign_name, created_at)
-           VALUES ($1,$2,$3,'Google Ads Lead Form','new',$4,$5,$6,$7,$8)`,
+           VALUES ($1,$2,$3,'Google Ads Lead Form','new',$4,$5,$6,$7,$8)
+           RETURNING id`,
           [
             lead.name || lead.phone || lead.email,
             lead.phone || null,
@@ -433,6 +435,14 @@ export async function importGoogleAdsLeads(req, res) {
         );
         imported += 1;
         if (lead.gclid) existingGclids.add(lead.gclid);
+        const created = inserted[0];
+        if (created) {
+          notifyNewLead({
+            leadId: created.id,
+            source: 'Google Ads Lead Form',
+            dedupeKey: lead.gclid ? `gclid:${lead.gclid}` : `lead:${created.id}`,
+          }).catch(() => {});
+        }
       } catch (e) {
         if (errors.length < 3) errors.push(e.message);
       }
