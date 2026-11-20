@@ -2,6 +2,7 @@ import {
   getMailboxAttachment,
   getMailboxMessage,
   listMailboxMessages,
+  sendMailboxReply,
   setMailboxMessageRead,
   syncMailbox,
 } from '../services/mailboxService.js';
@@ -23,8 +24,8 @@ export async function listMessages(req, res) {
       folder: req.query?.folder,
       search: req.query?.search,
       unreadOnly: String(req.query?.unread || '') === '1',
+      page: req.query?.page,
       limit: req.query?.limit,
-      before: req.query?.before || null,
     });
     return res.json(data);
   } catch (error) {
@@ -72,6 +73,27 @@ export async function markRead(req, res) {
     const updated = await setMailboxMessageRead(req.params.id, read);
     if (!updated) return res.status(404).json({ message: 'Message not found' });
     return res.json(updated);
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
+
+export async function reply(req, res) {
+  try {
+    const files = Array.isArray(req.files)
+      ? req.files.map((file) => ({
+        filename: file.originalname,
+        content: file.buffer,
+        contentType: file.mimetype,
+      }))
+      : [];
+
+    const result = await sendMailboxReply(req.params.id, {
+      text: req.body?.text || '',
+      html: req.body?.html || '',
+      attachments: files,
+    });
+    return res.status(201).json(result);
   } catch (error) {
     return res.status(400).json({ message: error.message });
   }

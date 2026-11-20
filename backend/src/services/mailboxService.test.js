@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { imapConfigForSender } from './mailboxService.js';
+import { imapConfigForSender, replySubject } from './mailboxService.js';
 
 test('IMAP host follows the SMTP provider instead of always Gmail', () => {
   assert.equal(
@@ -38,4 +38,11 @@ test('password normalisation stays provider aware for IMAP too', () => {
     imapConfigForSender({ email: 'csr@beingsevak.org', smtp_host: 'smtp.hostinger.com', app_password: 'my pass' }).auth.pass,
     'my pass',
   );
+});
+
+test('reply subjects get a single Re: prefix', () => {
+  assert.equal(replySubject('An update from Being Sevak'), 'Re: An update from Being Sevak');
+  assert.equal(replySubject('Re: An update'), 'Re: An update');
+  assert.equal(replySubject('RE: donation'), 'RE: donation');
+  assert.equal(replySubject(''), 'Re: (no subject)');
 });
