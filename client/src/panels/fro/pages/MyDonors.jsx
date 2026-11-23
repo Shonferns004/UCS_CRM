@@ -296,6 +296,23 @@ function useTomorrowStr() {
 
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
+// Lead Queues (WhatsApp / Meta / Email / Google) have their own card list and do
+// not go through the donor queue search. Match the search box the same way the
+// placeholder promises: a bare number hits the mobile digits, anything else hits
+// the name (plus campaign/NGO/station so a search by campaign still works).
+const waLeadMatchesSearch = (lead, rawTerm) => {
+  const term = String(rawTerm || '').trim().toLowerCase();
+  if (!term) return true;
+  const digits = term.replace(/\D/g, '');
+  const phoneDigits = String(lead?.phone || '').replace(/\D/g, '');
+  if (digits && phoneDigits.includes(digits)) return true;
+  if (digits && /^\d+$/.test(term)) return false;
+  const hay = [lead?.name, lead?.phone, lead?.campaign, lead?.ngo_name, lead?.station]
+    .map((v) => String(v || '').toLowerCase())
+    .join(' ');
+  return hay.includes(term);
+};
+
 // How many leads the MY LEADS list renders at a time. The allotment can be
 // thousands of rows; rendering them all at once makes the list janky on low-end
 // phones and wastes paint on rows nobody scrolls to. The window grows by this
@@ -2389,9 +2406,11 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
             </div>
           )}
           {showWaLeads && (() => {
+            const q = searchQuery.trim();
+            const matches = waLeads.filter((lead) => waLeadMatchesSearch(lead, q));
             const bySource = { whatsapp: 0, meta: 0, email: 0, google: 0 };
-            for (const lead of waLeads) bySource[lead.source || 'whatsapp'] += 1;
-            const shown = waLeads.filter((lead) => (lead.source || 'whatsapp') === waSource);
+            for (const lead of matches) bySource[lead.source || 'whatsapp'] += 1;
+            const shown = matches.filter((lead) => (lead.source || 'whatsapp') === waSource);
             const TABS = [['whatsapp', 'WhatsApp'], ['meta', 'Meta'], ['email', 'Email'], ['google', 'Google']];
             const sourceLabel = (TABS.find(([key]) => key === waSource) || TABS[0])[1];
             return (
@@ -2413,9 +2432,9 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               </div>
               {shown.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--ink-soft)' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 32, opacity: .4 }}>mark_email_unread</span>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>No {sourceLabel} leads yet</div>
-                  <div style={{ fontSize: 12 }}>When the admin places a lead on your {sourceLabel} station it appears here.</div>
+                  <span className="material-symbols-outlined" style={{ fontSize: 32, opacity: .4 }}>{q ? 'search_off' : 'mark_email_unread'}</span>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{q ? `No ${sourceLabel} leads match "${q}"` : `No ${sourceLabel} leads yet`}</div>
+                  <div style={{ fontSize: 12 }}>{q ? 'Clear the search to see every lead in this tab.' : `When the admin places a lead on your ${sourceLabel} station it appears here.`}</div>
                 </div>
               ) : shown.map((l) => {
                 const parsed = parseLeadNotes(l.reply_notes || l.notes);
@@ -2761,7 +2780,16 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         </div>
         <div style={{ padding: '8px 14px', borderTop: '1px solid var(--line)', fontSize: 10, color: 'var(--ink-soft)' }}>
           {showWaLeads
-            ? `Showing ${waLeads.length} SS lead(s)`
+            ? (() => {
+                const q = searchQuery.trim();
+                const matches = waLeads.filter((l) => waLeadMatchesSearch(l, q));
+                const label = ({ whatsapp: 'WhatsApp', meta: 'Meta', email: 'Email', google: 'Google' })[waSource] || 'WhatsApp';
+                const sourceTotal = waLeads.filter((l) => (l.source || 'whatsapp') === waSource).length;
+                const shownCount = matches.filter((l) => (l.source || 'whatsapp') === waSource).length;
+                return q
+                  ? `Showing ${shownCount} of ${sourceTotal} ${label} lead(s) found`
+                  : `Showing ${sourceTotal} ${label} lead(s)`;
+              })()
             : loading
             ? 'Loading leads…'
             : isHistory

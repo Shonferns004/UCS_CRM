@@ -233,6 +233,11 @@ const [sending, setSending] = useState(false);
     event: 'INSERT',
     onInsert: (row) => {
       if (!row || row.folder !== 'INBOX') return;
+      // The open Mailbox tab reports its own unread count; incrementing here too
+      // would double-count and drift from the folder badge.
+      if (activeTab === 'mailbox') return;
+      const badgeEmail = String(selectedSender?.email || senders[0]?.email || '').toLowerCase();
+      if (badgeEmail && String(row.account_email || '').toLowerCase() !== badgeEmail) return;
       setMailboxUnread((prev) => prev + 1);
     },
   });
@@ -1592,7 +1597,11 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
       )}
 
       {activeTab === 'mailbox' && (
-        <BulkMailbox senders={senders} defaultEmail={selectedSender?.email || ''} />
+        <BulkMailbox
+          senders={senders}
+          defaultEmail={selectedSender?.email || ''}
+          onUnreadChange={setMailboxUnread}
+        />
       )}
 
       {selectedLog && (

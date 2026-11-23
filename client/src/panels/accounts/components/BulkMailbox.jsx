@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -35,6 +36,14 @@ const PAGE_SIZE = 50;
 const FOLDERS = [
   { id: 'INBOX', label: 'Inbox', Icon: Inbox },
   { id: 'Sent', label: 'Sent', Icon: Send },
+];
+const SELECT_OPTIONS = [
+  { id: 'all', label: 'All' },
+  { id: 'none', label: 'None' },
+  { id: 'read', label: 'Read' },
+  { id: 'unread', label: 'Unread' },
+  { id: 'starred', label: 'Starred' },
+  { id: 'unstarred', label: 'Unstarred' },
 ];
 
 function formatWhen(value) {
@@ -124,7 +133,7 @@ export function buildEmailDocument(html, { allowImages = false } = {}) {
   </style></head><body>${body}</body></html>`;
 }
 
-export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
+export default function BulkMailbox({ senders = [], defaultEmail = '', onUnreadChange }) {
   const [mailbox, setMailbox] = useState(defaultEmail || '');
   const [folder, setFolder] = useState('INBOX');
   const [search, setSearch] = useState('');
@@ -145,6 +154,7 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
   const [downloading, setDownloading] = useState(null);
   const [toasts, setToasts] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [selectMenuOpen, setSelectMenuOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeTo, setComposeTo] = useState('');
@@ -243,6 +253,12 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mailbox]);
 
+  // Keep the Mailbox tab badge in step with the mailbox we are actually
+  // showing: reading a message here immediately lowers the top count too.
+  useEffect(() => {
+    if (typeof onUnreadChange === 'function') onUnreadChange(unread);
+  }, [unread, onUnreadChange]);
+
   const pushToast = useCallback((row) => {
     const id = row?.id || Date.now();
     setToasts((prev) => {
@@ -302,6 +318,26 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
       ? new Set()
       : new Set(messages.map((item) => item.id))
   ));
+
+  const applySelectOption = (kind) => {
+    setSelectMenuOpen(false);
+    if (kind === 'all') {
+      setSelectedIds(new Set(messages.map((item) => item.id)));
+      return;
+    }
+    if (kind === 'none') {
+      setSelectedIds(new Set());
+      return;
+    }
+    const predicate = {
+      read: (row) => isSent || row.is_read,
+      unread: (row) => !isSent && !row.is_read,
+      starred: (row) => row.is_starred,
+      unstarred: (row) => !row.is_starred,
+    }[kind];
+    if (!predicate) return;
+    setSelectedIds(new Set(messages.filter(predicate).map((item) => item.id)));
+  };
 
   const runBulk = async (action, ids) => {
     const list = Array.isArray(ids) && ids.length ? ids : Array.from(selectedIds);
@@ -527,14 +563,48 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
     <section className="be-gmail">
       <div className="be-gmail-topbar">
         <div className="be-gmail-tools">
-          <input
-            type="checkbox"
-            className="be-gmail-check"
-            checked={messages.length > 0 && selectedIds.size === messages.length}
-            onChange={toggleSelectAll}
-            aria-label="Select all messages"
-            title="Select all"
-          />
+          <div className="be-gmail-select">
+            <input
+              type="checkbox"
+              className="be-gmail-check"
+              checked={messages.length > 0 && selectedIds.size === messages.length}
+              onChange={toggleSelectAll}
+              aria-label="Select all messages"
+              title="Select all"
+            />
+            <button
+              type="button"
+              className="be-gmail-select-caret"
+              onClick={() => setSelectMenuOpen((value) => !value)}
+              aria-label="Select options"
+              title="Select"
+            >
+              <ChevronDown size={13} strokeWidth={2} />
+            </button>
+            {selectMenuOpen && (
+              <>
+                <button
+                  type="button"
+                  className="be-gmail-select-backdrop"
+                  aria-label="Close select menu"
+                  onClick={() => setSelectMenuOpen(false)}
+                />
+                <div className="be-gmail-select-menu" role="menu">
+                  {SELECT_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="menuitem"
+                      className="be-gmail-select-item"
+                      onClick={() => applySelectOption(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <button
             type="button"
             className="be-gmail-icon"
@@ -729,7 +799,7 @@ export default function BulkMailbox({ senders = [], defaultEmail = '' }) {
                       key={row.id}
                       role="listitem"
                       tabIndex={0}
-                      className={`be-gmail-row${row.is_read || isSent ? '' : ' is-unread'}${selectedIds.has(row.id) ? ' is-selected' : ''}`}
+                      className={`be-gmail-row${isSent ? '' : row.is_read ? ' is-read' : ' is-unread'}${selectedIds.has(row.id) ? ' is-selected' : ''}`}
                       onClick={() => openMessage(row)}
                       onKeyDown={(e) => { if (e.key === 'Enter') openMessage(row); }}
                     >
