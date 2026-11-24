@@ -31,13 +31,13 @@
 | Social | [PANEL](03-Panel-Documentation/Social/PANEL.md) | `/social` |
 | Super Admin | [PANEL](03-Panel-Documentation/Super-Admin/PANEL.md) | `/sa` |
 | WhatsApp | [PANEL](03-Panel-Documentation/WhatsApp/PANEL.md) | `/wa` |
-| Embedded — Beneficiaries | [PANEL](03-Panel-Documentation/Embedded-Beneficiaries/PANEL.md) | embedded in Accounts/Super-Admin |
+| Embedded — Beneficiaries | [PANEL](03-Panel-Documentation/Embedded-Beneficiaries/PANEL.md) · [APP (JOD)](03-Panel-Documentation/Embedded-Beneficiaries/APP.md) | embedded in Accounts/Super-Admin |
 | Embedded — Sevak Library | [PANEL](03-Panel-Documentation/Embedded-Sevak-Library/PANEL.md) | `/api/sevak-library` |
 
 Each PANEL.md: Overview (Verified) · Screens & UI · Features · Technical Implementation · Business Logic · API Endpoints · Panel Summary.
 
 ## 04 — Module Workflows (Mermaid)
-- [WF-LEAD-RECEIPT](04-Module-Workflows/WF-LEAD-RECEIPT.md) · [WF-ATTENDANCE](04-Module-Workflows/WF-ATTENDANCE.md) · [WF-PAYROLL](04-Module-Workflows/WF-PAYROLL.md) · [WF-FRO-TIME](04-Module-Workflows/WF-FRO-TIME.md)
+- [WF-LEAD-RECEIPT](04-Module-Workflows/WF-LEAD-RECEIPT.md) · [WF-ATTENDANCE](04-Module-Workflows/WF-ATTENDANCE.md) · [WF-PAYROLL](04-Module-Workflows/WF-PAYROLL.md) · [WF-FRO-TIME](04-Module-Workflows/WF-FRO-TIME.md) · [WF-GOOGLE-ADS](04-Module-Workflows/WF-GOOGLE-ADS.md)
 
 ## 05 — Database Documentation
 - [DATA-DICTIONARY](05-Database-Documentation/DATA-DICTIONARY.md) — 179 tables with backend provenance

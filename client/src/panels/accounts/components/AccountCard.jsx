@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, Download, List, Pencil, Plus, Trash2 } from 'lucide-react';
+import { apiGet } from '../api/auth';
 
 const MASK = '••••••••••••••••';
 
@@ -67,8 +68,25 @@ export default function AccountCard({
   };
 
   const connected = Boolean(account.is_active);
-  const quality = account.quality ?? account.quality_rating ?? 'N/A';
-  const qualityLabel = quality === 'N/A' ? 'Not available' : quality;
+const [quality, setQuality] = useState(account.quality ?? account.quality_rating ?? 'N/A');
+useEffect(() => {
+  let cancelled = false;
+  (async () => {
+    try {
+      const h = await apiGet(`/whatsapp/accounts/${account.id}/health`);
+      if (cancelled) return;
+      setQuality(h?.quality || account.quality || account.quality_rating || 'N/A');
+    } catch {
+      // keep fallback
+    }
+  })();
+  return () => { cancelled = true; };
+}, [account.id]);
+const qualityClass = quality === 'GREEN' ? 'wa-chip-quality-green'
+  : quality === 'YELLOW' ? 'wa-chip-quality-yellow'
+  : quality === 'RED' ? 'wa-chip-quality-red'
+  : 'wa-chip-quality';
+const qualityLabel = quality === 'N/A' ? 'Not available' : quality;
   const phone = account.phone_number_id || '';
   const waba = account.waba_id || '';
   const token = account.access_token || '';
@@ -85,7 +103,7 @@ export default function AccountCard({
           <div className="wa-card-chips">
             <span className="wa-chip wa-chip-code">{account.project}</span>
             {account.is_default && <span className="wa-chip wa-chip-default">Default</span>}
-            <span className="wa-chip wa-chip-quality">Quality {qualityLabel}</span>
+            <span className={`wa-chip ${qualityClass}`}>Quality {qualityLabel}</span>
           </div>
         </div>
         <span className={`wa-status ${connected ? 'is-on' : 'is-off'}`}>

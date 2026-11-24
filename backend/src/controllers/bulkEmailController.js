@@ -2,16 +2,19 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
+  cancelBulkEmailCampaign,
+  createBulkEmailCampaign,
   createBulkEmailTemplate,
   deleteBulkEmailTemplate,
   getBulkEmailLog,
   getBulkEmailTemplate,
   getBulkEmailTemplateAttachment,
+  getBulkEmailTemplateAttachments,
   listBulkEmailLogs,
   listBulkEmailRecipients,
+  listBulkEmailReplies,
   listBulkEmailTemplates,
-  saveBulkEmailLog,
-  sendBulkEmail,
+  runBulkEmailCampaign,
   updateBulkEmailTemplate,
 } from '../services/bulkEmailService.js';
 import {
@@ -24,6 +27,23 @@ import {
   recordUnsubscribe,
   verifyUnsubscribeToken,
 } from '../services/bulkEmailUnsubscribe.js';
+import { pollBulkEmailReplies } from '../services/bulkEmailReplyImporter.js';
+import {
+  createSender as createSenderRecord,
+  deleteSender as deleteSenderRecord,
+  getSenderById,
+  listPublicSenders,
+  updateSender as updateSenderRecord,
+} from '../models/bulkEmailSenderModel.js';
+import {
+  isValidSenderEmail,
+  maskSenderPassword,
+  normalizeAppPassword,
+  normalizeSenderEmail,
+  normalizeSmtpHost,
+  normalizeSmtpPort,
+  verifySenderLogin,
+} from '../services/bulkEmailSenderService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EMAIL_ASSET_DIR = path.resolve(__dirname, '../../uploads/email-assets');
@@ -61,7 +81,7 @@ export async function listRecipients(req, res) {
 
 export async function send(req, res) {
   try {
-    const { subject, text, html, source } = req.body || {};
+    const { subject, text, html, source, sender_id } = req.body || {};
     let { recipients } = req.body || {};
     if (typeof recipients === 'string') {
       try {
@@ -70,28 +90,59 @@ export async function send(req, res) {
         recipients = [];
       }
     }
-    const attachment = req.file
-      ? { filename: req.file.originalname, content: req.file.buffer, contentType: req.file.mimetype }
-      : null;
-    const result = await sendBulkEmail({
-      subject,
-      text,
-      html,
-      recipients,
-      attachment,
-      unsubscribeBaseUrl: publicBaseUrl(req),
+const attachment = req.files && req.files.length
+  ? req.files.map((f) => ({ filename: f.originalname, content: f.buffer, contentType: f.mimetype }))
+  : null;
+const attachments = attachment || [];
+const createdBy = req.user?.name || req.user?.email || req.user?.login_id || null;
+const campaign = await createBulkEmailCampaign({
+  subject,
+  text,
+  html,
+  recipients,
+  source,
+  attachments,
+  createdBy,
+  senderId: sender_id,
+});
+
+    // Send in the background and reply immediately. A 300-400 recipient
+    // campaign runs for several minutes; blocking the HTTP request caused the
+    // client timeout to fire while emails were still going out.
+    runBulkEmailCampaign(campaign.id, { unsubscribeBaseUrl: publicBaseUrl(req) })
+      .catch((error) => console.error(`Bulk email campaign ${campaign.id} failed:`, error?.message || error));
+
+    return res.status(202).json({
+      log_id: campaign.id,
+      total: campaign.total,
+      skipped: campaign.skipped,
+      status: campaign.status,
     });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
 
-    try {
-      const createdBy = req.user?.name || req.user?.email || req.user?.login_id || null;
-      const log = await saveBulkEmailLog({ subject, text, source, result, createdBy });
-      result.log_id = log?.id || null;
-    } catch (logError) {
-      console.error('Could not save bulk email log:', logError?.message || logError);
-      result.log_error = 'Campaign sent, but history could not be saved.';
+export async function resumeCampaign(req, res) {
+  try {
+    const log = await getBulkEmailLog(req.params.id);
+    if (!log) return res.status(404).json({ message: 'Log not found' });
+    if (log.status === 'processing') {
+      return res.status(409).json({ message: 'This campaign is already sending.' });
     }
+    runBulkEmailCampaign(log.id, { unsubscribeBaseUrl: publicBaseUrl(req) })
+      .catch((error) => console.error(`Bulk email campaign ${log.id} resume failed:`, error?.message || error));
+    return res.status(202).json({ log_id: log.id, status: 'processing' });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
 
-    return res.json(result);
+export async function cancelCampaign(req, res) {
+  try {
+    const cancelled = await cancelBulkEmailCampaign(req.params.id);
+    if (!cancelled) return res.status(404).json({ message: 'No active campaign to cancel' });
+    return res.json({ message: 'Campaign cancelled' });
   } catch (error) {
     return res.status(400).json({ message: error.message });
   }
@@ -138,18 +189,18 @@ export async function createTemplate(req, res) {
     if (!body) return res.status(400).json({ message: 'Template body is required' });
 
     const createdBy = req.user?.name || req.user?.email || req.user?.login_id || null;
-    const attachment = req.file
-      ? { filename: req.file.originalname, content: req.file.buffer, contentType: req.file.mimetype }
-      : null;
-    const template = await createBulkEmailTemplate({
-      name: String(name).trim(),
-      subject: String(subject).trim(),
-      body,
-      createdBy,
-      attachment,
-      design,
-      html: rendered?.html || null,
-    });
+const attachments = req.files && req.files.length
+  ? req.files.map((f) => ({ filename: f.originalname, content: f.buffer, contentType: f.mimetype }))
+  : null;
+const template = await createBulkEmailTemplate({
+  name: String(name).trim(),
+  subject: String(subject).trim(),
+  body,
+  createdBy,
+  attachments: attachments || [],
+  design,
+  html: rendered?.html || null,
+});
     return res.status(201).json(template);
   } catch (error) {
     const message = String(error.message || '');
@@ -178,19 +229,19 @@ export async function updateTemplate(req, res) {
       return res.status(400).json({ message: 'Template body is required' });
     }
 
-    const attachment = req.file
-      ? { filename: req.file.originalname, content: req.file.buffer, contentType: req.file.mimetype }
-      : null;
-    const removeAttachment = String(req.body?.remove_attachment || '') === 'true';
-    const template = await updateBulkEmailTemplate(req.params.id, {
-      name: String(name).trim(),
-      subject: String(subject).trim(),
-      body,
-      attachment,
-      removeAttachment,
-      design: designProvided ? design : undefined,
-      html: designProvided ? (rendered?.html || null) : undefined,
-    });
+const attachments = req.files && req.files.length
+  ? req.files.map((f) => ({ filename: f.originalname, content: f.buffer, contentType: f.mimetype }))
+  : null;
+const removeAttachments = String(req.body?.remove_attachments || '') === 'true';
+const template = await updateBulkEmailTemplate(req.params.id, {
+  name: String(name).trim(),
+  subject: String(subject).trim(),
+  body,
+  attachments: attachments || undefined,
+  removeAttachments,
+  design: designProvided ? design : undefined,
+  html: designProvided ? (rendered?.html || null) : undefined,
+});
     if (!template) return res.status(404).json({ message: 'Template not found' });
     return res.json(template);
   } catch (error) {
@@ -332,9 +383,19 @@ export async function unsubscribeOneClick(req, res) {
   }
 }
 
+export async function listTemplateAttachments(req, res) {
+  try {
+    const attachments = await getBulkEmailTemplateAttachments(req.params.id);
+    return res.json({ attachments });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
 export async function getTemplateAttachment(req, res) {
   try {
-    const attachment = await getBulkEmailTemplateAttachment(req.params.id);
+    const attachmentId = req.params.aid || null;
+    const attachment = await getBulkEmailTemplateAttachment(req.params.id, attachmentId);
     if (!attachment) return res.status(404).json({ message: 'This template has no attachment' });
     res.setHeader('Content-Type', attachment.contentType);
     res.setHeader('Content-Disposition', `inline; filename="${String(attachment.filename).replace(/"/g, '')}"`);
@@ -349,6 +410,139 @@ export async function deleteTemplate(req, res) {
     const removed = await deleteBulkEmailTemplate(req.params.id);
     if (!removed) return res.status(404).json({ message: 'Template not found' });
     return res.json({ message: 'Template deleted' });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
+
+export async function pollReplies(req, res) {
+  try {
+    const result = await pollBulkEmailReplies();
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function listReplies(req, res) {
+  try {
+    const replies = await listBulkEmailReplies({
+      search: req.query.search,
+      limit: req.query.limit,
+    });
+    return res.json(replies);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sender mailboxes (bulk_email_senders). The app password is write-only: it is
+// accepted here, stored in the database and never returned to the client.
+// ---------------------------------------------------------------------------
+
+export async function listSenders(req, res) {
+  try {
+    const senders = await listPublicSenders();
+    return res.json({ senders });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function createSender(req, res) {
+  try {
+    const { display_name, email, app_password, smtp_host, smtp_port } = req.body || {};
+    const normalizedEmail = normalizeSenderEmail(email);
+    if (!normalizedEmail) return res.status(400).json({ message: 'Email address is required' });
+    if (!isValidSenderEmail(normalizedEmail)) return res.status(400).json({ message: 'Enter a valid email address' });
+
+    // Validated before the password so a typo in the server name is reported as
+    // such, not as a bad password.
+    const host = normalizeSmtpHost(smtp_host);
+    const port = normalizeSmtpPort(smtp_port);
+    const password = normalizeAppPassword(app_password, host);
+    if (!password) return res.status(400).json({ message: 'Email password is required' });
+
+    const sender = await createSenderRecord({
+      display_name,
+      email: normalizedEmail,
+      app_password: password,
+      smtp_host: host,
+      smtp_port: port,
+    });
+    // Saved first, then verified: a temporary SMTP outage must not lose the
+    // account, but the UI still needs to know the login was not confirmed.
+    const verification = await verifySenderLogin(sender);
+
+    return res.status(201).json({
+      ...sender,
+      app_password: maskSenderPassword(sender.app_password),
+      verified: verification.ok,
+      verify_message: verification.message,
+    });
+  } catch (error) {
+    const message = String(error.message || 'Could not add the sender');
+    if (message.includes('already added')) return res.status(409).json({ message });
+    return res.status(400).json({ message });
+  }
+}
+
+export async function updateSender(req, res) {
+  try {
+    const { display_name, email, app_password, smtp_host, smtp_port, is_active } = req.body || {};
+    if (email !== undefined && !isValidSenderEmail(email)) {
+      return res.status(400).json({ message: 'Enter a valid email address' });
+    }
+
+    const sender = await updateSenderRecord(req.params.id, {
+      display_name,
+      email,
+      app_password,
+      smtp_host,
+      smtp_port,
+      is_active,
+    });
+    if (!sender) return res.status(404).json({ message: 'Sender not found' });
+
+    // A login check is worth running whenever the credentials or the mail server
+    // changed — switching to a different provider is exactly when it matters.
+    const passwordChanged = app_password !== undefined && String(app_password || '').trim() !== '';
+    const connectionChanged = passwordChanged || smtp_host !== undefined || smtp_port !== undefined;
+    const verification = connectionChanged
+      ? await verifySenderLogin(sender)
+      : { ok: true, message: 'Saved' };
+
+    return res.json({
+      ...sender,
+      app_password: maskSenderPassword(sender.app_password),
+      verified: verification.ok,
+      verify_message: verification.message,
+    });
+  } catch (error) {
+    const message = String(error.message || 'Could not update the sender');
+    if (message.includes('already added')) return res.status(409).json({ message });
+    return res.status(400).json({ message });
+  }
+}
+
+export async function deleteSender(req, res) {
+  try {
+    const removed = await deleteSenderRecord(req.params.id);
+    if (!removed) return res.status(404).json({ message: 'Sender not found' });
+    return res.json({ message: 'Sender deleted' });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
+
+export async function testSender(req, res) {
+  try {
+    const sender = await getSenderById(req.params.id);
+    if (!sender) return res.status(404).json({ message: 'Sender not found' });
+    // Always 200 with an ok flag: a failed login is a result, not a bad request.
+    const verification = await verifySenderLogin(sender);
+    return res.json({ ok: verification.ok, message: verification.message });
   } catch (error) {
     return res.status(400).json({ message: error.message });
   }

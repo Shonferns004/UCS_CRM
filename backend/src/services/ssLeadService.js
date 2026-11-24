@@ -16,8 +16,52 @@
 // ---------------------------------------------------------------------------
 import db from '../config/db.js';
 import crypto from 'crypto';
+import { isValidIndianMobile } from '../utils/phone.js';
 
+// Legacy station names. Kept so an un-migrated row still resolves while the
+// rename is rolling out; new placements use LEAD_STATIONS only.
 export const SS_STATIONS = { BSCT: 'SS-BSCT', AFLF: 'SS-AFLF', MANN: 'SS-MANN' };
+
+// One station per (NGO, source). The source prefix is what tells a station owner
+// whether they are working WhatsApp replies, Meta lead ads, email leads or
+// Google lead-form submissions.
+export const GOOGLE_LEAD_SOURCE = 'Google Ads Lead Form';
+
+export const LEAD_STATIONS = {
+  BSCT: { whatsapp: 'B-WhatsApp-Leads', meta: 'B-Meta-Leads', email: 'B-Email-Leads', google: 'B-Google-Leads' },
+  AFLF: { whatsapp: 'A-WhatsApp-Leads', meta: 'A-Meta-Leads', email: 'A-Email-Leads', google: 'A-Google-Leads' },
+  MANN: { whatsapp: 'M-WhatsApp-Leads', meta: 'M-Meta-Leads', email: 'M-Email-Leads', google: 'M-Google-Leads' },
+};
+
+// 'Meta Lead Ad' -> meta, 'Google Ads Lead Form' -> google, 'Email Lead' -> email,
+// everything else is a WhatsApp reply.
+export function sourceKeyOf(source) {
+  const value = String(source || '').toLowerCase();
+  if (value.includes('meta')) return 'meta';
+  if (value.includes('google')) return 'google';
+  if (value.includes('email')) return 'email';
+  return 'whatsapp';
+}
+
+export function stationFor(ngo, source) {
+  const key = String(ngo || '').toUpperCase();
+  return LEAD_STATIONS[key]?.[sourceKeyOf(source)] || null;
+}
+
+export const ALL_LEAD_STATIONS = [
+  ...new Set([
+    ...Object.values(LEAD_STATIONS).flatMap((bySource) => Object.values(bySource)),
+    ...Object.values(SS_STATIONS),
+  ]),
+];
+
+export const STATIONS_BY_SOURCE = {
+  whatsapp: Object.values(LEAD_STATIONS).map((s) => s.whatsapp),
+  meta: Object.values(LEAD_STATIONS).map((s) => s.meta),
+  email: Object.values(LEAD_STATIONS).map((s) => s.email),
+  google: Object.values(LEAD_STATIONS).map((s) => s.google),
+  legacy: Object.values(SS_STATIONS),
+};
 
 // Explicit "yes, I am interested" signals only. This is the auto-placement gate:
 // a reply that does not clear this stays in the admin inbox for a human to
@@ -58,8 +102,89 @@ export function shouldAiCheckSsReply(text) {
 // Output: { score 0-100, label, reasons[] }.
 const SERVICE_TEXT = /(receipt|80\s*g|pan\s*number|wrong\s*name|address\s*change|already\s*donated)/i;
 
+// Meta Instant Forms answers are free text chosen by the advertiser, so the same
+// intent arrives under different keys ("How would you like to help?",
+// "make_a_donation"). Scoring the VALUE, not the key, is what stops a paid lead
+// from sitting in the inbox as "Low 25% - no buying signal".
+// Meta answers arrive slug-cased ("make_a_donation", "learn_more_about_our_ngo"),
+// so the separators have to accept underscore and hyphen as well as whitespace.
+const SEP = '[\\s_-]*';
+const META_INTENT_RULES = [
+  { re: new RegExp(`make${SEP}a${SEP}donation|donate${SEP}now|want${SEP}to${SEP}donate|wish(?:es)?${SEP}to${SEP}donate`, 'i'), score: 95, reason: 'Asked to donate' },
+  { re: /sponsor|csr|corporate|partnership/i, score: 85, reason: 'Sponsorship / CSR interest' },
+  { re: /volunteer/i, score: 60, reason: 'Volunteer interest' },
+  { re: new RegExp(`learn${SEP}more|more${SEP}information|know${SEP}more|interested`, 'i'), score: 65, reason: 'Wants more information' },
+];
+
+// Geography and CRM bookkeeping are not buying signals.
+const META_ANSWER_SKIP = /^(state|inbox url|inbox_url|inboxurl|city|town|platform|campaign|form|account|meta lead|lead|page|ad|adset)$/i;
+
+const META_YES = /^(yes|y|haan|ha|sure|ok|okay)$/i;
+const META_NO = /^(no|n|nahi|not\s*interested|maybe\s*later)$/i;
+// A question can ask about donating without using one of the option slugs
+// ("Would you like to donate today?"). Receipt/document questions are not new
+// donations, so they are excluded.
+const META_DONATION_QUESTION = /\bdonat(e|ion|ing)\b/i;
+const META_SERVICE_QUESTION = /receipt|80\s*g|pan\s*number|already\s*donated|address/i;
+
+export function metaAnswerPairs(notes) {
+  const text = String(notes || '');
+  const pairs = [];
+  for (const line of text.split('\n')) {
+    const match = /^([^:[\]]{2,120}):\s*(.+)$/.exec(line.trim());
+    if (!match) continue;
+    if (META_ANSWER_SKIP.test(match[1].trim())) continue;
+    pairs.push({ question: match[1].trim(), answer: match[2].trim() });
+  }
+  return pairs;
+}
+
+export function scoreMetaLead(notes) {
+  // Keep the pair together: the question tells us what a bare "Yes" means.
+  const pairs = metaAnswerPairs(notes);
+
+  let score = 35;
+  let reason = pairs.length ? 'No buying signal in the form answers' : 'Form had no custom answers';
+  let best = null;
+  const consider = (rule) => {
+    if (!best || rule.score > best.score) best = rule;
+  };
+
+  for (const { question, answer } of pairs) {
+    let matched = false;
+    for (const rule of META_INTENT_RULES) {
+      if (!rule.re.test(answer)) continue;
+      consider(rule);
+      matched = true;
+      break;
+    }
+    if (matched) continue;
+
+    // A form can ask "Would you like to donate?" and the answer is just "Yes".
+    // Without the question, that answer carries no signal at all.
+    const questionRule = META_INTENT_RULES.find((rule) => rule.re.test(question))
+      || (META_DONATION_QUESTION.test(question) && !META_SERVICE_QUESTION.test(question)
+        ? META_INTENT_RULES[0]
+        : null);
+    if (!questionRule) continue;
+    if (META_YES.test(answer)) consider(questionRule);
+    else if (META_NO.test(answer)) consider({ score: 15, reason: 'Declined in the form' });
+  }
+
+  if (best) {
+    score = best.score;
+    reason = best.reason;
+  }
+
+  const label = score >= 70 ? 'interested' : score >= 40 ? 'review' : 'low';
+  return { score, label, reasons: [reason], button: null };
+}
+
 export function scoreSsReply(notes) {
   const text = String(notes || '');
+  // Meta lead ads carry enumerated answers, not a chat reply. Route them to the
+  // answer scorer before the button/free-text rules can mislabel them.
+  if (/\[Meta Lead:/i.test(text)) return scoreMetaLead(text);
   const button = (text.match(/\[(?:Button|Reply):\s*([^\]]+)\]/i) || [])[1] || '';
   const body = text
     .split('\n')
@@ -134,7 +259,7 @@ const replyText = (notes) => String(notes || '')
   .split('\n')
   // Keep [Button: ...] / [Reply: ...]: that IS the reply for a template button.
   // Only CRM bookkeeping tags are stripped.
-  .filter((l) => !/^\[(Template|Account|Lead):/i.test(l.trim()))
+  .filter((l) => !/^\[(Template|Account|Lead|Meta Lead|Platform|Campaign|Form):/i.test(l.trim()))
   .join('\n')
   .trim();
 
@@ -145,10 +270,10 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
   const ngoName = ngoFromAccount(lead.notes);
   if (!ngoName) return { ok: false, reason: 'Reply has no NGO [Account:] tag' };
 
+  if (!isValidIndianMobile(lead.phone)) return { ok: false, reason: 'Reply has no valid Indian mobile' };
   const mobile = m10(lead.phone);
-  if (mobile.length !== 10) return { ok: false, reason: 'Reply has no valid 10-digit mobile' };
 
-  const station = SS_STATIONS[ngoName];
+  const station = stationFor(ngoName, lead.source) || SS_STATIONS[ngoName];
   const { rows: ngoRows } = await run('select id from ngos where upper(name) = $1 limit 1', [ngoName]);
   if (!ngoRows[0]) return { ok: false, reason: `NGO ${ngoName} not found` };
   const ngoId = ngoRows[0].id;
@@ -170,6 +295,26 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
       [ngoId, station],
     );
     ownerId = owner[0]?.fro_worker_id || null;
+  }
+
+  // A new source station (Google) starts unowned. Reuse an owner already working
+  // another lead station for the same NGO, so the lead is assigned and the FRO
+  // gets the live bell alert instead of the lead sitting invisible in a queue.
+  // LEAD_FALLBACK_STATION_OWNER=false keeps orphan stations inactive.
+  if (!ownerId && String(process.env.LEAD_FALLBACK_STATION_OWNER ?? 'true').toLowerCase() !== 'false') {
+    const { rows: fallback } = await run(
+      `select fro_worker_id
+         from fro_station_assignments
+        where ngo_id = $1 and fro_worker_id is not null and station like '%Leads'
+        order by case
+          when station ilike '%meta%' then 0
+          when station ilike '%whatsapp%' then 1
+          else 2
+        end
+        limit 1`,
+      [ngoId],
+    );
+    ownerId = fallback[0]?.fro_worker_id || null;
   }
 
   // donor profile
@@ -207,7 +352,7 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
 
   // one live row per (donor, ngo)
   const { rows: existingRows } = await run(
-    `select id, station, notes
+    `select id, station, notes, fro_worker_id
        from fro_assignments
       where donor_id = $1 and ngo_id = $2
         and (status is null or status <> 'reassigned')
@@ -253,6 +398,7 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
       ngoName,
       merged: true,
       movedToFro: onOwnStation && !!ownerId,
+      froWorkerId: onOwnStation ? (ownerId || row.fro_worker_id || null) : null,
       reason: onOwnStation ? null : `Donor already has a live lead on ${row.station}`,
     };
   }
@@ -275,5 +421,6 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
     ngoName,
     merged: false,
     movedToFro: !!ownerId,
+    froWorkerId: ownerId || null,
   };
 }

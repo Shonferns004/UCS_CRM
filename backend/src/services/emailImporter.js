@@ -1,5 +1,5 @@
-import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
+import { closeImapClient, createImapClient } from './imapClient.js';
 import groq, { GROQ_CHAT_MODEL } from '../config/groq.js';
 import emailConfig from '../config/emailConfig.js';
 import db from '../config/db.js';
@@ -238,7 +238,7 @@ async function pollSingleAccount(account, sources, fromDate, includeSeen, onlySe
     tlsOptions: { rejectUnauthorized: false },
   };
 
-  const client = new ImapFlow(config);
+  const client = createImapClient(config, `emailImport:${account.email || account.name || 'default'}`);
   let processed = 0;
   let skipped = 0;
 
@@ -260,7 +260,7 @@ async function pollSingleAccount(account, sources, fromDate, includeSeen, onlySe
       messages = [];
     }
     if (!messages || messages.length === 0) {
-      await client.logout();
+      await closeImapClient(client);
       return { processed: 0, skipped: 0, error: null, message: `No emails found (mailbox has ${mailbox.exists} total)` };
     }
     if (messages.length > 10) {
@@ -432,11 +432,11 @@ if (details && details.confidence !== 'low' && details.amount != null) {
       }
     }
 
-    await client.logout();
+    await closeImapClient(client);
     await updateLastPolled(account.id);
     return { processed, skipped, error: null, message: `${processed} imported, ${skipped} skipped` };
   } catch (error) {
-    try { await client.logout(); } catch {}
+    await closeImapClient(client);
     return { processed, skipped, error: error.message, message: `IMAP error: ${error.message}` };
   }
 }

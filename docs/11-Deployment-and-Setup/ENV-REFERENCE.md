@@ -21,6 +21,8 @@
 | `HEAD_AWS_ACCESS_KEY_ID` / `HEAD_AWS_SECRET_ACCESS_KEY` / `HEAD_S3_BUCKET` / `HEAD_S3_REGION` | HEAD-environment S3 access (dual-S3 setup). |
 | `UPSTREAM_AWS_ACCESS_KEY_ID` / `UPSTREAM_AWS_SECRET_ACCESS_KEY` / `UPSTREAM_S3_BUCKET` / `UPSTREAM_S3_REGION` | Upstream production S3 access. |
 | `SEVAK_SUPABASE_URL` / `SEVAK_SUPABASE_SERVICE_ROLE_KEY` | Sevak Library Supabase backend credentials. |
+| `META_ADS_ACCESS_TOKEN` / `META_ADS_APP_ID` / `META_ADS_APP_SECRET` / `META_ADS_VERIFY_TOKEN` / `META_ADS_API_VERSION` / `META_ADS_AD_ACCOUNT_ID` / `META_ADS_PAGE_ID` | Meta (Facebook / Instagram) Lead Ads integration. Also editable from the WhatsApp panel's Meta Ads tab (stored in `settings`). |
+| `GOOGLE_ADS_CLIENT_ID` / `GOOGLE_ADS_CLIENT_SECRET` / `GOOGLE_ADS_DEVELOPER_TOKEN` / `GOOGLE_ADS_REFRESH_TOKEN` / `GOOGLE_ADS_CUSTOMER_ID` / `GOOGLE_ADS_LOGIN_CUSTOMER_ID` / `GOOGLE_ADS_API_VERSION` / `GOOGLE_ADS_CONVERSION_ACTION_ID` / `GA4_PROPERTY_ID` | **Database-only.** Not read from `.env`. Manage them in Accounts → Google Ads & Analytics → Connection; stored in `settings` and masked on read. Any `.env` values are ignored and scrubbed at boot. |
 
 Additional names referenced in code (Verified):
 

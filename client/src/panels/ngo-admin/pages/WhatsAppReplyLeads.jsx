@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, MessageSquareText, Phone, User, Tag, Inbox, Trash2, Search, Plus, CheckCircle2, Sparkles } from 'lucide-react';
+import { RefreshCw, MessageSquareText, Phone, User, Tag, Inbox, Trash2, Search, Plus, CheckCircle2, Sparkles, Mail, Megaphone, Globe } from 'lucide-react';
 import { api } from '../../../api/auth';
+import { parseLeadNotes } from '../../../utils/leadNotes';
 
 const ACCOUNT_HUES = {
   bsct: '#2563eb', bsct2: '#2563eb', bsct3: '#2563eb',
@@ -15,25 +16,53 @@ const SUGGESTION = {
 };
 
 function parseNotes(notes) {
-  const text = String(notes || '');
-  const message = text
-    .split('\n')
-    // Keep [Button: ...] / [Reply: ...]: that is the actual answer. Only
-    // bookkeeping tags are hidden.
-    .filter((l) => !/^\[(Template|Account|Lead):/i.test(l.trim()))
-    .join('\n')
-    .trim();
-  const template = (text.match(/\[Template:\s*([^\]]+)\]/i) || [])[1] || '';
-  const account = (text.match(/\[Account:\s*([^\]]+)\]/i) || [])[1] || 'unknown';
-  return { message, template, account };
+  const parsed = parseLeadNotes(notes);
+  return {
+    message: parsed.message,
+    template: parsed.template,
+    account: parsed.account,
+    platform: parsed.platform,
+    campaign: parsed.campaign,
+    form: parsed.form,
+  };
 }
+
+const isMetaLead = (lead) => lead?.source === 'Meta Lead Ad';
+
+const platformOf = (lead) => {
+  const fromColumn = String(lead?.meta_platform || '').toLowerCase();
+  if (fromColumn) return fromColumn;
+  const fromNotes = parseNotes(lead?.notes).platform.toLowerCase();
+  if (fromNotes) return fromNotes;
+  return isMetaLead(lead) ? 'meta' : 'whatsapp';
+};
+
+const platformMeta = (platform, sourceKey) => {
+  // The channel decides the badge. Meta's Graph API returns 'fb' / 'ig', which
+  // used to miss every branch here and fall through to the WhatsApp default —
+  // so every Meta lead rendered as a WhatsApp reply.
+  if (sourceKey === 'whatsapp') return { label: 'WhatsApp', color: '#128C7E', bg: '#dcfce7' };
+  if (sourceKey === 'email') return { label: 'Email', color: '#7c3aed', bg: '#ede9fe' };
+  if (sourceKey === 'google') return { label: 'Google', color: '#EA4335', bg: '#fee2e2' };
+  const p = String(platform || '').toLowerCase();
+  if (p === 'ig' || p.includes('instagram')) return { label: 'Instagram', color: '#C13584', bg: '#fce7f3' };
+  return { label: 'Facebook', color: '#0866FF', bg: '#e7f0ff' };
+};
+
+const isValidIndianMobile = (value) => {
+  const digits = String(value || '').replace(/[^0-9]/g, '');
+  return digits.length === 10
+    || (digits.length === 12 && digits.startsWith('91'))
+    || (digits.length === 11 && digits.startsWith('0'));
+};
 
 function ngoNameOf(account) {
   const key = String(account || '').toLowerCase();
   if (key.startsWith('bsct')) return 'BSCT';
   if (key.startsWith('aflf')) return 'AFLF';
   if (key.startsWith('mann')) return 'MANN';
-  return account || 'Unknown';
+  if (!key || key === 'unknown') return 'Unmapped';
+  return account || 'Unmapped';
 }
 
 const accountHue = (ngo) => ACCOUNT_HUES[String(ngo || '').toLowerCase()] || '#64748b';
@@ -50,6 +79,22 @@ function formatTime(iso) {
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+function emailStatusStyle(status) {
+  const k = String(status || '').toLowerCase();
+  if (k === 'new') return { color: '#1d4ed8', bg: '#e7efff' };
+  if (k === 'replied') return { color: '#0d9488', bg: '#ccfbf1' };
+  if (k === 'contacted' || k === 'in progress') return { color: '#b45309', bg: '#fef3c7' };
+  if (k === 'converted' || k === 'won') return { color: '#15803d', bg: '#dcfce7' };
+  if (k === 'lost' || k === 'closed') return { color: '#be123c', bg: '#ffe4e6' };
+  return { color: '#475569', bg: '#eef2f7' };
+}
+
+function initialsOf(name, email) {
+  const src = String(name || email || '?').trim();
+  const parts = src.split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : src.slice(0, 2)).toUpperCase();
+}
+
 export default function WhatsAppReplyLeads() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -57,11 +102,59 @@ export default function WhatsAppReplyLeads() {
   const [notice, setNotice] = useState('');
   const [adding, setAdding] = useState(null);
   const [deleting, setDeleting] = useState(null);
-  const [filter, setFilter] = useState('all');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [source, setSource] = useState('whatsapp');
+  const [ngoFilter, setNgoFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
-  // inbox = reply not on a station yet · queue = already placed
+  const [placingUnplaced, setPlacingUnplaced] = useState(false);
+  const [fetchingGoogle, setFetchingGoogle] = useState(false);
   const [tab, setTab] = useState('inbox');
+  // Bulk-email campaigns live in the normal leads table, not the station queue,
+  // so that tab has its own loader, search and reply poll.
+  const [crmLeads, setCrmLeads] = useState([]);
+  const [crmLoading, setCrmLoading] = useState(false);
+  const [crmError, setCrmError] = useState('');
+  const [crmMode, setCrmMode] = useState('replies'); // 'replies' | 'sent'
+  const [crmQuery, setCrmQuery] = useState('');
+  const [pollingReplies, setPollingReplies] = useState(false);
+  const [pollNotice, setPollNotice] = useState('');
+
+  const loadCrm = async () => {
+    setCrmLoading(true);
+    setCrmError('');
+    try {
+      const params = new URLSearchParams();
+      if (crmQuery.trim()) params.set('search', crmQuery.trim());
+      params.set('limit', '200');
+      const path = crmMode === 'replies'
+        ? `/accounts/bulk-email/replies?${params.toString()}`
+        : `/leads?source=Bulk%20Email&${params.toString()}`;
+      const data = await api(path, { _prefix: 'ucs' });
+      setCrmLeads(Array.isArray(data) ? data : (data?.data || []));
+    } catch (e) {
+      setCrmError(e?.message || 'Failed to load leads');
+      setCrmLeads([]);
+    } finally {
+      setCrmLoading(false);
+    }
+  };
+
+  useEffect(() => { if (source === 'email') loadCrm(); }, [source, crmMode]);
+
+  const pollReplies = async () => {
+    setPollingReplies(true);
+    setPollNotice('');
+    try {
+      const res = await api('/accounts/bulk-email/replies/poll', { method: 'POST', body: JSON.stringify({}), timeout: 120000 });
+      setPollNotice(res?.message || 'Replies checked.');
+      await loadCrm();
+    } catch (e) {
+      setPollNotice(e?.message || 'Could not check replies.');
+    } finally {
+      setPollingReplies(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -78,38 +171,65 @@ export default function WhatsAppReplyLeads() {
 
   useEffect(() => { load(); }, []);
 
-  const inboxLeads = leads.filter((l) => !l.in_station);
-  const queueLeads = leads.filter((l) => l.in_station);
-  const aiPending = leads.filter((l) => !l.in_station && !l.ai_at).length;
+  const sourceKeyOf = (lead) => {
+    // Backend sends `source_key`; `lead_source` stays as a fallback for older
+    // payloads. Reading only `lead_source` left this undefined, so the whole tab
+    // fell back to platform sniffing and mislabelled Meta rows.
+    const src = String(lead?.source_key || lead?.lead_source || '').toLowerCase();
+    if (src === 'meta' || src === 'whatsapp' || src === 'email' || src === 'google') return src;
+    return platformOf(lead) === 'whatsapp' ? 'whatsapp' : 'meta';
+  };
 
-  const ngoGroups = useMemo(() => {
-    const s = new Set(leads.map((l) => ngoNameOf(parseNotes(l.notes).account)));
-    return ['all', ...Array.from(s)];
-  }, [leads]);
+  const ngoOfLead = (lead) => ngoNameOf(lead.account_ngo || parseNotes(lead.notes).account);
 
-  const tabLeads = tab === 'queue' ? queueLeads : inboxLeads;
-  const filtered = tabLeads.filter((l) => {
-    if (filter !== 'all' && ngoNameOf(parseNotes(l.notes).account) !== filter) return false;
+  const sourceLeads = useMemo(() => leads.filter((lead) => sourceKeyOf(lead) === source), [leads, source]);
+  const ngoLeads = useMemo(
+    () => (ngoFilter === 'all' ? sourceLeads : sourceLeads.filter((lead) => ngoOfLead(lead) === ngoFilter)),
+    [sourceLeads, ngoFilter],
+  );
+  const inboxLeads = ngoLeads.filter((lead) => !lead.in_station);
+  const queueLeads = ngoLeads.filter((lead) => lead.in_station);
+  const aiPending = leads.filter((lead) => !lead.in_station && !lead.ai_at).length;
+
+  const counts = useMemo(() => {
+    const bySource = { whatsapp: 0, meta: 0, email: crmLeads.length, google: 0 };
+    const byNgo = {
+      whatsapp: { BSCT: 0, AFLF: 0, MANN: 0 },
+      meta: { BSCT: 0, AFLF: 0, MANN: 0 },
+      email: { BSCT: 0, AFLF: 0, MANN: 0 },
+      google: { BSCT: 0, AFLF: 0, MANN: 0 },
+    };
+    leads.forEach((lead) => {
+      const s = sourceKeyOf(lead);
+      const n = ngoOfLead(lead);
+      bySource[s] = (bySource[s] || 0) + 1;
+      if (byNgo[s] && byNgo[s][n] != null) byNgo[s][n] += 1;
+    });
+    return { bySource, byNgo };
+  }, [leads, crmLeads.length]);
+
+  const shown = (tab === 'queue' ? queueLeads : inboxLeads).filter((lead) => {
     const q = query.trim().toLowerCase();
     if (!q) return true;
-    return String(l.name || '').toLowerCase().includes(q) || String(l.phone || '').includes(q);
+    return String(lead.name || '').toLowerCase().includes(q) || String(lead.phone || '').includes(q);
   });
 
   const addToStation = async (lead) => {
     setAdding(lead.id);
-    setError(''); setNotice('');
+    setError('');
+    setNotice('');
     try {
       const res = await api(`/ngo-admin/ss-leads/${lead.id}/add`, { method: 'POST', body: JSON.stringify({}) });
-      setLeads((prev) => prev.map((l) => (
-        l.id === lead.id
+      setLeads((prev) => prev.map((item) => (
+        item.id === lead.id
           ? {
-            ...l,
+            ...item,
             in_station: true,
-            placed_station: res.station || l.suggested_station,
-            placed_fro_name: res.fro_name || l.station_owner_name || null,
+            placed_station: res.station || item.suggested_station,
+            placed_fro_name: res.fro_name || item.station_owner_name || null,
             placed_status: 'pending',
           }
-          : l
+          : item
       )));
       setNotice(res.message || 'Added to station');
     } catch (e) {
@@ -119,20 +239,73 @@ export default function WhatsAppReplyLeads() {
     }
   };
 
+  const addAllShown = async () => {
+    const ids = shown.filter((lead) => !lead.in_station).slice(0, 50).map((lead) => lead.id);
+    if (!ids.length) return;
+    setBulkBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const res = await api('/ngo-admin/ss-leads/add-bulk', { method: 'POST', body: JSON.stringify({ ids }) });
+      await load();
+      setNotice(res.message || 'Leads added to stations');
+    } catch (e) {
+      setError(e?.message || 'Bulk add failed');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const placeUnplacedMeta = async () => {
+    if (placingUnplaced) return;
+    setPlacingUnplaced(true);
+    setError('');
+    setNotice('');
+    try {
+      const res = await api('/meta-ads/leads/place-unplaced', {
+        method: 'POST',
+        body: JSON.stringify({ days: 180, limit: 500 }),
+      });
+      await load();
+      setNotice(`Placed ${res.placed || 0} lead(s)${res.skipped ? ` · ${res.skipped} skipped (invalid phone)` : ''}`);
+    } catch (e) {
+      setError(e?.message || 'Could not place leads');
+    } finally {
+      setPlacingUnplaced(false);
+    }
+  };
+
+  const fetchGoogleLeads = async () => {
+    if (fetchingGoogle) return;
+    setFetchingGoogle(true);
+    setError('');
+    setNotice('');
+    try {
+      const res = await api('/google-ads/leads/sync', {
+        method: 'POST',
+        body: JSON.stringify({ days: 30 }),
+      });
+      await load();
+      setNotice(`Fetched ${res.ingested || 0} Google lead(s)${res.backfilled ? ` · ${res.backfilled} placed` : ''}${res.duplicates ? ` · ${res.duplicates} already present` : ''}`);
+    } catch (e) {
+      setError(e?.message || 'Could not fetch Google leads');
+    } finally {
+      setFetchingGoogle(false);
+    }
+  };
+
   const runAi = async () => {
     if (aiBusy) return;
     setAiBusy(true);
-    setError(''); setNotice('');
+    setError('');
+    setNotice('');
     try {
-      const res = await api('/ngo-admin/ss-leads/ai-batch', {
-        method: 'POST',
-        body: JSON.stringify({ limit: 12 }),
-      });
+      const res = await api('/ngo-admin/ss-leads/ai-batch', { method: 'POST', body: JSON.stringify({ limit: 12 }) });
       await load();
       setNotice(
         `AI scored ${res.scored || 0} lead(s)`
-        + (res.failed ? ` · ${res.failed} failed` : '')
-        + (res.remaining ? ` · ${res.remaining} left — run again` : ' · all scored'),
+        + (res.failed ? ` • ${res.failed} failed` : '')
+        + (res.remaining ? ` • ${res.remaining} left — run again` : ' • all scored'),
       );
     } catch (e) {
       setError(e?.message || 'AI scoring failed');
@@ -144,10 +317,11 @@ export default function WhatsAppReplyLeads() {
   const remove = async (leadId) => {
     if (!window.confirm('Delete this lead? It will also be removed from its SS station queue.')) return;
     setDeleting(leadId);
-    setError(''); setNotice('');
+    setError('');
+    setNotice('');
     try {
       await api(`/leads/${leadId}`, { method: 'DELETE' });
-      setLeads((prev) => prev.filter((l) => l.id !== leadId));
+      setLeads((prev) => prev.filter((lead) => lead.id !== leadId));
       setNotice('Lead deleted');
     } catch (e) {
       setError(e?.message || 'Delete failed');
@@ -161,198 +335,482 @@ export default function WhatsAppReplyLeads() {
     const isAi = s?.source === 'ai';
     return (
       <span
-        title={Array.isArray(s?.reasons) && s.reasons.length ? s.reasons.join(' · ') : undefined}
+        title={Array.isArray(s?.reasons) && s.reasons.length ? s.reasons.join(' • ') : undefined}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, color: meta.color, background: meta.bg, border: `1px solid ${meta.border}`, whiteSpace: 'nowrap' }}
       >
         <Sparkles size={11} />
         {meta.label}
         <span style={{ fontWeight: 700, opacity: .7 }}>{s?.score ?? 0}%</span>
-        <span title={isAi ? `Model: ${s?.model || 'AI'}` : 'Rule-based score (no model call)'}
-          style={{ fontSize: 8.5, fontWeight: 900, letterSpacing: .3, padding: '1px 4px', borderRadius: 4, background: isAi ? '#111827' : 'rgba(0,0,0,.07)', color: isAi ? '#fff' : meta.color }}>
+        <span
+          title={isAi ? `Model: ${s?.model || 'AI'}` : 'Rule-based score (no model call)'}
+          style={{ fontSize: 8.5, fontWeight: 900, letterSpacing: .3, padding: '1px 4px', borderRadius: 4, background: isAi ? '#111827' : 'rgba(0,0,0,.07)', color: isAi ? '#fff' : meta.color }}
+        >
           {isAi ? 'AI' : 'RULES'}
         </span>
       </span>
     );
   };
 
+  const SOURCES = [
+    { key: 'whatsapp', label: 'WhatsApp', icon: MessageSquareText, color: '#128C7E' },
+    { key: 'meta', label: 'Meta', icon: Megaphone, color: '#0866FF' },
+    { key: 'email', label: 'Email', icon: Mail, color: '#7c3aed' },
+    { key: 'google', label: 'Google', icon: Globe, color: '#EA4335' },
+  ];
+  const NGOS = [
+    { key: 'all', label: 'All NGOs' },
+    { key: 'BSCT', label: 'B • BSCT', color: '#2563eb' },
+    { key: 'AFLF', label: 'A • AFLF', color: '#16a34a' },
+    { key: 'MANN', label: 'M • MANN', color: '#ec4899' },
+  ];
+
+  const activeSource = SOURCES.find((item) => item.key === source) || SOURCES[0];
+  const isEmail = source === 'email';
+  const isReplies = crmMode === 'replies';
+  const withEmail = crmLeads.filter((l) => l.email).length;
+  const totalReplies = crmLeads.reduce((n, r) => n + (Number(r.reply_count) || 1), 0);
+
   return (
-    <div style={{ padding: '20px 24px', maxWidth: 1200 }}>
-      {/* Header */}
-      <div className="card" style={{ padding: '18px 22px', marginBottom: 16 }}>
+    <div style={{ padding: '20px 24px', maxWidth: 1280 }}>
+      <div className="card" style={{ padding: '18px 22px', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, display: 'grid', placeItems: 'center', background: 'var(--sage)', color: '#fff', flexShrink: 0 }}>
               <Inbox size={20} />
             </div>
             <div>
-              <h3 style={{ margin: '0 0 2px' }}>SS Leads</h3>
+              <h3 style={{ margin: '0 0 2px' }}>Leads Hub</h3>
               <div style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
-                WhatsApp replies. <b>Add to station</b> puts the reply straight into SS-BSCT / SS-AFLF / SS-MANN — the station's FRO picks it up, no FRO picker needed.
+                WhatsApp, Meta and Email leads in one queue. Each source has its own station per NGO — the station's FRO picks the lead up.
               </div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={runAi} disabled={aiBusy || aiPending === 0}
-              title={aiPending === 0 ? 'Every reply in the inbox is already scored' : 'Score the next 12 replies with the AI model'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--sage)', background: aiPending > 0 ? 'var(--sage)' : 'var(--bg, #fff)', color: aiPending > 0 ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: aiBusy || aiPending === 0 ? 'default' : 'pointer', opacity: aiBusy ? .7 : 1 }}>
-              <Sparkles size={14} />
-              {aiBusy ? 'AI scoring…' : `Run AI (${aiPending})`}
-            </button>
-            <button onClick={load} disabled={loading}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--ink, #0f172a)' }}>
-              <RefreshCw size={14} style={{ transform: loading ? 'rotate(360deg)' : 'none', transition: 'transform .8s linear' }} />
-              Refresh
-            </button>
+            {isEmail ? (
+              <>
+                <button
+                  onClick={pollReplies}
+                  disabled={pollingReplies}
+                  title="Check the sender inbox for replies to bulk email campaigns"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--sage)', background: pollingReplies ? 'var(--bg, #fff)' : 'var(--sage)', color: pollingReplies ? 'var(--ink-soft, #64748b)' : '#fff', fontSize: 12, fontWeight: 700, cursor: pollingReplies ? 'default' : 'pointer', opacity: pollingReplies ? .8 : 1 }}
+                >
+                  <Mail size={14} /> {pollingReplies ? 'Checking…' : 'Poll replies'}
+                </button>
+                <button
+                  onClick={loadCrm}
+                  disabled={crmLoading}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: crmLoading ? 'default' : 'pointer', color: 'var(--ink, #0f172a)', opacity: crmLoading ? .7 : 1 }}
+                >
+                  <RefreshCw size={14} style={{ transform: crmLoading ? 'rotate(360deg)' : 'none', transition: 'transform .8s linear' }} />
+                  Refresh
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={runAi}
+                  disabled={aiBusy || aiPending === 0}
+                  title={aiPending === 0 ? 'Every inbox lead is already scored' : 'Score the next 12 leads with the AI model'}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--sage)', background: aiPending > 0 ? 'var(--sage)' : 'var(--bg, #fff)', color: aiPending > 0 ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: aiBusy || aiPending === 0 ? 'default' : 'pointer', opacity: aiBusy ? .7 : 1 }}
+                >
+                  <Sparkles size={14} />
+                  {aiBusy ? 'AI scoring…' : `Run AI (${aiPending})`}
+                </button>
+                {source === 'google' && (
+                  <button
+                    onClick={fetchGoogleLeads}
+                    disabled={fetchingGoogle}
+                    title="Pull lead-form submissions from Google Ads now"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: fetchingGoogle ? 'default' : 'pointer', color: 'var(--ink, #0f172a)', opacity: fetchingGoogle ? .7 : 1 }}
+                  >
+                    <Globe size={14} />
+                    {fetchingGoogle ? 'Fetching…' : 'Fetch leads'}
+                  </button>
+                )}
+                {source === 'meta' && (
+                  <button
+                    onClick={placeUnplacedMeta}
+                    disabled={placingUnplaced}
+                    title="Place every Meta lead that is not on a station yet (valid phone only)"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: placingUnplaced ? 'default' : 'pointer', color: 'var(--ink, #0f172a)', opacity: placingUnplaced ? .7 : 1 }}
+                  >
+                    <Plus size={14} />
+                    {placingUnplaced ? 'Placing…' : 'Place unplaced'}
+                  </button>
+                )}
+                <button
+                  onClick={load}
+                  disabled={loading}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--ink, #0f172a)' }}
+                >
+                  <RefreshCw size={14} style={{ transform: loading ? 'rotate(360deg)' : 'none', transition: 'transform .8s linear' }} />
+                  Refresh
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        {[
-          { key: 'inbox', label: 'Inbox', count: inboxLeads.length },
-          { key: 'queue', label: 'In Queue', count: queueLeads.length },
-        ].map((t) => {
-          const active = tab === t.key;
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        {SOURCES.map((item) => {
+          const Icon = item.icon;
+          const active = source === item.key;
           return (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 999, border: `1px solid ${active ? 'var(--sage)' : 'var(--line, #e2e8f0)'}`, background: active ? 'var(--sage)' : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}>
-              {t.key === 'inbox' && <Inbox size={13} style={{ opacity: .8 }} />}
-              {t.key === 'queue' && <CheckCircle2 size={13} style={{ opacity: .8 }} />}
-              {t.label}
-              <span style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>{t.count}</span>
+            <button
+              key={item.key}
+              onClick={() => { setSource(item.key); setNgoFilter('all'); setTab('inbox'); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 12, border: `1px solid ${active ? item.color : 'var(--line, #e2e8f0)'}`, background: active ? item.color : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}
+            >
+              <Icon size={15} style={{ opacity: .9 }} />
+              {item.label}
+              <span style={{ minWidth: 20, padding: '0 6px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>
+                {counts.bySource[item.key] || 0}
+              </span>
             </button>
           );
         })}
       </div>
 
-      {/* NGO filter + search */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-        {ngoGroups.map((a) => {
-          const active = filter === a;
-          const hue = a === 'all' ? '#0f172a' : accountHue(a);
-          const count = a === 'all' ? tabLeads.length : tabLeads.filter((l) => ngoNameOf(parseNotes(l.notes).account) === a).length;
-          return (
-            <button key={a} onClick={() => setFilter(a)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, border: `1px solid ${active ? hue : 'var(--line, #e2e8f0)'}`, background: active ? hue : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}>
-              {a === 'all' ? 'All NGOs' : a}
-              <span style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>{count}</span>
-            </button>
-          );
-        })}
-        <div style={{ position: 'relative', marginLeft: 'auto', minWidth: 240 }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', opacity: .5 }} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or number…"
-            style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, outline: 'none', color: 'var(--ink, #0f172a)', boxSizing: 'border-box' }} />
-        </div>
-      </div>
+      {isEmail ? (
+        <>
+          {crmError && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 12.5, fontWeight: 600 }}>{crmError}</div>}
+          {pollNotice && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', fontSize: 12.5, fontWeight: 600 }}>{pollNotice}</div>}
 
-      {notice && (
-        <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 10, background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', fontSize: 12.5, fontWeight: 600 }}>
-          {notice}
-        </div>
-      )}
-
-      {/* Table card */}
-      <div className="card">
-        <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3>{tab === 'queue' ? 'In Queue' : 'Inbox'}</h3>
-          <span style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>{filtered.length} lead{filtered.length === 1 ? '' : 's'}</span>
-        </div>
-
-        {loading && <div style={{ padding: 28, fontSize: 13, color: 'var(--ink-soft, #64748b)', textAlign: 'center' }}>Loading leads…</div>}
-        {error && (
-          <div style={{ margin: '12px 16px', padding: '10px 14px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 12.5, fontWeight: 600 }}>{error}</div>
-        )}
-        {!loading && !error && filtered.length === 0 && (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-soft, #64748b)' }}>
-            <MessageSquareText size={32} style={{ opacity: .35, marginBottom: 8 }} />
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{tab === 'queue' ? 'Nothing in a station yet' : 'No reply leads in the inbox'}</div>
-            <div style={{ fontSize: 12 }}>{tab === 'queue' ? 'Leads you add will show here with their station.' : 'Bulk template replies will show up here automatically.'}</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)' }}>
+              <Search size={14} style={{ color: '#94a3b8' }} />
+              <input value={crmQuery} onChange={(e) => setCrmQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') loadCrm(); }} placeholder="Search name / email / phone…"
+                style={{ border: 'none', outline: 'none', fontSize: 12.5, background: 'transparent', minWidth: 200, color: 'var(--ink, #0f172a)' }} />
+            </div>
+            <span style={{ width: 1, height: 22, background: 'var(--line, #e2e8f0)' }} />
+            {[
+              { key: 'replies', label: 'Replies' },
+              { key: 'sent', label: 'All sent' },
+            ].map((t) => {
+              const active = crmMode === t.key;
+              return (
+                <button key={t.key} onClick={() => setCrmMode(t.key)}
+                  style={{ padding: '7px 14px', borderRadius: 999, border: `1px solid ${active ? '#0f172a' : 'var(--line, #e2e8f0)'}`, background: active ? '#0f172a' : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  {t.label}
+                </button>
+              );
+            })}
+            <span style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)', marginLeft: 4 }}>
+              {isReplies ? 'Replies received from bulk email campaigns.' : 'All contacts created from bulk email campaigns.'}
+            </span>
           </div>
-        )}
 
-        {!loading && !error && filtered.length > 0 && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--line, #e2e8f0)' }}>
-                  {['Contact', 'Reply', 'Suggestion', 'Station', 'Received', ''].map((h) => (
-                    <th key={h} style={{ textAlign: h === '' ? 'right' : 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((l) => {
-                  const { message, template, account } = parseNotes(l.notes);
-                  const ngo = ngoNameOf(account);
-                  const hue = accountHue(ngo);
-                  return (
-                    <tr key={l.id} style={{ borderBottom: '1px solid var(--line, #e2e8f0)', verticalAlign: 'top' }}>
-                      <td style={{ padding: '12px 16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--ink, #0f172a)' }}>
-                          <User size={13} style={{ opacity: .5 }} />
-                          {l.name || '—'}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-soft, #64748b)', marginTop: 3 }}>
-                          <Phone size={11} style={{ opacity: .5 }} />
-                          {formatPhone(l.phone)}
-                          <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, color: hue, background: `${hue}1a` }}>{ngo}</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: '12px 16px', maxWidth: 300 }}>
-                        <div style={{ fontSize: 12.5, color: 'var(--ink, #0f172a)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{message || '—'}</div>
-                        {template && (
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, padding: '2px 8px', borderRadius: 6, background: 'var(--line, #f1f5f9)', fontSize: 10.5, color: 'var(--ink-soft, #64748b)', maxWidth: '100%' }}>
-                            <Tag size={10} />
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{template}</span>
+          {crmLoading && (
+            <div className="card" style={{ padding: 40, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+              <RefreshCw size={22} style={{ opacity: .5, marginBottom: 8 }} /> {isReplies ? 'Loading email replies…' : 'Loading email leads…'}
+            </div>
+          )}
+
+          {!crmLoading && crmLeads.length === 0 && (
+            <div className="card" style={{ padding: 48, textAlign: 'center', color: '#64748b' }}>
+              <div style={{ width: 52, height: 52, borderRadius: 14, display: 'grid', placeItems: 'center', background: '#eef2f7', margin: '0 auto 12px' }}>
+                <Mail size={24} style={{ color: '#94a3b8' }} />
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{isReplies ? 'No email replies yet' : 'No email leads yet'}</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>
+                {isReplies
+                  ? 'Replies to bulk email campaigns will appear here. Use Poll replies to check the inbox.'
+                  : 'Leads captured from bulk email campaigns will appear here.'}
+              </div>
+            </div>
+          )}
+
+          {!crmLoading && crmLeads.length > 0 && (
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--line, #e2e8f0)', background: '#f8fafc' }}>
+                      {(isReplies
+                        ? ['Lead', 'Email', 'Campaign', 'Reply', 'Received', 'Status']
+                        : ['Lead', 'Email', 'Phone', 'Source', 'Status', 'Reply / Notes', 'Created']
+                      ).map((h) => (
+                        <th key={h} style={{ textAlign: 'left', padding: '11px 14px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: .5, color: '#64748b', fontWeight: 800 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {isReplies ? crmLeads.map((r, i) => {
+                      const st = emailStatusStyle(r.lead_status);
+                      const email = r.from_email || r.email || '';
+                      const replyText = String(r.body || '').replace(/\s+/g, ' ').trim();
+                      const campaignName = r.campaign_subject || r.subject || '';
+                      return (
+                        <tr key={r.message_id || r.lead_id || i} style={{ borderBottom: '1px solid var(--line, #f1f5f9)', background: i % 2 ? '#fbfcfd' : '#fff' }}>
+                          <td style={{ padding: '11px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                              <div style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', background: '#e7efff', color: '#1d4ed8', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+                                {initialsOf(r.lead_name, email)}
+                              </div>
+                              <span style={{ fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{r.lead_name || r.from_name || '—'}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '11px 14px' }}>
+                            {email ? <a href={`mailto:${email}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{email}</a> : '—'}
+                          </td>
+                          <td style={{ padding: '11px 14px', maxWidth: 220 }}>
+                            {campaignName ? (
+                              <span title={campaignName} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#475569', fontSize: 12 }}>
+                                {campaignName.length > 45 ? `${campaignName.slice(0, 45)}…` : campaignName}
+                              </span>
+                            ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                          </td>
+                          <td style={{ padding: '11px 14px', maxWidth: 320 }}>
+                            {replyText ? (
+                              <span title={replyText} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#475569', fontSize: 12 }}>
+                                {replyText.length > 110 ? `${replyText.slice(0, 110)}…` : replyText}
+                              </span>
+                            ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                            {Number(r.reply_count) > 1 && (
+                              <span style={{ display: 'inline-block', marginTop: 4, padding: '2px 8px', borderRadius: 999, background: '#eef2f7', color: '#475569', fontSize: 10, fontWeight: 800 }}>
+                                {r.reply_count} replies
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '11px 14px', whiteSpace: 'nowrap', color: '#475569' }}>{formatTime(r.received_at)}</td>
+                          <td style={{ padding: '11px 14px' }}>
+                            <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, color: st.color, background: st.bg, textTransform: 'capitalize' }}>{r.lead_status || 'replied'}</span>
+                          </td>
+                        </tr>
+                      );
+                    }) : crmLeads.map((l, i) => {
+                      const st = emailStatusStyle(l.status);
+                      const noteText = String(l.notes || '')
+                        .replace(/^Bulk email campaign #\d+:[^\n]*\n*/i, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                      return (
+                        <tr key={l.id} style={{ borderBottom: '1px solid var(--line, #f1f5f9)', background: i % 2 ? '#fbfcfd' : '#fff' }}>
+                          <td style={{ padding: '11px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                              <div style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', background: '#e7efff', color: '#1d4ed8', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+                                {initialsOf(l.name, l.email)}
+                              </div>
+                              <span style={{ fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{l.name || '—'}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '11px 14px' }}>
+                            {l.email ? <a href={`mailto:${l.email}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{l.email}</a> : '—'}
+                          </td>
+                          <td style={{ padding: '11px 14px', color: '#475569' }}>{l.phone || '—'}</td>
+                          <td style={{ padding: '11px 14px' }}>
+                            <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 700, background: '#eef2f7', color: '#374151' }}>{l.source || '—'}</span>
+                          </td>
+                          <td style={{ padding: '11px 14px' }}>
+                            <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, color: st.color, background: st.bg, textTransform: 'capitalize' }}>{l.status || '—'}</span>
+                          </td>
+                          <td style={{ padding: '11px 14px', maxWidth: 280 }}>
+                            {noteText ? (
+                              <span title={noteText} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#475569', fontSize: 12 }}>
+                                {noteText.length > 70 ? `${noteText.slice(0, 70)}…` : noteText}
+                              </span>
+                            ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                          </td>
+                          <td style={{ padding: '11px 14px', whiteSpace: 'nowrap', color: '#475569' }}>{l.created_at ? new Date(l.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: '10px 14px', borderTop: '1px solid var(--line, #e2e8f0)', fontSize: 11.5, color: '#64748b', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                <span>{crmLeads.length} lead{crmLeads.length === 1 ? '' : 's'}</span>
+                <span>{isReplies ? `${totalReplies} replies` : `${withEmail} with email`}</span>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            {NGOS.map((item) => {
+              const active = ngoFilter === item.key;
+              const count = item.key === 'all' ? sourceLeads.length : (counts.byNgo[source][item.key] || 0);
+              const color = item.color || 'var(--ink-soft, #64748b)';
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setNgoFilter(item.key)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, border: `1px solid ${active ? color : 'var(--line, #e2e8f0)'}`, background: active ? `${color}14` : 'transparent', color: active ? color : 'var(--ink-soft, #64748b)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  {item.color && <span style={{ width: 7, height: 7, borderRadius: 999, background: color }} />}
+                  {item.label}
+                  <span style={{ fontWeight: 800, opacity: .75 }}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+            {[
+              { key: 'inbox', label: 'Inbox', count: inboxLeads.length },
+              { key: 'queue', label: 'On station', count: queueLeads.length },
+            ].map((item) => {
+              const active = tab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setTab(item.key)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, border: `1px solid ${active ? 'var(--sage)' : 'var(--line, #e2e8f0)'}`, background: active ? 'var(--sage)' : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  {item.key === 'inbox' ? <Inbox size={13} style={{ opacity: .8 }} /> : <CheckCircle2 size={13} style={{ opacity: .8 }} />}
+                  {item.label}
+                  <span style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>{item.count}</span>
+                </button>
+              );
+            })}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)' }}>
+                <Search size={14} style={{ color: 'var(--ink-soft, #64748b)' }} />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search name or phone"
+                  style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12, width: 190, color: 'var(--ink, #0f172a)' }}
+                />
+              </div>
+              {tab === 'inbox' && shown.length > 0 && source !== 'meta' && source !== 'google' && (
+                <button
+                  onClick={addAllShown}
+                  disabled={bulkBusy}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: 'none', background: 'var(--sage)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: bulkBusy ? 'default' : 'pointer', opacity: bulkBusy ? .7 : 1 }}
+                >
+                  <Plus size={14} />
+                  {bulkBusy ? 'Adding…' : `Add all shown (${Math.min(shown.length, 50)})`}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 10, padding: '9px 13px', fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>{error}</div>}
+          {notice && <div style={{ background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: 10, padding: '9px 13px', fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>{notice}</div>}
+
+          <div className="card" style={{ overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980, fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    {['Lead', 'Source', 'Reply / answers', 'NGO', 'Station', 'AI', 'Actions'].map((heading) => (
+                      <th key={heading} style={{ textAlign: 'left', padding: '9px 14px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)', borderBottom: '1px solid var(--line, #e2e8f0)' }}>{heading}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((lead) => {
+                    const ngo = ngoOfLead(lead);
+                    const leadSource = sourceKeyOf(lead);
+                    const platform = platformMeta(platformOf(lead), leadSource);
+                    const station = lead.placed_station || lead.suggested_station;
+                    const owner = lead.placed_fro_name || lead.station_owner_name;
+                    const noOwner = tab === 'inbox' && lead.suggested_station && !lead.station_owner_name;
+                    return (
+                      <tr key={lead.id} style={{ borderTop: '1px solid var(--line, #f1f5f9)' }}>
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 999, background: accountHue(ngo) }} />
+                            <div>
+                              <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{lead.name || formatPhone(lead.phone) || '—'}</div>
+                              <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Phone size={11} /> {formatPhone(lead.phone) || '—'}
+                                <span style={{ opacity: .45 }}>•</span>
+                                {formatTime(lead.created_at)}
+                              </div>
+                            </div>
                           </div>
-                        )}
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>{suggestionPill(l.suggestion)}</td>
-                      <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
-                        {l.in_station ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <span style={{ fontWeight: 800, color: '#15803d' }}>✓ {l.placed_station}</span>
-                            <span style={{ fontSize: 11 }}>{l.placed_fro_name || 'No FRO owner yet'}</span>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 800, color: platform.color, background: platform.bg, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+                            {leadSource === 'whatsapp' ? <MessageSquareText size={11} /> : leadSource === 'meta' ? <Megaphone size={11} /> : <Mail size={11} />}
+                            {platform.label}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', maxWidth: 300 }}>
+                          <div style={{ color: 'var(--ink, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                            {parseNotes(lead.notes).message || '—'}
                           </div>
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <span style={{ fontWeight: 700 }}>{l.suggested_station || '—'}</span>
-                            <span style={{ fontSize: 11 }}>{l.station_owner_name || 'No FRO owner yet'}</span>
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--ink-soft, #64748b)', whiteSpace: 'nowrap' }}>{formatTime(l.created_at)}</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          {l.in_station ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 800, color: '#15803d', whiteSpace: 'nowrap' }}>
-                              <CheckCircle2 size={13} /> Already in station
+                          {parseNotes(lead.notes).campaign && (
+                            <div style={{ fontSize: 10.5, color: 'var(--ink-soft, #64748b)', marginTop: 2 }}>
+                              <Tag size={10} /> {parseNotes(lead.notes).campaign.slice(0, 28)}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 800, color: accountHue(ngo), background: `${accountHue(ngo)}14`, border: `1px solid ${accountHue(ngo)}33`, padding: '2px 8px', borderRadius: 999 }}>
+                            {ngo}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)', fontSize: 11.5, whiteSpace: 'nowrap' }}>{station || '—'}</div>
+                          {owner
+                            ? <div style={{ fontSize: 10.5, color: 'var(--ink-soft, #64748b)' }}><User size={10} /> {owner}</div>
+                            : noOwner ? <div style={{ fontSize: 10.5, color: '#b45309', fontWeight: 700 }}>No owner assigned</div> : null}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>{suggestionPill(lead.suggestion)}</td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {tab === 'inbox' && leadSource !== 'meta' && leadSource !== 'google' ? (
+                            <button
+                              onClick={() => addToStation(lead)}
+                              disabled={adding === lead.id}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--sage)', background: 'var(--sage)', color: '#fff', fontSize: 11.5, fontWeight: 700, cursor: adding === lead.id ? 'default' : 'pointer', opacity: adding === lead.id ? .7 : 1 }}
+                            >
+                              <Plus size={12} />
+                              {adding === lead.id ? 'Adding…' : 'Add to station'}
+                            </button>
+                          ) : (leadSource === 'meta' || leadSource === 'google') && !lead.in_station ? (
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 999,
+                              fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap',
+                              color: isValidIndianMobile(lead.phone) ? '#b45309' : '#b91c1c',
+                              background: isValidIndianMobile(lead.phone) ? '#fef3c7' : '#fee2e2',
+                              border: `1px solid ${isValidIndianMobile(lead.phone) ? '#fcd34d' : '#fca5a5'}`,
+                            }}>
+                              {isValidIndianMobile(lead.phone) ? 'Auto-place pending' : 'Invalid phone'}
                             </span>
                           ) : (
-                            <button onClick={() => addToStation(l)} disabled={adding === l.id}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 9, border: 'none', background: 'var(--sage)', color: '#fff', fontSize: 11.5, fontWeight: 800, cursor: adding === l.id ? 'default' : 'pointer', opacity: adding === l.id ? .6 : 1, whiteSpace: 'nowrap' }}>
-                              <Plus size={13} />
-                              {adding === l.id ? 'Adding…' : `Add to ${l.suggested_station || 'station'}`}
-                            </button>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d' }}>On station</span>
                           )}
-                          <button onClick={() => remove(l.id)} disabled={deleting === l.id}
-                            title="Delete lead (also removes it from the SS station)"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 9, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 11.5, fontWeight: 700, opacity: deleting === l.id ? .5 : 1 }}>
+                          <button
+                            onClick={() => remove(lead.id)}
+                            disabled={deleting === lead.id}
+                            title="Delete lead"
+                            style={{ marginLeft: 6, padding: '6px 8px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#b91c1c', cursor: deleting === lead.id ? 'default' : 'pointer' }}
+                          >
                             <Trash2 size={13} />
-                            Delete
                           </button>
-                        </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!shown.length && (
+                    <tr>
+                      <td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--ink-soft, #64748b)' }}>
+                        {loading ? 'Loading leads…' : tab === 'inbox'
+                          ? (source === 'meta'
+                            ? 'No Meta leads waiting. Every valid number is placed automatically; only invalid phone numbers stay here.'
+                            : source === 'google'
+                              ? 'No Google leads waiting. Every valid number is placed automatically; only invalid phone numbers stay here.'
+                              : 'Inbox is clear for this filter.')
+                          : 'Nothing on station for this filter yet.'}
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line, #f1f5f9)', background: '#f8fafc', fontSize: 11, color: 'var(--ink-soft, #64748b)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <span>{shown.length} shown • {tab === 'inbox' ? inboxLeads.length : queueLeads.length} in this queue</span>
+              <span>Stations: {activeSource.label} → B/A/M-{activeSource.label}-Leads</span>
+            </div>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

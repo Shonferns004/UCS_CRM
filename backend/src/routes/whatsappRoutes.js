@@ -14,6 +14,9 @@ import {
   listCampaigns,
   getCampaign,
   createCampaign,
+  getCampaignProgress,
+  cancelCampaign,
+  resumeCampaign,
   validateWhatsAppContacts,
   getConversationByPhone,
   listChats,
@@ -22,6 +25,10 @@ import {
   sendMedia,
 } from '../controllers/whatsappController.js';
 import { getStations, getDonorsByStation, getAccessibleNgos } from '../controllers/ngoAdminController.js';
+import {
+  listExtractorBulkLeads,
+  markExtractorBulkLeads,
+} from '../controllers/extractorBulkController.js';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -52,10 +59,16 @@ router.get('/bulk/statuses', whatsappUser, listBulkRecipientStatuses);
 router.get('/bulk/stations', whatsappUser, getStations);
 router.get('/bulk/ngos', whatsappUser, getAccessibleNgos);
 router.get('/bulk/donors-by-station', whatsappUser, getDonorsByStation);
+// Extractor Leads mode: global used/unused tracking.
+router.get('/bulk/extractor-leads', whatsappUser, listExtractorBulkLeads);
+router.post('/bulk/extractor-leads/mark', whatsappUser, markExtractorBulkLeads);
 
 router.post('/campaigns', whatsappUser, createCampaign);
 router.get('/campaigns', whatsappUser, listCampaigns);
 router.get('/campaigns/:id', whatsappUser, getCampaign);
+router.get('/campaigns/:id/progress', whatsappUser, getCampaignProgress);
+router.post('/campaigns/:id/cancel', whatsappUser, cancelCampaign);
+router.post('/campaigns/:id/resume', whatsappUser, resumeCampaign);
 
 // Chats tab: conversation list, thread fetch and free-text / media replies.
 router.get('/chats', whatsappUser, listChats);

@@ -107,7 +107,25 @@ const INJECTED_CONFIG =
   (globalThis as { UCS_EXTRACTOR_CONFIG?: ExtractorConfig }).UCS_EXTRACTOR_CONFIG || {};
 
 const DEFAULT_API_BASE = (INJECTED_CONFIG.apiBase || 'http://localhost:5000').replace(/\/+$/, '');
-const DEFAULT_TOKEN = typeof INJECTED_CONFIG.token === 'string' ? INJECTED_CONFIG.token : '';const MAX_BUFFER = 2000;
+const DEFAULT_TOKEN = typeof INJECTED_CONFIG.token === 'string' ? INJECTED_CONFIG.token : '';
+const MAX_ROWS_PER_POST = 50;
+const PENDING_KEY = 'pendingCaptureQueue';
+
+interface BatchResult {
+  accepted: number;
+  updated: number;
+  duplicatesIgnored: number;
+  rejected: number;
+  rejections?: Array<{ row: number; reason: string }>;
+}
+
+interface PendingBatch {
+  batchId: string;
+  sessionId: string;
+  sourceUrl: string;
+  sourceName: string;
+  rows: CapturedRow[];
+}const MAX_BUFFER = 2000;
 const AUTO_STORAGE_KEY = 'autoRun';
 const AUTO_JOB_TIMEOUT_MS = 45_000;
 /**
@@ -116,6 +134,8 @@ const AUTO_JOB_TIMEOUT_MS = 45_000;
  * third of the sequential time.
  */
 const MAPS_READ_CONCURRENCY = 3;
+/** Hard ceiling on one Maps phone walk, so one bad page cannot stall a run. */
+const AUTO_MAPS_WALK_MAX_MS = 20 * 60_000;
 
 const sessions = new Map<number, TabSession>();
 const lastCounts = new Map<number, CountSnapshot>();
@@ -130,6 +150,8 @@ let authToken = DEFAULT_TOKEN;
 
 let autoState: AutoRunState | null = null;
 let autoLoopToken = 0;
+/** Automatic retries after a paused run, so a transient crash does not need a click. */
+let pauseRetries = 0;
 let autoWake: (() => void) | null = null;
 let keepAliveTimer: number | null = null;
 
@@ -158,9 +180,56 @@ void settingsReady.catch(() => {
   authToken = DEFAULT_TOKEN;
 });
 
+// Rows held from an earlier job (API outage, browser restart) are posted as
+// soon as the worker wakes, and retried while it stays alive.
+void settingsReady
+  .then(() => retryPendingBatches())
+  .catch(() => {});
+setInterval(() => {
+  void retryPendingBatches();
+}, 60_000);
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
+  });
+}
+
+/** Short human duration for the live progress line: 45s, 2m 10s. */
+function fmtElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+/**
+ * A chrome.tabs message can stay pending forever if the receiving document
+ * never answers (frozen tab, crashed renderer, extension reload race). Without
+ * a bound, one such call stalls the whole auto-run with the status stuck on
+ * "running". Every tab message goes through this.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(fallback);
+    }, ms);
+    promise
+      .then((value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(fallback);
+      });
   });
 }
 
@@ -258,6 +327,92 @@ function broadcastAutoRun(): void {
     });
 }
 
+async function postBatch(payload: {
+  batchId: string;
+  sessionId: string;
+  sourceUrl: string;
+  sourceName: string;
+  capturedAt: string;
+  country?: string;
+  rows: CapturedRow[];
+}): Promise<BatchResult> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const response = await fetch(`${apiBaseUrl}/api/accounts/extractor/captures/batch`, {
+    method: 'POST',
+    headers,
+    signal: AbortSignal.timeout(60_000),
+    body: JSON.stringify({ country: 'IN', ...payload })
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(
+      'CRM token missing or expired. Download a fresh package from Accounts > Extractor > Extension Setup.'
+    );
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`API returned ${response.status}. ${text.slice(0, 160)}`);
+  }
+
+  return (await response.json()) as BatchResult;
+}
+
+/** Rows that could not be posted are kept here so a tab close cannot lose them. */
+async function appendPendingBatch(batch: PendingBatch): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(PENDING_KEY);
+    const queue = Array.isArray(stored[PENDING_KEY]) ? (stored[PENDING_KEY] as PendingBatch[]) : [];
+    queue.push(batch);
+    await chrome.storage.local.set({ [PENDING_KEY]: queue });
+  } catch {
+    // Storage is best effort; the job error already reports the loss.
+  }
+}
+
+async function retryPendingBatches(): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(PENDING_KEY);
+    const queue = Array.isArray(stored[PENDING_KEY]) ? (stored[PENDING_KEY] as PendingBatch[]) : [];
+    if (queue.length === 0) return;
+
+    const remaining: PendingBatch[] = [];
+    let saved = 0;
+    for (const batch of queue) {
+      try {
+        const result = await postBatch({
+          batchId: batch.batchId,
+          sessionId: batch.sessionId,
+          sourceUrl: batch.sourceUrl,
+          sourceName: batch.sourceName,
+          capturedAt: new Date().toISOString(),
+          rows: batch.rows
+        });
+        saved += result.accepted + result.updated + result.duplicatesIgnored;
+      } catch {
+        remaining.push(batch);
+      }
+    }
+
+    await chrome.storage.local.set({ [PENDING_KEY]: remaining });
+    if (saved > 0) {
+      void chrome.runtime
+        .sendMessage({
+          type: 'UCS_PENDING_FLUSHED',
+          saved,
+          remaining: remaining.reduce((total, batch) => total + batch.rows.length, 0)
+        })
+        .catch(() => {
+          // No side panel open.
+        });
+    }
+  } catch {
+    // Retried again on the next tick / worker start.
+  }
+}
+
 async function flush(session: TabSession): Promise<void> {
   if (session.flushing || session.buffer.length === 0) return;
   if (holdFlushTabs.has(session.tabId)) return;
@@ -272,7 +427,7 @@ async function flush(session: TabSession): Promise<void> {
     session.flushing = false;
     return;
   }
-  const rows = session.buffer.splice(0, 100);
+  const rows = session.buffer.splice(0, MAX_ROWS_PER_POST);
   session.batchCounter += 1;
 
   const payload = {
@@ -281,37 +436,11 @@ async function flush(session: TabSession): Promise<void> {
     sourceUrl: session.sourceUrl,
     sourceName: session.sourceName,
     capturedAt: new Date().toISOString(),
-    country: 'IN',
     rows
   };
 
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-
-    const response = await fetch(`${apiBaseUrl}/api/accounts/extractor/captures/batch`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
-    });
-
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(
-        'CRM token missing or expired. Download a fresh package from Accounts > Extractor > Extension Setup.'
-      );
-    }
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`API returned ${response.status}. ${text.slice(0, 160)}`);
-    }
-
-    const result = (await response.json()) as {
-      accepted: number;
-      updated: number;
-      duplicatesIgnored: number;
-      rejected: number;
-    };
+    const result = await postBatch(payload);
 
     session.sent += result.accepted + result.updated;
     session.duplicates += result.duplicatesIgnored;
@@ -338,13 +467,21 @@ async function flush(session: TabSession): Promise<void> {
   }
 }
 
-/** Drain the whole buffer; a single flush only posts one 50-row batch. */
+/** Drain the whole buffer, retrying a transient API outage before giving up. */
 async function flushAll(session: TabSession): Promise<void> {
   for (let pass = 0; pass < 60; pass += 1) {
     if (session.buffer.length === 0) return;
     const before = session.buffer.length;
     await flush(session);
-    if (session.buffer.length >= before) return; // API failed; rows were restored.
+    if (session.buffer.length >= before) {
+      // One failure is usually a backend restart or a flaky link. Give it a
+      // few seconds before calling the job failed.
+      if (pass < 3) {
+        await delay(2000 * (pass + 1));
+        continue;
+      }
+      return;
+    }
   }
 }
 
@@ -387,11 +524,15 @@ async function handleStart(tabId: number, auto = false): Promise<PublicState> {
     throw new Error('Open a normal http(s) page first. Chrome system pages cannot be captured.');
   }
 
-  const session = ensureSession(tabId, url, hostOf(url));
+  ensureSession(tabId, url, hostOf(url));
 
-  try {
-    await chrome.tabs.sendMessage(tabId, { type: 'UCS_START', auto });
-  } catch {
+  const started = await withTimeout(
+    chrome.tabs.sendMessage(tabId, { type: 'UCS_START', auto }),
+    5000,
+    null
+  );
+
+  if (!started) {
     sessions.delete(tabId);
     throw new Error(
       'The page script is not loaded on this tab yet. Reload the page, then start capture again.'
@@ -410,6 +551,19 @@ async function handleStop(tabId: number): Promise<StopOutcome> {
 
   await flushAll(session);
   const pending = session.buffer.length;
+
+  if (pending > 0) {
+    // The tab is about to close. Keep the unsent rows in extension storage so
+    // they are retried instead of disappearing with the session.
+    await appendPendingBatch({
+      batchId: `${session.sessionId}-p${session.batchCounter + 1}`,
+      sessionId: session.sessionId,
+      sourceUrl: session.sourceUrl,
+      sourceName: session.sourceName,
+      rows: session.buffer.slice()
+    });
+  }
+
   lastCounts.set(tabId, {
     startedAt: session.startedAt,
     sourceHost: session.sourceName,
@@ -449,7 +603,8 @@ function normalizeSettings(raw: unknown): AutoRunSettings {
     activeTab: source.activeTab === true,
     targetPhones: clampNumber(source.targetPhones, 0, 10_000, 0),
     aiGenerate: source.aiGenerate === true,
-    aiBatchSize: clampNumber(source.aiBatchSize, 1, 10, 5)
+    aiBatchSize: clampNumber(source.aiBatchSize, 1, 10, 5),
+    autoResume: source.autoResume !== false
   };
 }
 
@@ -535,6 +690,22 @@ async function loadAutoRun(): Promise<void> {
 
 const autoReady = loadAutoRun();
 
+// A Chrome restart or extension reload leaves the stored run as "paused".
+// With auto-resume on, continue the queue instead of waiting for a click.
+void autoReady
+  .then(() => {
+    if (
+      autoState &&
+      autoState.status === 'paused' &&
+      autoState.settings.autoResume &&
+      autoState.index < autoState.jobs.length
+    ) {
+      pauseRetries = 0;
+      void resumeAutoRun().catch(() => {});
+    }
+  })
+  .catch(() => {});
+
 async function waitForTabComplete(
   tabId: number,
   timeoutMs: number,
@@ -593,14 +764,17 @@ async function startAutoCapture(tabId: number): Promise<void> {
   let lastError: string | null = null;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      await chrome.tabs.sendMessage(tabId, { type: 'UCS_START', auto: true });
+    const started = await withTimeout(
+      chrome.tabs.sendMessage(tabId, { type: 'UCS_START', auto: true }),
+      5000,
+      null
+    );
+    if (started) {
       broadcast(tabId);
       return;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : 'Could not reach the page script.';
-      await delay(700);
     }
+    lastError = 'The page script did not answer within 5 seconds.';
+    await delay(700);
   }
 
   sessions.delete(tabId);
@@ -610,15 +784,12 @@ async function startAutoCapture(tabId: number): Promise<void> {
 }
 
 async function scrollTab(tabId: number): Promise<boolean> {
-  try {
-    const response = (await chrome.tabs.sendMessage(tabId, { type: 'UCS_SCROLL' })) as {
-      ok?: boolean;
-      scrolled?: boolean;
-    };
-    return Boolean(response?.ok && response.scrolled);
-  } catch {
-    return false;
-  }
+  const response = (await withTimeout(
+    chrome.tabs.sendMessage(tabId, { type: 'UCS_SCROLL' }),
+    5000,
+    null
+  )) as { ok?: boolean; scrolled?: boolean } | null;
+  return Boolean(response?.ok && response.scrolled);
 }
 
 async function closeAutoTab(tabId: number): Promise<void> {
@@ -639,9 +810,11 @@ async function collectMapsLinks(
   tabId: number,
   max: number
 ): Promise<Array<{ href: string; name: string }>> {
-  const response = (await chrome.tabs
-    .sendMessage(tabId, { type: 'UCS_MAPS_PLACES', max })
-    .catch(() => null)) as
+  const response = (await withTimeout(
+    chrome.tabs.sendMessage(tabId, { type: 'UCS_MAPS_PLACES', max }),
+    5000,
+    null
+  )) as
     | { ok?: boolean; places?: Array<{ href: string; name: string }> }
     | null;
   return response?.places ?? [];
@@ -692,13 +865,17 @@ async function readPlaceWithRetry(
     if (cancelled(token)) return { row: null, opened: false };
 
     try {
-      const response = (await chrome.tabs.sendMessage(tabId, {
-        type: 'UCS_READ_PLACE',
-        name: place.name,
-        placeId
-      })) as
+      const response = (await withTimeout(
+        chrome.tabs.sendMessage(tabId, {
+          type: 'UCS_READ_PLACE',
+          name: place.name,
+          placeId
+        }),
+        5000,
+        null
+      )) as
         | { ok?: boolean; ready?: boolean; row?: CapturedRow | null; opened?: boolean }
-        | undefined;
+        | null;
 
       // `ready: false` means an older document answered; the new page has not
       // committed yet. Never read a phone from the previous place.
@@ -773,7 +950,8 @@ function mergeMapsDetails(session: TabSession, details: CapturedRow[]): void {
 async function readMapsPhones(
   tabId: number,
   token: number,
-  collected: Array<{ href: string; name: string }> = []
+  collected: Array<{ href: string; name: string }> = [],
+  onProgress?: (done: number, total: number) => void
 ): Promise<{ links: number; visited: number; found: number; panelOpened: number }> {
   const places =
     collected.length > 0
@@ -785,6 +963,7 @@ async function readMapsPhones(
   const session = sessions.get(tabId) ?? null;
   const details: CapturedRow[] = [];
   const queue = [...places];
+  const walkDeadline = Date.now() + AUTO_MAPS_WALK_MAX_MS;
   let visited = 0;
   let found = 0;
   let panelOpened = 0;
@@ -809,6 +988,8 @@ async function readMapsPhones(
   const runWorker = async (workerTabId: number): Promise<void> => {
     for (;;) {
       if (cancelled(token)) return;
+      // Bound the walk: a single page cannot keep a run here all afternoon.
+      if (Date.now() > walkDeadline) return;
       const place = queue.shift();
       if (!place) return;
 
@@ -825,6 +1006,7 @@ async function readMapsPhones(
         details.push(result.row);
         if (result.row.phone) found += 1;
       }
+      onProgress?.(visited, places.length);
     }
   };
 
@@ -1045,28 +1227,73 @@ async function runAutoLoop(token: number): Promise<void> {
       } | null = null;
 
       if (mapsDeep) {
-        state.message = `Reading phone numbers from ${job.label}…`;
+        const placeCount = mapsPlaces.size;
+        const walkStartedAt = Date.now();
+        let lastDone = 0;
+        let lastTotal = placeCount;
+        state.message = `Reading phone numbers from ${job.label} (0/${placeCount})…`;
         broadcastAutoRun();
 
-        // Every step inside is bounded (8 short retries per place), and the
+        // The walk can run for several minutes. Report progress so a quiet
+        // panel is not mistaken for a stopped run, and keep a heartbeat so the
+        // elapsed time moves even while one slow place page is loading.
+        let lastProgressAt = 0;
+        const reportProgress = (done: number, total: number): void => {
+          lastDone = done;
+          lastTotal = total;
+          const now = Date.now();
+          if (done < total && now - lastProgressAt < 1200) return;
+          lastProgressAt = now;
+          state.message = `Reading phone numbers from ${job.label} (${done}/${total}, ${fmtElapsed(now - walkStartedAt)})…`;
+          broadcastAutoRun();
+        };
+
+        const heartbeat = setInterval(() => {
+          state.message = `Reading phone numbers from ${job.label} (${lastDone}/${lastTotal}, ${fmtElapsed(Date.now() - walkStartedAt)})…`;
+          broadcastAutoRun();
+        }, 2000);
+
+        // Every step inside is bounded (14 short attempts per place), and the
         // visit list is capped by AUTO_MAPS_DETAIL_MAX.
-        mapsResult = await readMapsPhones(tabId, token, [...mapsPlaces.values()]);
+        try {
+          mapsResult = await readMapsPhones(
+            tabId,
+            token,
+            [...mapsPlaces.values()],
+            reportProgress
+          );
+        } finally {
+          clearInterval(heartbeat);
+        }
         if (cancelled(token)) throw new AutoCancelled();
+
+        state.message = `Saving ${job.label} rows to the CRM…`;
+        broadcastAutoRun();
       }
 
       // Rows were held while the phone pass ran; release them so handleStop
       // sends one merged batch instead of a list row plus a duplicate detail row.
       holdFlushTabs.delete(tabId);
 
+      state.message = `Saving ${job.label} rows to the CRM…`;
+      broadcastAutoRun();
+
       const outcome = await handleStop(tabId);
       job.rows = outcome.sent;
       job.phones = outcome.withPhone;
       job.duplicates = outcome.duplicates;
-       totalPhones += outcome.withPhone;
+      totalPhones += outcome.withPhone;
+
+      state.message = `Saved ${outcome.sent} row${outcome.sent === 1 ? '' : 's'} from ${job.label}${
+        outcome.pending > 0 ? `, ${outcome.pending} held for retry` : ''
+      }.`;
+      broadcastAutoRun();
 
       if (outcome.pending > 0) {
         job.status = 'failed';
-        job.error = `${outcome.pending} row(s) could not reach the API and stayed in the extension.`;
+        job.error = `${outcome.pending} row(s) could not reach the API and are saved in the extension for automatic retry.${
+          outcome.lastError ? ` ${outcome.lastError}` : ''
+        }`;
       } else if (outcome.sent === 0) {
         job.status = 'failed';
         job.error =
@@ -1086,6 +1313,8 @@ async function runAutoLoop(token: number): Promise<void> {
             'Saved rows, but the results list exposed no place links, so no phone numbers were read.';
         } else if (deepMapsRan && mapsVisited === 0) {
           job.error = `Found ${mapsLinks} place link(s), but none could be opened. Check that tabs are allowed to open.`;
+        } else if (deepMapsRan && mapsVisited < mapsLinks) {
+          job.error = `Read phones from ${mapsVisited} of ${mapsLinks} place page(s); stopped at the 20-minute limit for this search.`;
         } else if (deepMapsRan && mapsFound === 0) {
           job.error = `Visited ${mapsVisited} place page(s), but none showed a phone number.`;
         } else if (deepMapsRan && outcome.withPhone === 0) {
@@ -1100,7 +1329,7 @@ async function runAutoLoop(token: number): Promise<void> {
           job.error =
             'Saved rows, but none carried a phone number. For Google Maps, enable "Open each result".';
         } else if (outcome.rejected > 0) {
-          job.error = `${outcome.rejected} row(s) were rejected by the API.`;
+          job.error = `${outcome.rejected} row(s) were rejected by the CRM. Only mobile numbers are stored, so landlines are skipped.`;
         }
       }
     } catch (error) {
@@ -1183,12 +1412,13 @@ async function startAutoRun(input: {
     finishedAt: null,
     message:
       parsed.errors.length > 0
-        ? `Queued ${parsed.jobs.length} page(s). ${parsed.errors.join(' ')}`
-        : `Queued ${parsed.jobs.length} page(s).`,
+        ? `Queued ${parsed.jobs.length} page(s). It will run all of them unless you press Stop. ${parsed.errors.join(' ')}`
+        : `Queued ${parsed.jobs.length} page(s). It will run all of them unless you press Stop.`,
     currentTabId: null
   };
 
   const token = autoLoopToken;
+  pauseRetries = 0;
   await persistAutoRun();
   broadcastAutoRun();
   void runAutoLoop(token).catch(async (error: unknown) => {
@@ -1200,6 +1430,7 @@ async function startAutoRun(input: {
     stopKeepAlive();
     await persistAutoRun();
     broadcastAutoRun();
+    schedulePauseRetry();
   });
 
   return { ok: true, state: autoState, errors: parsed.errors };
@@ -1267,9 +1498,28 @@ async function resumeAutoRun(): Promise<{ ok: boolean; state?: AutoRunState; err
     stopKeepAlive();
     await persistAutoRun();
     broadcastAutoRun();
+    schedulePauseRetry();
   });
 
   return { ok: true, state: autoState };
+}
+
+/**
+ * A paused run is usually a transient failure (worker died, tab closed mid-read,
+ * a single bad page). Retry it on its own a few times before leaving it paused.
+ */
+function schedulePauseRetry(): void {
+  if (!autoState || autoState.status !== 'paused') return;
+  if (!autoState.settings.autoResume) return;
+  if (pauseRetries >= 3) return;
+
+  pauseRetries += 1;
+  const attempt = pauseRetries;
+  setTimeout(() => {
+    if (!autoState || autoState.status !== 'paused') return;
+    autoState.message = `Retrying the run automatically (attempt ${attempt}/3)…`;
+    void resumeAutoRun().catch(() => {});
+  }, 10_000);
 }
 
 async function clearAutoRun(): Promise<void> {

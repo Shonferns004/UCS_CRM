@@ -38,7 +38,13 @@ const ENV_ADMIN_KEY = process.env.ENV_ADMIN_KEY;
 const router = Router();
 
 const requireKey = (req, res, next) => {
-  if (!ENV_ADMIN_KEY) return next();
+  // Fail closed. This router can read and rewrite every project's .env, so an
+  // unset key must disable it -- not open it to the internet. It is mounted on
+  // the public backend (behind the tunnel), and an unset key previously meant
+  // every secret in backend/.env was readable by anyone who found the URL.
+  if (!ENV_ADMIN_KEY) {
+    return res.status(503).json({ message: 'Env admin is disabled (ENV_ADMIN_KEY is not set)' });
+  }
   const key = req.headers['x-admin-key'] || req.query.key;
   if (key !== ENV_ADMIN_KEY) {
     return res.status(401).json({ message: 'Unauthorized' });

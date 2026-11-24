@@ -1,11 +1,75 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
-import { metaAdsStatus, listMetaAdAccounts, listMetaCampaigns, getMetaCampaignInsights } from '../controllers/metaAdsController.js';
+import {
+  metaAdsStatus,
+  listMetaAdAccounts,
+  listMetaCampaigns,
+  getMetaCampaignInsights,
+  getMetaInsightsSummary,
+  getMetaLeadAnalytics,
+  getMetaFunnelHandler,
+  placeUnplacedMetaLeadsHandler,
+  syncMetaInsights,
+  syncMetaLeads,
+  listMetaForms,
+  saveMetaForm,
+  deleteMetaForm,
+  autoMapMetaForms,
+  getMetaWebhookEvents,
+  listMetaWebhookPages,
+  subscribeMetaWebhook,
+  getMetaAdsConfig,
+  saveMetaAdsConfig,
+  listMetaLeads,
+  getLeadAlertConfigHandler,
+  saveLeadAlertConfigHandler,
+  testLeadAlertHandler,
+  listLeadAlertLogHandler,
+  listLeadAlertAccountsHandler,
+} from '../controllers/metaAdsController.js';
 
 const router = Router();
-router.get('/status', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), metaAdsStatus);
-router.get('/ad-accounts', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), listMetaAdAccounts);
-router.get('/campaigns', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), listMetaCampaigns);
-router.get('/campaigns/:id/insights', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getMetaCampaignInsights);
+const READ_ROLES = ['accounts', 'super_admin', 'admin', 'master', 'user'];
+const WRITE_ROLES = ['accounts', 'super_admin', 'admin'];
+
+router.get('/status', authenticateRole(...READ_ROLES), metaAdsStatus);
+router.get('/ad-accounts', authenticateRole(...READ_ROLES), listMetaAdAccounts);
+router.get('/campaigns', authenticateRole(...READ_ROLES), listMetaCampaigns);
+router.get('/campaigns/:id/insights', authenticateRole(...READ_ROLES), getMetaCampaignInsights);
+
+router.get('/insights/summary', authenticateRole(...READ_ROLES), getMetaInsightsSummary);
+router.get('/analytics', authenticateRole(...READ_ROLES), getMetaLeadAnalytics);
+router.get('/funnel', authenticateRole(...READ_ROLES), getMetaFunnelHandler);
+
+// Captured leads with flattened form answers (state, association choice, inbox).
+router.get('/leads', authenticateRole(...READ_ROLES), listMetaLeads);
+
+// WhatsApp alert for every new lead, Meta and Google alike. Config is shared,
+// so both panels read and write the same settings.
+router.get('/lead-alerts/config', authenticateRole(...READ_ROLES), getLeadAlertConfigHandler);
+router.post('/lead-alerts/config', authenticateRole(...WRITE_ROLES), saveLeadAlertConfigHandler);
+router.post('/lead-alerts/test', authenticateRole(...WRITE_ROLES), testLeadAlertHandler);
+router.get('/lead-alerts/log', authenticateRole(...READ_ROLES), listLeadAlertLogHandler);
+router.get('/lead-alerts/accounts', authenticateRole(...READ_ROLES), listLeadAlertAccountsHandler);
+
+router.post('/insights/sync', authenticateRole(...WRITE_ROLES), syncMetaInsights);
+router.post('/leads/sync', authenticateRole(...WRITE_ROLES), syncMetaLeads);
+router.post('/leads/place-unplaced', authenticateRole(...WRITE_ROLES), placeUnplacedMetaLeadsHandler);
+
+router.get('/forms', authenticateRole(...READ_ROLES), listMetaForms);
+router.post('/forms', authenticateRole(...WRITE_ROLES), saveMetaForm);
+router.post('/forms/auto-map', authenticateRole(...WRITE_ROLES), autoMapMetaForms);
+router.delete('/forms/:formId', authenticateRole(...WRITE_ROLES), deleteMetaForm);
+
+// Webhook management: events are delivery history, pages shows whether this app
+// is installed on the Page, subscribe performs the install (subscribed_fields=leadgen).
+router.get('/webhook/events', authenticateRole(...READ_ROLES), getMetaWebhookEvents);
+router.get('/webhook/pages', authenticateRole(...READ_ROLES), listMetaWebhookPages);
+router.post('/webhook/subscribe', authenticateRole(...WRITE_ROLES), subscribeMetaWebhook);
+
+// Credentials live in the settings table (like whatsapp_accounts), editable
+// here without touching .env. Masked on read; token verified before it is saved.
+router.get('/config', authenticateRole(...WRITE_ROLES), getMetaAdsConfig);
+router.post('/config', authenticateRole(...WRITE_ROLES), saveMetaAdsConfig);
 
 export default router;

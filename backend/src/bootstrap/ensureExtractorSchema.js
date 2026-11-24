@@ -104,6 +104,21 @@ async function ensureTables() {
     keyword       TEXT NOT NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
+
+  // Global bulk-send usage: one row per phone that has actually been messaged.
+  // The key is the phone, not the lead, because WhatsApp identity is the number
+  // and the same number can appear under two captured rows.
+  await db._pool.query(`CREATE TABLE IF NOT EXISTS extractor_lead_outreach (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    phone_e164    TEXT NOT NULL UNIQUE,
+    lead_id       UUID REFERENCES extractor_leads(id) ON DELETE SET NULL,
+    campaign_id   UUID,
+    ngo_id        TEXT,
+    status        TEXT NOT NULL DEFAULT 'sent',
+    sent_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
 }
 
 /**
@@ -214,6 +229,15 @@ async function ensureIndexes() {
   await db._pool.query(`
     CREATE INDEX IF NOT EXISTS extractor_ai_keywords_workspace_idx
       ON extractor_ai_keywords (workspace_id, created_at)
+  `);
+
+  await db._pool.query(`
+    CREATE INDEX IF NOT EXISTS extractor_lead_outreach_ngo_idx
+      ON extractor_lead_outreach (ngo_id)
+  `);
+  await db._pool.query(`
+    CREATE INDEX IF NOT EXISTS extractor_lead_outreach_campaign_idx
+      ON extractor_lead_outreach (campaign_id)
   `);
 }
 
