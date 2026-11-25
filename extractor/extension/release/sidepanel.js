@@ -24,16 +24,25 @@
     const rows = state.jobs.reduce((total, job) => total + job.rows, 0);
     const phones = state.jobs.reduce((total, job) => total + job.phones, 0);
     const target = state.settings.targetPhones;
+    const pages = state.jobs.length;
     const parts = [
-      `${done} page${done === 1 ? "" : "s"} captured`,
+      `${done} of ${pages} page${pages === 1 ? "" : "s"} captured`,
       `${failed} failed`,
       `${rows} row${rows === 1 ? "" : "s"} saved`,
-      `${phones} with phone`
+      `${phones} number${phones === 1 ? "" : "s"} found`
     ];
     if (target > 0) {
-      parts.push(
-        phones >= target ? `target ${target} reached` : `target ${target} not reached (queue ended at ${phones})`
-      );
+      if (phones >= target) {
+        parts.push(`target ${target} reached`);
+      } else if (state.status === "running") {
+        parts.push(`target ${target} not reached yet (${phones} so far)`);
+      } else if (state.status === "paused") {
+        parts.push(`target ${target} not reached (paused at ${phones})`);
+      } else if (state.status === "stopped") {
+        parts.push(`target ${target} not reached (stopped at ${phones})`);
+      } else {
+        parts.push(`target ${target} not reached (queue ended at ${phones})`);
+      }
     }
     return parts.join(" \xB7 ");
   }
@@ -67,6 +76,7 @@
   var autoGap = requireEl("auto-gap");
   var autoDeep = requireEl("auto-deep");
   var autoFocus = requireEl("auto-focus");
+  var autoResumeToggle = requireEl("auto-continue");
   var autoTarget = requireEl("auto-target");
   var autoAi = requireEl("auto-ai");
   var autoAiBatch = requireEl("auto-ai-batch");
@@ -136,7 +146,7 @@
   function jobMeta(job) {
     if (job.status === "pending") return "Waiting";
     if (job.status === "running") return "Running now";
-    const parts = [`${job.rows} saved`, `${job.phones} with phone`];
+    const parts = [`${job.rows} saved`, `${job.phones} number${job.phones === 1 ? "" : "s"} found`];
     if (job.duplicates > 0) {
       parts.push(`${job.duplicates} duplicate${job.duplicates === 1 ? "" : "s"}`);
     }
@@ -203,6 +213,7 @@
       autoGap,
       autoDeep,
       autoFocus,
+      autoResumeToggle,
       autoTarget,
       autoAi,
       autoAiBatch
@@ -250,7 +261,8 @@
         activeTab: autoFocus.checked,
         targetPhones: Number(autoTarget.value),
         aiGenerate: autoAi.checked,
-        aiBatchSize: Number(autoAiBatch.value)
+        aiBatchSize: Number(autoAiBatch.value),
+        autoResume: autoResumeToggle.checked
       }
     };
   }
@@ -267,7 +279,8 @@
         focus: autoFocus.checked,
         target: Number(autoTarget.value),
         ai: autoAi.checked,
-        aiBatch: Number(autoAiBatch.value)
+        aiBatch: Number(autoAiBatch.value),
+        autoResume: autoResumeToggle.checked
       }
     }).catch(() => {
     });
@@ -289,6 +302,7 @@
       if (typeof form["target"] === "number") autoTarget.value = String(form["target"]);
       if (typeof form["ai"] === "boolean") autoAi.checked = form["ai"];
       if (typeof form["aiBatch"] === "number") autoAiBatch.value = String(form["aiBatch"]);
+      if (typeof form["autoResume"] === "boolean") autoResumeToggle.checked = form["autoResume"];
     } catch {
     } finally {
       updateFormatHint();
@@ -560,6 +574,10 @@
     }
     if (typed.type === "UCS_AUTORUN_STATE") {
       renderAuto(typed.state ?? null);
+      return;
+    }
+    if (typed.type === "UCS_PENDING_FLUSHED") {
+      autoNote.textContent = `${typed.saved ?? 0} held row(s) reached the CRM.${typed.remaining ? ` ${typed.remaining} still waiting to retry.` : ""}`;
     }
   });
   void init().catch(() => {

@@ -4,8 +4,10 @@ import { handleInboundForAi } from '../services/aiReplyService.js';
 import { applyRouting } from '../services/routingService.js';
 import { scheduleAutoRetry } from '../services/messageRetryScheduler.js';
 import { normalizeDonorPhone, phoneVariantsFor } from '../services/whatsappScope.js';
+import { releaseFailedExtractorPhones } from '../services/extractorOutreachService.js';
 import { createLead } from '../models/leadModel.js';
-import { qualifySsReply, shouldAiCheckSsReply, materializeReplyLead } from '../services/ssLeadService.js';
+import { qualifySsReply, shouldAiCheckSsReply, scoreSsReply } from '../services/ssLeadService.js';
+import { placeLeadIfValuable } from '../services/leadIntakeService.js';
 import { aiScoreSsReply, SS_AI_VERSION } from '../services/ssLeadAiService.js';
 
 // Read at request time, not module load: this module is imported before
@@ -45,11 +47,33 @@ export function shouldApplyStatus(current, incoming) {
 }
 
 export function verifyWhatsAppWebhook(req, res) {
-  const mode = req.query['hub.mode'];
+  const mode = req.query['hub.mode'] || req.query.hub_mode;
   const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
+  const challenge = req.query['hub.challenge'] || req.query.hub_challenge;
   const expectedToken = getVerifyToken();
-  if (mode === 'subscribe' && expectedToken && token === expectedToken) {
+
+  // Two verification shapes arrive here.
+  //
+  // 1. Standard app-level callback: hub.mode + hub.verify_token + hub.challenge.
+  //    The token must match WHATSAPP_VERIFY_TOKEN, which is what keeps the
+  //    public endpoint from answering arbitrary callers.
+  //
+  // 2. WABA-level callback override (POST /{WABA_ID}/subscribed_apps with
+  //    override_callback_uri): Meta sends hub.mode/hub.challenge AND duplicate
+  //    underscore spellings, and NO verify token at all. Requiring the token
+  //    for this shape made every override fail with HTTP 403 -- which is
+  //    exactly what kept a number whose callback belonged to another
+  //    integration from being pointed back at this CRM.
+  //
+  // The override branch is safe: it only echoes a challenge, so it discloses
+  // nothing and grants no access. The token-checked flow is unchanged.
+  const overrideStyle = !token
+    && req.query.hub_mode === 'subscribe'
+    && Boolean(req.query.hub_challenge);
+
+  const tokenOk = Boolean(expectedToken) && token === expectedToken;
+
+  if (mode === 'subscribe' && challenge && (tokenOk || overrideStyle)) {
     res.status(200).send(challenge);
   } else {
     res.status(403).send('Forbidden');
@@ -333,8 +357,8 @@ export async function whatsappWebhookEntry(req, res) {
               // Explicit interest → straight into SS-<NGO>. Junk/auto-replies
               // stay in the admin inbox for a human decision.
               if (created && qualifySsReply(bodyText || '')) {
-                const placed = await materializeReplyLead(created, {});
-                if (!placed.ok) console.warn('SS auto-place skipped:', placed.reason);
+                const placed = await placeLeadIfValuable(created, { score: scoreSsReply(created.notes).score });
+                if (!placed.placed) console.warn('SS auto-place skipped:', placed.reason);
               } else if (created && shouldAiCheckSsReply(bodyText || '')) {
                 // Rules could not classify free text ("I wanted to donate now,
                 // how should I"). Ask the model in the background and place the
@@ -356,8 +380,8 @@ export async function whatsappWebhookEntry(req, res) {
                     }).eq('id', created.id);
 
                     if (ai.label === 'interested' && ai.score >= 70) {
-                      const placed = await materializeReplyLead(created, {});
-                      if (!placed.ok) console.warn('SS AI place skipped:', placed.reason);
+                      const placed = await placeLeadIfValuable(created, { score: ai.score });
+                      if (!placed.placed) console.warn('SS AI place skipped:', placed.reason);
                     }
                   } catch (e) {
                     console.error('SS AI fallback failed:', e?.message || e);
@@ -383,8 +407,8 @@ export async function whatsappWebhookEntry(req, res) {
               };
 
               if (qualifySsReply(bodyText || '')) {
-                const placed = await materializeReplyLead(freshReply, {});
-                if (!placed.ok) console.warn('SS repeat-reply place skipped:', placed.reason);
+                const placed = await placeLeadIfValuable(freshReply, { score: scoreSsReply(freshReply.notes).score });
+                if (!placed.placed) console.warn('SS repeat-reply place skipped:', placed.reason);
               } else if (shouldAiCheckSsReply(bodyText || '')) {
                 void (async () => {
                   try {
@@ -402,8 +426,8 @@ export async function whatsappWebhookEntry(req, res) {
                     }).eq('id', existingLead.id);
 
                     if (ai.label === 'interested' && ai.score >= 70) {
-                      const placed = await materializeReplyLead(freshReply, {});
-                      if (!placed.ok) console.warn('SS AI repeat place skipped:', placed.reason);
+                      const placed = await placeLeadIfValuable(freshReply, { score: ai.score });
+                      if (!placed.placed) console.warn('SS AI repeat place skipped:', placed.reason);
                     }
                   } catch (e) {
                     console.error('SS AI repeat fallback failed:', e?.message || e);
@@ -518,7 +542,7 @@ export async function whatsappWebhookEntry(req, res) {
               status_updated_at: new Date().toISOString(),
             })
             .eq('wa_message_id', status.id)
-            .select('wa_message_id, status');
+            .select('wa_message_id, status, phone');
 
           if (bulkUpdateError) {
             console.error('Bulk recipient status update failed:', bulkUpdateError.message);
@@ -526,6 +550,25 @@ export async function whatsappWebhookEntry(req, res) {
             console.warn('No bulk recipient matched webhook message ID:', status.id);
           } else {
             console.log('Bulk recipient status updated:', updatedBulk);
+
+            // The Extractor lead was marked used when Meta accepted the send,
+            // but acceptance is not delivery. A failed status means the number
+            // never got the message, so hand it back to the unused pool for a
+            // retry. Numbers with any still-successful send stay used, which
+            // releaseFailedExtractorPhones() enforces.
+            if (status.status === 'failed') {
+              const phones = updatedBulk.map((row) => row.phone).filter(Boolean);
+              try {
+                const released = await releaseFailedExtractorPhones(phones);
+                if (released.length) {
+                  console.log('Released extractor number(s) back to unused:', released);
+                }
+              } catch (releaseError) {
+                // Never fail the webhook: Meta retries the whole frame, but the
+                // delivery verdict itself was already persisted above.
+                console.error('Extractor release failed:', releaseError?.message || releaseError);
+              }
+            }
           }
         }
       }

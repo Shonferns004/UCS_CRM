@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { FileText, Loader2, Plus, Send, Smile, Sparkles, X } from 'lucide-react';
-import { messageApi, type Chat, type MessageType } from '../../services/api';
+import { FileText, Loader2, Mic, Plus, Send, Smile, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { mediaApi, messageApi, type Chat, type MessageType } from '../../services/api';
 import { type ChatMessageView } from '../../utils/chatMessages';
 import { chatTitle } from '../../utils/formatPhone';
 import { buildMediaSendPayload, buildOptimisticMetadata, quotedIdOf } from '../../utils/composerSend';
@@ -13,6 +13,7 @@ import type { ScrollDirection } from '../../utils/scrollDecision';
 import { MEDIA_UPLOAD_MAX_BYTES } from '../../utils/mediaUpload';
 import { BULK_CAPTION_MAX_LENGTH, captionLength } from '../../utils/bulkMedia';
 import { isComposingKey } from '../../utils/composition';
+import { useVoiceRecorder } from './useVoiceRecorder';
 
 // The gateway's bound on the text of a send and of a reply, MESSAGE_TEXT_MAX_LENGTH in
 // src/modules/message/dto/send-message.dto.ts. A caption is bounded at BULK_CAPTION_MAX_LENGTH, as SendMediaMessageDto
@@ -34,6 +35,8 @@ export interface StagedAttachment {
   base64: string;
   mimetype: string;
   filename: string;
+  /** A recording: sent with ptt so it arrives as a voice note, not a music file. */
+  ptt?: boolean;
 }
 
 interface ChatComposerProps {
@@ -102,6 +105,59 @@ function ChatComposer({
   const typeLabel = (type: string) => `[${t(`chats.messageType.${type}`, { defaultValue: type })}]`;
   // Audio carries no caption on either engine, so text typed next to it is never sent with it.
   const attachmentIsAudio = attachment?.mimetype.startsWith('audio/') ?? false;
+  const recorder = useVoiceRecorder();
+
+  /**
+   * Stage a finished recording as the composer's attachment.
+   *
+   * Android refuses some Ogg/Opus PTT profiles that Web and Desktop play: the message is delivered,
+   * shows a waveform, then fails with "something went wrong with the audio file". MP3 plays on every
+   * client, so the recording is converted to MP3 and sent as a normal audio message (`ptt` omitted).
+   * The cost is the mic bubble; the benefit is that the audio actually opens on the phones.
+   */
+  const stageRecording = async (blob: Blob, _mimetype: string) => {
+    const readBase64 = (source: Blob) =>
+      new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result ?? '').split(',')[1] ?? '');
+        reader.onerror = () => reject(reader.error ?? new Error('The recording could not be read'));
+        reader.readAsDataURL(source);
+      });
+
+    setAttachment(null);
+
+    let base64: string;
+    let finalMimetype = 'audio/mpeg';
+    const filename = 'voice-note.mp3';
+
+    try {
+      const converted = await mediaApi.convertAudio(selectedSessionId, await readBase64(blob));
+      base64 = converted.base64;
+      finalMimetype = converted.mimetype;
+    } catch (err) {
+      showErrorToast(
+        'The voice note could not be prepared',
+        err instanceof Error ? err.message : 'Server-side audio conversion failed.',
+      );
+      return;
+    }
+
+    const bytes = Uint8Array.from(atob(base64), ch => ch.charCodeAt(0));
+    const convertedBlob = new Blob([bytes], { type: finalMimetype });
+    if (convertedBlob.size > MEDIA_UPLOAD_MAX_BYTES) {
+      showErrorToast(t('chats.errors.fileTooLarge'));
+      return;
+    }
+
+    attachmentReadSeq.current += 1; // supersede any in-flight file read
+    setPreviewUrl(URL.createObjectURL(convertedBlob));
+    setAttachment({
+      file: new File([convertedBlob], filename, { type: finalMimetype }),
+      base64,
+      mimetype: finalMimetype,
+      filename,
+    });
+  };
   // The text a send carries is held to the gateway's bound, counted as it counts (an astral character is one), before
   // the send instead of by a refusal.
   const textLength = captionLength(messageInput.trim());
@@ -365,7 +421,9 @@ function ChatComposer({
       {/* Composer extras: the attachment, emoji and reply panels stack above the input bar. */}
       {attachment && (
         <div className="composer-banner attachment-preview-banner">
-          {previewUrl ? (
+          {attachmentIsAudio && previewUrl ? (
+            <audio src={previewUrl} controls style={{ height: 36, maxWidth: 220 }} />
+          ) : previewUrl ? (
             <img src={previewUrl} alt={attachment.filename} className="preview-thumbnail" />
           ) : (
             <div className="preview-file-icon">📎</div>
@@ -379,6 +437,37 @@ function ChatComposer({
             onClick={handleRemoveAttachment}
             aria-label={t('messageTester.removeFile')}
           >
+            <X size={18} />
+          </button>
+        </div>
+      )}
+
+      {recorder.status === 'recording' && (
+        <div className="composer-banner" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              background: '#e53935',
+              animation: 'pulse 1s ease-in-out infinite',
+            }}
+          />
+          <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{recorder.elapsedLabel}</strong>
+          <span style={{ flex: 1 }}>Recording voice note…</span>
+          <button type="button" className="btn-secondary" onClick={recorder.stop} title="Stop and attach">
+            <Square size={16} /> Stop
+          </button>
+          <button type="button" className="btn-secondary" onClick={recorder.cancel} title="Discard this recording">
+            <Trash2 size={16} /> Cancel
+          </button>
+        </div>
+      )}
+
+      {recorder.error && (
+        <div className="composer-banner" role="alert">
+          <span>{recorder.error}</span>
+          <button type="button" className="btn-banner-close" onClick={recorder.cancel} aria-label={t('common.close')}>
             <X size={18} />
           </button>
         </div>
@@ -504,6 +593,19 @@ function ChatComposer({
             </button>
           </div>
 
+          {recorder.supported && canWrite && !attachment && !messageInput.trim() && recorder.status !== 'recording' && (
+            <button
+              type="button"
+              className="btn-input-accessory"
+              onClick={() => void recorder.start(stageRecording)}
+              disabled={sending}
+              title="Record a voice note"
+              aria-label="Record a voice note"
+            >
+              <Mic size={22} />
+            </button>
+          )}
+
           <button
             type="submit"
             disabled={!canWrite || (!messageInput.trim() && !attachment) || sending || textTooLong}
@@ -530,3 +632,5 @@ function ChatComposer({
 }
 
 export default ChatComposer;
+
+

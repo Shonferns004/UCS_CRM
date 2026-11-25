@@ -50,6 +50,7 @@ const autoScrolls = requireEl<HTMLInputElement>('auto-scrolls');
 const autoGap = requireEl<HTMLInputElement>('auto-gap');
 const autoDeep = requireEl<HTMLInputElement>('auto-deep');
 const autoFocus = requireEl<HTMLInputElement>('auto-focus');
+const autoResumeToggle = requireEl<HTMLInputElement>('auto-continue');
 const autoTarget = requireEl<HTMLInputElement>('auto-target');
 const autoAi = requireEl<HTMLInputElement>('auto-ai');
 const autoAiBatch = requireEl<HTMLInputElement>('auto-ai-batch');
@@ -135,7 +136,7 @@ function jobMeta(job: AutoJob): string {
   if (job.status === 'pending') return 'Waiting';
   if (job.status === 'running') return 'Running now';
 
-  const parts = [`${job.rows} saved`, `${job.phones} with phone`];
+  const parts = [`${job.rows} saved`, `${job.phones} number${job.phones === 1 ? '' : 's'} found`];
   if (job.duplicates > 0) {
     parts.push(`${job.duplicates} duplicate${job.duplicates === 1 ? '' : 's'}`);
   }
@@ -223,6 +224,7 @@ function renderAuto(state: AutoRunState | null): void {
     autoGap,
     autoDeep,
     autoFocus,
+    autoResumeToggle,
     autoTarget,
     autoAi,
     autoAiBatch
@@ -281,6 +283,7 @@ function readForm(): {
     targetPhones: number;
     aiGenerate: boolean;
     aiBatchSize: number;
+    autoResume: boolean;
   };
 } {
   return {
@@ -294,7 +297,8 @@ function readForm(): {
       activeTab: autoFocus.checked,
       targetPhones: Number(autoTarget.value),
       aiGenerate: autoAi.checked,
-      aiBatchSize: Number(autoAiBatch.value)
+      aiBatchSize: Number(autoAiBatch.value),
+      autoResume: autoResumeToggle.checked
     }
   };
 }
@@ -313,7 +317,8 @@ async function saveForm(): Promise<void> {
         focus: autoFocus.checked,
          target: Number(autoTarget.value),
          ai: autoAi.checked,
-         aiBatch: Number(autoAiBatch.value)
+         aiBatch: Number(autoAiBatch.value),
+         autoResume: autoResumeToggle.checked
       }
     })
     .catch(() => {
@@ -339,6 +344,7 @@ async function loadForm(): Promise<void> {
     if (typeof form['target'] === 'number') autoTarget.value = String(form['target']);
     if (typeof form['ai'] === 'boolean') autoAi.checked = form['ai'];
     if (typeof form['aiBatch'] === 'number') autoAiBatch.value = String(form['aiBatch']);
+    if (typeof form['autoResume'] === 'boolean') autoResumeToggle.checked = form['autoResume'];
   } catch {
     // Keep the defaults.
   } finally {
@@ -686,6 +692,8 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
   const typed = message as {
     type?: string;
     state?: PublicState | AutoRunState | null;
+    saved?: number;
+    remaining?: number;
   };
 
   if (typed.type === 'UCS_STATE' && typed.state) {
@@ -698,6 +706,13 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
 
   if (typed.type === 'UCS_AUTORUN_STATE') {
     renderAuto((typed.state as AutoRunState | null) ?? null);
+    return;
+  }
+
+  if (typed.type === 'UCS_PENDING_FLUSHED') {
+    autoNote.textContent = `${typed.saved ?? 0} held row(s) reached the CRM.${
+      typed.remaining ? ` ${typed.remaining} still waiting to retry.` : ''
+    }`;
   }
 });
 

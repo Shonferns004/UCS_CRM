@@ -31,10 +31,17 @@ test('Bulk send and its supporting endpoints stay mounted', () => {
     ['GET', '/bulk/ngos'],
     ['GET', '/bulk/stations'],
     ['GET', '/bulk/donors-by-station'],
+    // "Extractor Leads" recipient mode + manual used/unused.
+    ['GET', '/bulk/extractor-leads'],
+    ['POST', '/bulk/extractor-leads/mark'],
     // Campaign rows created before a bulk send.
     ['POST', '/campaigns'],
     ['GET', '/campaigns'],
     ['GET', '/campaigns/:id'],
+    // Background campaign progress / controls.
+    ['GET', '/campaigns/:id/progress'],
+    ['POST', '/campaigns/:id/cancel'],
+    ['POST', '/campaigns/:id/resume'],
     // Account health card.
     ['GET', '/accounts/:accountId/health'],
   ];

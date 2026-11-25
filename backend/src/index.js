@@ -25,6 +25,7 @@ import hrWhatsAppRoutes from './routes/hrWhatsAppRoutes.js';
 import hrDailyReportRoutes from './routes/hrDailyReportRoutes.js';
 import dailyReportRoutes from './routes/dailyReportRoutes.js';
 import taskAssignmentRoutes from './routes/taskAssignmentRoutes.js';
+import socialLeadsRoutes from './routes/socialLeadsRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import eventRoutes from './routes/eventRoutes.js';
 import noticeRoutes from './routes/noticeRoutes.js';
@@ -66,6 +67,7 @@ import webhookRoutes from './routes/webhookRoutes.js';
 import bankStatementRoutes from './routes/bankStatementRoutes.js';
 import whatsappRoutes from './routes/whatsappRoutes.js';
 import metaAdsRoutes from './routes/metaAdsRoutes.js';
+import googleAdsRoutes from './routes/googleAdsRoutes.js';
 import eventHeadRoutes from './routes/eventHeadRoutes.js';
 import importantDaysRoutes from './routes/importantDaysRoutes.js';
 import ocrRoutes from './routes/ocrRoutes.js';
@@ -127,6 +129,7 @@ import { ensureTicketSchema } from './bootstrap/ensureTicketSchema.js';
 import { ensureWhatsAppSessionAssignmentSchema } from './bootstrap/ensureWhatsAppSessionAssignmentSchema.js';
 import { ensureWhatsAppReplySchema } from './bootstrap/ensureWhatsAppReplySchema.js';
 import { ensureOpenwaTemplateSchema } from './bootstrap/ensureOpenwaTemplateSchema.js';
+import { ensureSessionNotesSchema } from './bootstrap/ensureSessionNotesSchema.js';
 import { ensureBugsSchema } from './bootstrap/ensureBugsSchema.js';
 import { ensureLoanDeductionSchema } from './bootstrap/ensureLoanDeductionSchema.js';
 import { ensureSpecialIncentiveSchema } from './bootstrap/ensureSpecialIncentiveSchema.js';
@@ -173,7 +176,13 @@ import { ensureWhatsAppAccountSchema } from './bootstrap/ensureWhatsAppAccountSc
 import { ensureWhatsAppConversationSchema } from './bootstrap/ensureWhatsAppConversationSchema.js';
 import { ensureWhatsAppBulkSchema } from './bootstrap/ensureWhatsAppBulkSchema.js';
 import { ensureCampaignSchema } from './bootstrap/ensureCampaignSchema.js';
+import { ensureMetaAdsSchema } from './bootstrap/ensureMetaAdsSchema.js';
+import { loadMetaConfigFromDb } from './services/metaAdsConfigStore.js';
+import { ensureLeadWhatsAppAlertSchema } from './bootstrap/ensureLeadWhatsAppAlertSchema.js';
+import { ensureGoogleAdsSchema } from './bootstrap/ensureGoogleAdsSchema.js';
+import { loadGoogleAdsConfigFromDb } from './services/googleAdsConfigStore.js';
 import { ensureBulkEmailSchema } from './bootstrap/ensureBulkEmailSchema.js';
+import { ensureLeadAlertSchema } from './bootstrap/ensureLeadAlertSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
 dotenv.config({ override: true });
@@ -314,6 +323,7 @@ app.use('/api/hr/whatsapp', hrWhatsAppRoutes);
 app.use('/api/hr-reports', hrDailyReportRoutes);
 app.use('/api/daily-reports', dailyReportRoutes);
 app.use('/api/task-assignments', taskAssignmentRoutes);
+app.use('/api/social/leads', socialLeadsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/notices', noticeRoutes);
@@ -359,6 +369,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/accounts/bank-statement', bankStatementRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/meta-ads', metaAdsRoutes);
+app.use('/api/google-ads', googleAdsRoutes);
 app.use('/api/whatsapp', whatsappEnhancementsRoutes);
 app.use('/api/whatsapp/automation', whatsappAutomationRoutes);
 app.use('/api/whatsapp/accounts', whatsappAccountsRoutes);
@@ -1235,6 +1246,17 @@ const requireCronAuth = (req, res, next) => {
       }
     });
 
+    app.post('/api/cron/bulk-email-replies', requireCronAuth, async (req, res) => {
+      try {
+        const { pollBulkEmailReplies } = await import('./services/bulkEmailReplyImporter.js');
+        const result = await pollBulkEmailReplies();
+        res.json(result);
+      } catch (error) {
+        console.error('Bulk email replies cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
     app.post('/api/cron/razorpay-sync', requireCronAuth, async (req, res) => {
       try {
         const { syncAllRazorpayAccounts } = await import('./services/razorpayWebhook.js');
@@ -1334,6 +1356,32 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
 });
 
+// Last-resort guard. Mail clients (IMAP) and other socket libraries can emit
+// transport errors ('Socket timeout', ECONNRESET, EPIPE) outside any promise
+// chain. Those only mean one background session died — a full process crash
+// takes the whole CRM down for every user. Swallow only transport errors from
+// a socket; anything else still terminates the process like Node does by
+// default, so real bugs are not hidden.
+const TRANSIENT_SOCKET_CODES = new Set([
+  'ETIMEOUT',
+  'ECONNRESET',
+  'ECONNABORTED',
+  'EPIPE',
+  'ESOCKET',
+  'NoConnection',
+]);
+
+process.on('uncaughtException', (error) => {
+  const code = String(error?.code || '');
+  if (error?._connId || TRANSIENT_SOCKET_CODES.has(code)) {
+    console.error(`[socket] transient ${code || 'IMAP'} error ignored, API stays up:`, error?.message || error);
+    return;
+  }
+  console.error('Uncaught Exception:', error);
+  process.exitCode = 1;
+  setTimeout(() => process.exit(1), 100).unref?.();
+});
+
 app.get('/api/debug', authenticate, async (req, res) => {
   const tables = ['rejected_lead_tickets', 'fcm_tokens'];
   const results = {};
@@ -1372,6 +1420,7 @@ if (!process.env.VERCEL) {
     await ensureWhatsAppSessionAssignmentSchema().catch(e => console.error('ensureWhatsAppSessionAssignmentSchema failed:', e?.message || e));
   await ensureWhatsAppReplySchema().catch(e => console.error('ensureWhatsAppReplySchema failed:', e?.message || e));
     await ensureOpenwaTemplateSchema().catch(e => console.error('ensureOpenwaTemplateSchema failed:', e?.message || e));
+    await ensureSessionNotesSchema().catch(e => console.error('ensureSessionNotesSchema failed:', e?.message || e));
 await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?.message || e));
     await ensureLoanDeductionSchema().catch(e => console.error('ensureLoanDeductionSchema failed:', e?.message || e));
     await ensureSpecialIncentiveSchema().catch(e => console.error('ensureSpecialIncentiveSchema failed:', e?.message || e));
@@ -1417,8 +1466,43 @@ await ensureSsLeadAiSchema().catch(e => console.error('ensureSsLeadAiSchema fail
     await ensureWhatsAppAccountSchema().catch(e => console.error('ensureWhatsAppAccountSchema failed:', e?.message || e));
     await ensureWhatsAppConversationSchema().catch(e => console.error('ensureWhatsAppConversationSchema failed:', e?.message || e));
     await ensureWhatsAppBulkSchema().catch(e => console.error('ensureWhatsAppBulkSchema failed:', e?.message || e));
-    await ensureCampaignSchema().catch(e => console.error('ensureCampaignSchema failed:', e?.message || e));
+  await ensureCampaignSchema().catch(e => console.error('ensureCampaignSchema failed:', e?.message || e));
+  await ensureMetaAdsSchema().catch(e => console.error('ensureMetaAdsSchema failed:', e?.message || e));
+  await ensureGoogleAdsSchema().catch(e => console.error('ensureGoogleAdsSchema failed:', e?.message || e));
+  await ensureLeadWhatsAppAlertSchema().catch(e => console.error('ensureLeadWhatsAppAlertSchema failed:', e?.message || e));
+  // Credentials saved from the panel live in `settings`; copy them into the
+  // process env before the pollers below decide whether they can start.
+  await loadMetaConfigFromDb()
+    .then((keys) => { if (keys.length) console.log(`[meta] config loaded from settings: ${keys.join(', ')}`); })
+    .catch(e => console.error('loadMetaConfigFromDb failed:', e?.message || e));
+  await loadGoogleAdsConfigFromDb()
+    .then((keys) => { if (keys.length) console.log(`[google-ads] config loaded from settings: ${keys.join(', ')}`); })
+    .catch(e => console.error('loadGoogleAdsConfigFromDb failed:', e?.message || e));
+  await import('./services/googleAdsService.js')
+    .then((m) => m.startGoogleAdsSyncScheduler?.())
+    .catch(e => console.error('startGoogleAdsSyncScheduler failed:', e?.message || e));
+  await import('./services/metaLeadIngestService.js')
+    .then((m) => m.startMetaLeadPoller?.())
+    .catch(e => console.error('startMetaLeadPoller failed:', e?.message || e));
+  await import('./services/metaAdsService.js')
+    .then((m) => m.startMetaInsightsSync?.())
+    .catch(e => console.error('startMetaInsightsSync failed:', e?.message || e));
+  await import('./services/leadWhatsAppAlertService.js')
+    .then((m) => m.startLeadAlertSweeper?.())
+    .catch(e => console.error('startLeadAlertSweeper failed:', e?.message || e));
+  await import('./services/whatsappBulkCampaignService.js')
+      .then((m) => m.recoverInterruptedWhatsAppCampaigns?.())
+      .catch(e => console.error('recoverInterruptedWhatsAppCampaigns failed:', e?.message || e));
     await ensureBulkEmailSchema().catch(e => console.error('ensureBulkEmailSchema failed:', e?.message || e));
+    await ensureLeadAlertSchema().catch(e => console.error('ensureLeadAlertSchema failed:', e?.message || e));
+    await import('./services/bulkEmailService.js')
+      .then((m) => m.recoverInterruptedBulkEmails?.())
+      .catch(e => console.error('recoverInterruptedBulkEmails failed:', e?.message || e));
+    // Keeps the Bulk Email > Mailbox tab populated: polls every sender mailbox
+    // over IMAP (host derived from the SMTP provider) every 15 minutes.
+    await import('./services/mailboxService.js')
+      .then((m) => m.startMailboxScheduler?.())
+      .catch(e => console.error('startMailboxScheduler failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');

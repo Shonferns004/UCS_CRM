@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
 import * as XLSX from 'xlsx'
-import { X } from 'lucide-react'
-import { apiGet, apiPost, apiPatch } from '../api/auth'
+import { X, Pencil, Check } from 'lucide-react'
+import { apiGet, apiPost } from '../api/auth'
 import DonorTabs from '../components/DonorTabs'
+import ReceiptEditModal from '../components/ReceiptEditModal'
 
 const COLUMNS = [
   { key: 'mobile_number', label: 'Mobile No.', required: true, aliases: ['mobile no', 'mobileno', 'mobile number', 'mobile', 'phone no', 'phone', 'contact no', 'contact number', 'contact', 'mob no', 'mo no'] },
@@ -86,26 +87,6 @@ export default function AddressImport() {
   }, [])
 
   // ── Receipts list (search by mobile / receipt no. + date range) ──
-  const RECEIPT_EDIT_FIELDS = [
-    ['donor_name', 'Donor Name'],
-    ['donor_mobile', 'Mobile No.'],
-    ['mobile_2', 'Mobile 2'],
-    ['email', 'Email'],
-    ['pan_number', 'PAN No.'],
-    ['address', 'Address'],
-    ['address_2', 'Address 2'],
-    ['station', 'Station'],
-    ['account_of', 'Account Of'],
-    ['mode', 'Mode'],
-    ['bank_name', 'Bank Name'],
-    ['payment_id', 'Payment ID'],
-    ['caller_name', 'Caller Name'],
-    ['agent_name', 'Agent Name'],
-    ['project_id', 'Project'],
-    ['receipt_time', 'Receipt Time'],
-  ]
-  const RECEIPT_MONO = ['donor_mobile', 'mobile_2', 'pan_number', 'payment_id']
-
   const LIST_LIMIT = 20
   const [receipts, setReceipts] = useState([])
   const [receiptTotal, setReceiptTotal] = useState(0)
@@ -119,12 +100,12 @@ export default function AddressImport() {
   const [projectOptions, setProjectOptions] = useState([])
   const [receiptsLoading, setReceiptsLoading] = useState(true)
   const [listReload, setListReload] = useState(0)
-  // Excel-style single-cell editing: double-click a cell, type, Enter/blur
-  // saves just that field. Nothing else on the row enters edit mode.
-  const [cellEdit, setCellEdit] = useState(null) // { id, key }
-  const [cellForm, setCellForm] = useState({})
-  const [savingCell, setSavingCell] = useState(false)
-  const [editError, setEditError] = useState('')
+  // Receipt editing opens the shared Edit Receipt modal. The cell the user
+  // aimed at decides which field gets focus, but every receipt field is
+  // editable from the same place.
+  const [editReceipt, setEditReceipt] = useState(null)
+  const [editField, setEditField] = useState('')
+  const [savedFlash, setSavedFlash] = useState('')
   const [sortKey, setSortKey] = useState('')
   const [sortDir, setSortDir] = useState('')
 
@@ -139,7 +120,6 @@ export default function AddressImport() {
   }
   const sortAddress = (r) => [r.address, r.address_2]
     .map(s => String(s || '').trim()).filter(Boolean).join(' ')
-  const editInputStyle = { width: '100%', height: 18, padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', color: 'inherit', font: 'inherit', lineHeight: '18px', boxSizing: 'border-box' }
   const rv = (r, k) => { const v = r?.[k]; return v == null ? '' : String(v) }
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'NA'
 
@@ -257,26 +237,41 @@ export default function AddressImport() {
     }
   }
 
-  // In-cell editor. Blur only commits when focus leaves the whole cell, so the
-  // address cell can hold two inputs without saving between them. The input has
-  // no box and a fixed line box so entering edit mode never changes row height.
+  // In-cell editor. Blur only commits when focus leaves the whole cell. The
+  // address cell is two DB fields, so it gets full-width wrapped textareas —
+  // a side-by-side pair clipped long addresses to a few characters.
   const cellEditor = (r, keys) => (
     <div
       onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) commitCellEdit(r) }}
-      style={{ display: 'flex', flexDirection: keys.length > 1 ? 'row' : 'column', gap: 4 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}
     >
       {keys.map(key => (
-        <input
-          key={key}
-          autoFocus={key === keys[0]}
-          value={cellForm[key] ?? ''}
-          onChange={e => setCellForm(p => ({ ...p, [key]: e.target.value }))}
-          onKeyDown={e => {
-            if (e.key === 'Enter') { e.preventDefault(); commitCellEdit(r) }
-            if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit() }
-          }}
-          style={{ ...editInputStyle, flex: keys.length > 1 ? 1 : undefined, fontFamily: RECEIPT_MONO.includes(key) ? 'monospace' : undefined }}
-        />
+        key === 'address' || key === 'address_2' ? (
+          <textarea
+            key={key}
+            autoFocus={key === keys[0]}
+            rows={key === 'address' ? 2 : 1}
+            value={cellForm[key] ?? ''}
+            onChange={e => setCellForm(p => ({ ...p, [key]: e.target.value }))}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitCellEdit(r) }
+              if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit() }
+            }}
+            style={{ ...editInputStyle, height: 'auto', minHeight: key === 'address' ? 32 : 18, resize: 'vertical', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+          />
+        ) : (
+          <input
+            key={key}
+            autoFocus={key === keys[0]}
+            value={cellForm[key] ?? ''}
+            onChange={e => setCellForm(p => ({ ...p, [key]: e.target.value }))}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); commitCellEdit(r) }
+              if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit() }
+            }}
+            style={{ ...editInputStyle, fontFamily: RECEIPT_MONO.includes(key) ? 'monospace' : undefined }}
+          />
+        )
       ))}
     </div>
   )
@@ -288,11 +283,38 @@ export default function AddressImport() {
         style={{ ...tdStyle, cursor: isEditableKey(key) ? 'text' : 'default', ...(active ? { boxShadow: 'inset 0 0 0 2px var(--sage)', background: '#fff' } : null) }}
         title={isEditableKey(key) ? 'Double-click to edit' : undefined}
         onDoubleClick={e => { if (!active) { e.preventDefault(); beginCellEdit(r, key) } }}
-      >
-        {active ? cellEditor(r, key === 'address' ? ['address', 'address_2'] : [key]) : display}
-      </td>
-    )
+  const openEdit = (r, field) => {
+    setEditField(field || '')
+    setEditReceipt(r)
   }
+
+  // Cell with a hover / keyboard-focus edit affordance. The pencil is the
+  // discoverable path; double-click opens the same modal so the old habit
+  // still works. Both land on the field the user pointed at.
+  const cell = (r, field, display, tdStyle) => (
+    <td
+      className="rc-cell"
+      style={tdStyle}
+      onDoubleClick={e => { e.preventDefault(); openEdit(r, field) }}
+    >
+      {display}
+      <button
+        type="button"
+        className="rc-cell-edit"
+        onClick={e => { e.stopPropagation(); openEdit(r, field) }}
+        title="Edit receipt"
+        aria-label={`Edit receipt ${r.receipt_no || ''}`}
+      >
+        <Pencil size={12} strokeWidth={2.2} />
+      </button>
+    </td>
+  )
+
+  useEffect(() => {
+    if (!savedFlash) return
+    const t = setTimeout(() => setSavedFlash(''), 2500)
+    return () => clearTimeout(t)
+  }, [savedFlash])
 
   useEffect(() => {
     if (result && resultRef.current) resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -571,8 +593,12 @@ export default function AddressImport() {
       <div className="card">
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Receipts</div>
-          <span style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>Double-click a cell to edit</span>
-          {savingCell && <span style={{ fontSize: 11.5, color: 'var(--sage)', fontWeight: 700, marginLeft: 'auto' }}>Saving…</span>}
+          <span style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>Hover a cell and click the pencil — or double-click the cell</span>
+          {savedFlash && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#15803d', marginLeft: 'auto', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 999, padding: '3px 10px' }}>
+              <Check size={12} strokeWidth={3} /> {savedFlash}
+            </span>
+          )}
         </div>
 
         <div className="table-wrap">
@@ -592,13 +618,14 @@ export default function AddressImport() {
                 <th>Email</th>
                 <th>Amount</th>
                 <th>Date</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {receiptsLoading ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <tr key={`sk-${i}`}>
-                    {[70, 130, 100, 170, 90, 140, 60, 70].map((w, j) => (
+                    {[70, 130, 100, 170, 90, 140, 60, 70, 56].map((w, j) => (
                       <td key={j} style={{ padding: '10px 16px' }}>
                         <span style={{ display: 'inline-block', width: w, height: 14, borderRadius: 4, background: 'linear-gradient(90deg, #eef2f7 25%, #f8fafc 50%, #eef2f7 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }} />
                       </td>
@@ -606,28 +633,37 @@ export default function AddressImport() {
                   </tr>
                 ))
               ) : receipts.length === 0 ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>
+                <tr><td colSpan={9} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>
                   {search || fromDate || toDate ? 'No receipts match your search / date range.' : 'No receipts found.'}
                 </td></tr>
               ) : visibleReceipts.map(r => {
                 return (
                   <tr key={r.id} style={{ verticalAlign: 'top' }}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.receipt_no || 'NA'}</td>
-                    {editableCell(r, 'donor_name', na(r.donor_name), { minWidth: 150 })}
-                    {editableCell(r, 'donor_mobile', na(r.donor_mobile), { fontFamily: 'monospace', whiteSpace: 'nowrap', minWidth: 110 })}
-                    {editableCell(r, 'address', <span style={{ wordBreak: 'break-word' }}>{fullAddress(r)}</span>, { maxWidth: 280, minWidth: 180 })}
-                    {editableCell(r, 'pan_number', na(r.pan_number), { fontFamily: 'monospace', minWidth: 120 })}
-                    {editableCell(r, 'email', <span style={{ wordBreak: 'break-word' }}>{na(r.email)}</span>, { maxWidth: 160, minWidth: 140 })}
+                    {cell(r, 'donor_name', na(r.donor_name), { minWidth: 150 })}
+                    {cell(r, 'donor_mobile', na(r.donor_mobile), { fontFamily: 'monospace', whiteSpace: 'nowrap', minWidth: 110 })}
+                    {cell(r, 'address', <span style={{ wordBreak: 'break-word' }}>{fullAddress(r)}</span>, { maxWidth: 280, minWidth: 180 })}
+                    {cell(r, 'pan_number', na(r.pan_number), { fontFamily: 'monospace', minWidth: 120 })}
+                    {cell(r, 'email', <span style={{ wordBreak: 'break-word' }}>{na(r.email)}</span>, { maxWidth: 160, minWidth: 140 })}
                     <td style={{ fontWeight: 700, color: 'var(--sage)', whiteSpace: 'nowrap' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.receipt_date)}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => openEdit(r, '')}
+                        title="Edit receipt"
+                        aria-label={`Edit receipt ${r.receipt_no || ''}`}
+                        className="rc-row-edit"
+                      >
+                        <Pencil size={12} strokeWidth={2.2} /> Edit
+                      </button>
+                    </td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
         </div>
-
-        {editError && <div style={{ fontSize: 12, color: '#b91c1c', padding: '8px 16px' }}>Save failed: {editError}</div>}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px 6px', fontSize: 12, color: 'var(--ink-soft)' }}>
           <span>
@@ -650,14 +686,57 @@ export default function AddressImport() {
         )}
       </div>
 
+      {editReceipt && (
+        <ReceiptEditModal
+          receipt={editReceipt}
+          focusField={editField}
+          onClose={() => { setEditReceipt(null); setEditField('') }}
+          onSaved={() => {
+            setSavedFlash(`Receipt ${editReceipt.receipt_no || ''} updated`.replace(/\s+/g, ' ').trim())
+            setEditReceipt(null)
+            setEditField('')
+            setListReload(c => c + 1)
+          }}
+        />
+      )}
+
       <style>{`
         .donors-table th, .donors-table td { border-right: 1px solid var(--line); }
         .donors-table th:last-child, .donors-table td:last-child { border-right: none; }
-        /* Fixed cell box: entering edit mode must never change the row height. */
         .receipts-table td { padding: 10px 16px; line-height: 18px; height: 38px; vertical-align: middle; }
-        .receipts-table td > div { line-height: 18px; }
-        .receipts-table td input { height: 18px; line-height: 18px; }
-        .receipt-editing { background: #f4f8f1; }
+        /* Every editable cell reserves a little room on the right so the
+           hover pencil never sits on top of the value. */
+        .receipts-table td.rc-cell { position: relative; padding-right: 32px; }
+        .rc-cell:hover { background: #f8fafc; }
+        .rc-cell-edit {
+          position: absolute; top: 4px; right: 4px;
+          width: 22px; height: 22px; padding: 0;
+          display: inline-flex; align-items: center; justify-content: center;
+          border: 1px solid var(--line); border-radius: 6px;
+          background: #fff; color: #475569; cursor: pointer;
+          box-shadow: 0 1px 2px rgba(15,23,42,.1); z-index: 2;
+          opacity: 0; transform: translateY(-2px); pointer-events: none;
+          transition: opacity .12s ease, transform .12s ease, background .12s ease, color .12s ease;
+        }
+        .rc-cell:hover .rc-cell-edit,
+        .rc-cell:focus-within .rc-cell-edit,
+        .rc-cell-edit:focus-visible {
+          opacity: 1; transform: none; pointer-events: auto;
+        }
+        .rc-cell-edit:hover { background: #eff6ff; border-color: #bfdbfe; color: #2563eb; }
+        .rc-cell-edit:focus-visible { outline: 2px solid var(--sage); outline-offset: 1px; }
+        .rc-row-edit {
+          display: inline-flex; align-items: center; gap: 4px;
+          height: 26px; padding: 0 9px; border-radius: 7px;
+          border: 1px solid var(--line); background: #fff; color: #475569;
+          font-family: inherit; font-size: 11px; font-weight: 700; cursor: pointer;
+        }
+        .rc-row-edit:hover { background: #eff6ff; border-color: #bfdbfe; color: #2563eb; }
+        .rc-row-edit:focus-visible { outline: 2px solid var(--sage); outline-offset: 1px; }
+        /* Touch screens have no hover: keep the affordance permanently visible. */
+        @media (hover: none) {
+          .rc-cell-edit { opacity: 1; transform: none; pointer-events: auto; }
+        }
       `}</style>
     </div>
   )

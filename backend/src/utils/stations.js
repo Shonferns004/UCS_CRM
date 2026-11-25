@@ -16,7 +16,7 @@
 // Station Management page decides which tab a station lands on with the same
 // rule, so a divergence here would hide/show the wrong stations.
 
-export const FRESH_STATION_RE = /^(?:SS-|[BAM]?FD-)/i;
+export const FRESH_STATION_RE = /^(?:[BAM]-(?:WhatsApp|Meta|Email|Google)-Leads|SS-|[BAM]?FD-)/i;
 
 export const isFreshStation = (code) => FRESH_STATION_RE.test(String(code ?? '').trim());
 

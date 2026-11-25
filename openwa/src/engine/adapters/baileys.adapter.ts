@@ -580,7 +580,12 @@ export class BaileysAdapter implements IWhatsAppEngine {
     authors?: ReadonlyMap<string, string>,
     stored?: StoredChatMessageLookup,
   ): Promise<boolean> {
-    return this.contacts.sendSeen(chatId, messageIds, authors, stored);
+    const marked = await this.contacts.sendSeen(chatId, messageIds, authors, stored);
+    // The receipt reaches WhatsApp, but WhatsApp only patches the read onto the account's OTHER
+    // devices, so this session's own chat row keeps its count and the next list read reports the
+    // chat unread again. Clear it locally once the receipt went out.
+    if (marked) this.sessionStore.markChatRead(chatId);
+    return marked;
   }
 
   async markUnread(chatId: string, stored?: StoredChatMessageLookup): Promise<boolean> {

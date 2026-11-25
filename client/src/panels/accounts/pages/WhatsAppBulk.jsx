@@ -23,6 +23,17 @@ function dedupeByPhone(rows) {
   });
 }
 
+function fmtDay(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+const CAMPAIGN_STORAGE_KEY = 'wa_bulk_campaign_id';
+const ACTIVE_CAMPAIGN_STATUSES = new Set(['queued', 'processing']);
+const TERMINAL_CAMPAIGN_STATUSES = new Set(['completed', 'partial', 'failed', 'cancelled']);
+
 export default function WhatsAppBulk() {
   const [mode, setMode] = useState('sheet');
   const [accounts, setAccounts] = useState([]);
@@ -32,6 +43,22 @@ export default function WhatsAppBulk() {
   const [stations, setStations] = useState([]);
   const [selectedStations, setSelectedStations] = useState([]);
   const [stationSearch, setStationSearch] = useState('');
+  const [extractorLeads, setExtractorLeads] = useState([]);
+  const [extractorCounts, setExtractorCounts] = useState({ total: 0, used: 0, available: 0 });
+  const [extractorFiltered, setExtractorFiltered] = useState(0);
+  const [extractorLoading, setExtractorLoading] = useState(false);
+  const [extractorSelected, setExtractorSelected] = useState([]);
+  const [extractorLimit, setExtractorLimit] = useState('500');
+  const [extractorUsage, setExtractorUsage] = useState('unused');
+  const [extractorSort, setExtractorSort] = useState('oldest');
+  const [extractorSearch, setExtractorSearch] = useState('');
+  const [extractorCategory, setExtractorCategory] = useState('');
+  const [extractorMinScore, setExtractorMinScore] = useState('');
+  const [extractorCity, setExtractorCity] = useState('');
+  const [extractorCategories, setExtractorCategories] = useState([]);
+  const [extractorDragging, setExtractorDragging] = useState(false);
+  const extractorDragRef = useRef({ active: false, select: true, x: 0, y: 0 });
+  const extractorTableRef = useRef(null);
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [templateLang, setTemplateLang] = useState('en');
@@ -45,7 +72,9 @@ export default function WhatsAppBulk() {
   const [loadingStations, setLoadingStations] = useState(false);
   const [fetchingRecipients, setFetchingRecipients] = useState(false);
   const [confirmBulk, setConfirmBulk] = useState({ visible: false, donorCount: 0 });
-  const [bulkState, setBulkState] = useState({ active: false, total: 0, sent: 0, failed: 0, currentBatch: 0, totalBatches: 0, results: [], previousBatches: [] });
+  const [bulkState, setBulkState] = useState({ active: false, status: 'queued', total: 0, sent: 0, failed: 0, unknown: 0, currentBatch: 0, totalBatches: 0, results: [], previousBatches: [] });
+  const [activeCampaignId, setActiveCampaignId] = useState(null);
+  const [progressHidden, setProgressHidden] = useState(false);
   const [deliveryStatuses, setDeliveryStatuses] = useState([]);
   const [statusSummary, setStatusSummary] = useState({});
   const [statusFilter, setStatusFilter] = useState('all');
@@ -53,7 +82,8 @@ export default function WhatsAppBulk() {
   const [healthData, setHealthData] = useState(null);
   const [detailRow, setDetailRow] = useState(null);
   const [showFailureBanner, setShowFailureBanner] = useState(true);
-  const cancelBulkRef = useRef(null);
+  const pollTimer = useRef(null);
+  const campaignIdRef = useRef(null);
   const fileRef = useRef(null);
 
   const loadDeliveryStatuses = async (accountId = selectedAccountId) => {
@@ -72,6 +102,155 @@ export default function WhatsAppBulk() {
       setDeliveryStatuses(Array.isArray(list) ? list : []);
     } catch {}
   };
+
+  const stopPolling = () => {
+    if (pollTimer.current) {
+      clearTimeout(pollTimer.current);
+      pollTimer.current = null;
+    }
+  };
+
+  const applyCampaignProgress = (data) => {
+    const progress = data?.progress || {};
+    const campaign = data?.campaign || {};
+    setBulkState({
+      active: ACTIVE_CAMPAIGN_STATUSES.has(campaign.status),
+      status: campaign.status || 'queued',
+      total: progress.total || campaign.total_count || 0,
+      sent: progress.sent || 0,
+      failed: progress.failed || 0,
+      unknown: progress.unknown || 0,
+      currentBatch: progress.currentBatch || 0,
+      totalBatches: progress.totalBatches || 0,
+      results: Array.isArray(progress.results) ? progress.results : [],
+      previousBatches: Array.isArray(progress.previousBatches) ? progress.previousBatches : [],
+    });
+  };
+
+  const finalizeCampaign = (data) => {
+    const campaign = data?.campaign || {};
+    const retryable = Array.isArray(data?.retryableRecipients)
+      ? data.retryableRecipients.filter(r => campaign.status !== 'cancelled' || r.status !== 'pending')
+      : [];
+    if (retryable.length) {
+      setRecipients(prev => {
+        const byPhone = new Map(retryable.map(r => [String(r.phone), r]));
+        const kept = prev
+          .filter(r => byPhone.has(String(r.phone)))
+          .map(r => ({ ...r, failed: true, error: byPhone.get(String(r.phone))?.error || '' }));
+        const seen = new Set(kept.map(r => String(r.phone)));
+        retryable.forEach(r => {
+          if (seen.has(String(r.phone))) return;
+          kept.push({
+            name: r.name || r.phone,
+            phone: r.phone,
+            station: '',
+            ngo: '',
+            source: 'campaign',
+            valid: true,
+            failed: true,
+            error: r.error || '',
+          });
+        });
+        return kept;
+      });
+      setSelectedRecipients([]);
+    } else {
+      setRecipients([]);
+      setSelectedRecipients([]);
+    }
+
+    setActiveCampaignId(null);
+    campaignIdRef.current = null;
+    localStorage.removeItem(CAMPAIGN_STORAGE_KEY);
+    stopPolling();
+    if (campaign.account_id) loadDeliveryStatuses(campaign.account_id);
+
+    const sent = campaign.sent_count || 0;
+    const failed = campaign.failed_count || 0;
+    const unknown = campaign.unknown_count || 0;
+    if (campaign.status === 'cancelled') {
+      toast('info', `Campaign cancelled. ${sent} sent, ${failed} failed`);
+    } else {
+      toast(failed || unknown ? 'warning' : 'success', `Bulk send ${campaign.status}. ${sent} sent, ${failed} failed${unknown ? `, ${unknown} need review` : ''}`);
+    }
+    // Used rows were recorded as each message went out; refresh the picker now
+    // that the campaign is finished.
+    if (mode === 'extractor') void loadExtractorLeads();
+  };
+
+  const pollCampaign = (id) => {
+    stopPolling();
+    campaignIdRef.current = id;
+    setActiveCampaignId(id);
+    let pollFailed = false;
+    const tick = async () => {
+      let data;
+      try {
+        data = await apiGet(`/whatsapp/campaigns/${id}/progress`);
+        pollFailed = false;
+      } catch (e) {
+        if (!pollFailed) toast('error', e?.message || 'Could not load campaign progress');
+        pollFailed = true;
+        // A transient blip must not strand the modal; retry until the server
+        // answers again (or the user hides the progress).
+        pollTimer.current = setTimeout(tick, 5000);
+        return;
+      }
+      applyCampaignProgress(data);
+      const status = data?.campaign?.status;
+      if (TERMINAL_CAMPAIGN_STATUSES.has(status)) {
+        finalizeCampaign(data);
+        return;
+      }
+      if (status === 'interrupted') {
+        setActiveCampaignId(id);
+        setProgressHidden(false);
+        return;
+      }
+      pollTimer.current = setTimeout(tick, 3000);
+    };
+    tick();
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const attach = async () => {
+      try {
+        let id = localStorage.getItem(CAMPAIGN_STORAGE_KEY);
+        let data = id ? await apiGet(`/whatsapp/campaigns/${id}/progress`).catch(() => null) : null;
+        let status = data?.campaign?.status;
+
+        if (!data || (!ACTIVE_CAMPAIGN_STATUSES.has(status) && status !== 'interrupted')) {
+          if (id) localStorage.removeItem(CAMPAIGN_STORAGE_KEY);
+          const active = await apiGet('/whatsapp/campaigns?active=1').catch(() => []);
+          const row = Array.isArray(active) ? active[0] : null;
+          id = row?.id || null;
+          data = id ? await apiGet(`/whatsapp/campaigns/${id}/progress`).catch(() => null) : null;
+          status = data?.campaign?.status;
+        }
+
+        if (cancelled || !id || !data) return;
+        if (!ACTIVE_CAMPAIGN_STATUSES.has(status) && status !== 'interrupted') return;
+
+        localStorage.setItem(CAMPAIGN_STORAGE_KEY, id);
+        applyCampaignProgress(data);
+        if (ACTIVE_CAMPAIGN_STATUSES.has(status)) {
+          pollCampaign(id);
+        } else {
+          campaignIdRef.current = id;
+          setActiveCampaignId(id);
+          setProgressHidden(false);
+        }
+      } catch { /* no active campaign to re-attach */ }
+    };
+    attach();
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     apiGet('/whatsapp/accounts').then(data => {
@@ -174,8 +353,7 @@ export default function WhatsAppBulk() {
     await handleSheetFiles([file]);
   };
 
-  const fetchStationRecipients = async () => {
-    if (!selectedStations.length) return;
+  const fetchStationRecipients = async () => {    if (!selectedStations.length) return;
     setFetchingRecipients(true);
     try {
       const all = [];
@@ -204,6 +382,179 @@ export default function WhatsAppBulk() {
     }
   };
 
+  // ── Extractor Leads mode ────────────────────────────────────────────────
+  const loadExtractorLeads = async () => {
+    setExtractorLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (extractorSearch.trim()) params.set('q', extractorSearch.trim());
+      if (extractorCategory) params.set('category', extractorCategory);
+      if (extractorMinScore !== '') params.set('minScore', extractorMinScore);
+      if (extractorCity.trim()) params.set('city', extractorCity.trim());
+      params.set('onlyUnused', extractorUsage === 'unused' ? 'true' : 'false');
+      params.set('usage', extractorUsage);
+      params.set('sort', extractorSort);
+      // Show everything that matches; the send limit only controls how many are
+      // selected, not how many rows are loaded.
+      params.set('limit', '2000');
+
+      const data = await apiGet(`/whatsapp/bulk/extractor-leads?${params.toString()}`);
+      const list = Array.isArray(data?.leads) ? data.leads : [];
+      const fresh = list.filter((lead) => !lead.used);
+      const rawLimit = Number(extractorLimit);
+      const sendLimit = rawLimit > 0 ? Math.min(2000, rawLimit) : 2000;
+      setExtractorLeads(list);
+      setExtractorCounts(data?.counts || { total: 0, used: 0, available: 0 });
+      setExtractorFiltered(Number(data?.filtered) || list.length);
+      setExtractorCategories(Array.isArray(data?.categories) ? data.categories : []);
+      // Used rows are shown for review/manual fixes, not for sending, so only
+      // the unused list gets a default selection.
+      setExtractorSelected(
+        extractorUsage === 'used' ? [] : fresh.slice(0, sendLimit).map((lead) => lead.id),
+      );
+    } catch (e) {
+      toast('error', e?.message || 'Failed to load extractor leads');
+    } finally {
+      setExtractorLoading(false);
+    }
+  };
+
+  const selectTopExtractor = () => {
+    const raw = Number(extractorLimit);
+    const limit = raw > 0 ? Math.min(2000, raw) : 2000;
+    setExtractorSelected(
+      extractorLeads.filter((lead) => !lead.used).slice(0, limit).map((lead) => lead.id),
+    );
+  };
+
+  const fetchExtractorRecipients = () => {
+    const chosen = extractorLeads.filter(
+      (lead) => extractorSelected.includes(lead.id) && !lead.used,
+    );
+    if (chosen.length === 0) {
+      toast('error', 'Select at least one unused lead');
+      return;
+    }
+    const rows = chosen.map((lead) => ({
+      name: lead.displayName,
+      phone: normalizePhone(lead.phone),
+      station: '',
+      ngo: '',
+      source: 'extractor',
+      extractorLeadId: lead.id,
+      ngoId: '',
+      valid: true,
+    }));
+    setRecipients(dedupeByPhone(rows));
+    setSelectedRecipients([]);
+    toast('success', `${rows.length} extractor lead(s) added to recipients`);
+  };
+
+  // ── Drag-paint selection ────────────────────────────────────────────────
+  // Click a row and drag across others: every row the cursor passes gets the
+  // same state. Holding at the top/bottom edge scrolls and keeps painting.
+  const applyExtractorSelection = (id, select) => {
+    setExtractorSelected((prev) => {
+      const has = prev.includes(id);
+      if (select && !has) return [...prev, id];
+      if (!select && has) return prev.filter((value) => value !== id);
+      return prev;
+    });
+  };
+
+  const startExtractorDrag = (lead, event) => {
+    if (event.button !== 0) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('input, button, a, select')) return;
+
+    const isSelected = extractorSelected.includes(lead.id);
+    extractorDragRef.current = {
+      active: true,
+      select: !isSelected,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    setExtractorDragging(true);
+    applyExtractorSelection(lead.id, !isSelected);
+    event.preventDefault();
+  };
+
+  const enterExtractorRow = (lead) => {
+    if (!extractorDragRef.current.active) return;
+    applyExtractorSelection(lead.id, extractorDragRef.current.select);
+  };
+
+  const handleExtractorTableMove = (event) => {
+    extractorDragRef.current.x = event.clientX;
+    extractorDragRef.current.y = event.clientY;
+  };
+
+  useEffect(() => {
+    const stop = () => {
+      if (!extractorDragRef.current.active) return;
+      extractorDragRef.current.active = false;
+      setExtractorDragging(false);
+    };
+    window.addEventListener('mouseup', stop);
+    return () => window.removeEventListener('mouseup', stop);
+  }, []);
+
+  useEffect(() => {
+    if (!extractorDragging) return;
+    const timer = setInterval(() => {
+      const container = extractorTableRef.current;
+      const drag = extractorDragRef.current;
+      if (!container || !drag.active) return;
+
+      const rect = container.getBoundingClientRect();
+      const edge = 48;
+      let scrolled = false;
+      if (drag.y < rect.top + edge) {
+        container.scrollTop -= 18;
+        scrolled = true;
+      } else if (drag.y > rect.bottom - edge) {
+        container.scrollTop += 18;
+        scrolled = true;
+      }
+      if (!scrolled) return;
+
+      // Rows that scrolled under the cursor should be painted too.
+      const node = document.elementFromPoint(drag.x, drag.y);
+      const row = node instanceof Element ? node.closest('[data-extractor-row]') : null;
+      const id = row?.getAttribute('data-extractor-row');
+      if (id) applyExtractorSelection(id, drag.select);
+    }, 60);
+    return () => clearInterval(timer);
+  }, [extractorDragging]);
+
+  const markExtractorSelected = async (used) => {
+    const phones = extractorLeads
+      .filter((lead) => extractorSelected.includes(lead.id))
+      .map((lead) => lead.phone);
+    if (phones.length === 0) {
+      toast('error', 'Select at least one lead');
+      return;
+    }
+    try {
+      await apiPost('/whatsapp/bulk/extractor-leads/mark', { phones, used });
+      toast('success', `${phones.length} number(s) marked ${used ? 'used' : 'unused'}`);
+      await loadExtractorLeads();
+    } catch (e) {
+      toast('error', e?.message || 'Could not update the used list');
+    }
+  };
+
+  useEffect(() => {
+    if (mode !== 'extractor') return;
+    // Everything loads automatically: changing the view, sort or any filter is
+    // debounced and refetched. There is no Load button to forget.
+    const timer = setTimeout(() => {
+      void loadExtractorLeads();
+    }, 350);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, extractorUsage, extractorSort, extractorSearch, extractorCategory, extractorMinScore, extractorCity]);
+
   const filteredStatuses = deliveryStatuses.filter(r => statusFilter === 'all' || String(r.status || '').toLowerCase() === statusFilter);
   const statusCounts = statusSummary;
   const statusTotal = Object.values(statusCounts).reduce((sum, value) => sum + (Number(value) || 0), 0);
@@ -213,6 +564,22 @@ export default function WhatsAppBulk() {
     const name = s.station || s.name || String(s);
     return name.toLowerCase().includes(stationSearch.trim().toLowerCase());
   });
+
+  const extractorSelectable = extractorLeads;
+  const extractorSelectedUnused = extractorLeads.filter(
+    lead => extractorSelected.includes(lead.id) && !lead.used,
+  ).length;
+  const allExtractorVisibleSelected =
+    extractorSelectable.length > 0 &&
+    extractorSelectable.every(lead => extractorSelected.includes(lead.id));
+  const toggleAllExtractorVisible = () => {
+    if (allExtractorVisibleSelected) {
+      const ids = new Set(extractorSelectable.map(lead => lead.id));
+      setExtractorSelected(prev => prev.filter(id => !ids.has(id)));
+      return;
+    }
+    setExtractorSelected(prev => [...new Set([...prev, ...extractorSelectable.map(lead => lead.id)])]);
+  };
 
   const handleSendAll = () => {
     if (validRecipients.length === 0) {
@@ -225,85 +592,79 @@ export default function WhatsAppBulk() {
   const handleConfirmBulkSend = async () => {
     setConfirmBulk({ visible: false, donorCount: 0 });
 
-    let campaignId = null;
-    try {
-      const camp = await apiPost('/whatsapp/campaigns', {
-        name: `Bulk - ${accounts.find(a => String(a.id) === String(selectedAccountId))?.name || 'WhatsApp'} - ${new Date().toISOString().slice(0, 10)}`,
-        accountId: selectedAccountId,
-        templateName: selectedTemplate,
-      });
-      campaignId = camp?.id || null;
-    } catch (e) {
-      console.error('Campaign create failed:', e.message);
-    }
-
-    const batches = [];
-    for (let i = 0; i < validRecipients.length; i += 5) batches.push(validRecipients.slice(i, i + 5));
-    cancelBulkRef.current = false;
-    setBulkState({ active: true, total: validRecipients.length, sent: 0, failed: 0, currentBatch: 0, totalBatches: batches.length, results: [], previousBatches: [] });
-
     const paramsArr = variables.split(',').map(v => v.trim()).filter(Boolean);
     const selectedTpl = templates.find(t => t.name === selectedTemplate);
     const headerComp = (selectedTpl?.components || []).find(c => String(c.type || '').toUpperCase() === 'HEADER');
     const headerImageUrl = (headerComp?.format === 'IMAGE' || headerComp?.format === 'DOCUMENT') ? (headerComp.example?.header_handle?.[0] || '') : '';
     const headerFormat = headerComp?.format || 'IMAGE';
+    const queuedRecipients = validRecipients.map(r => ({
+      phone: r.phone,
+      name: r.name,
+      parameters: paramsArr.map(v => v === '{{name}}' ? r.name : v),
+      extractorLeadId: r.extractorLeadId || null,
+      ngoId: r.ngoId || null,
+    }));
 
-    let totalSent = 0, totalFailed = 0;
-    const failedRows = [];
-
-    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-      if (cancelBulkRef.current) break;
-      const batch = batches[batchIdx];
-      setBulkState(prev => ({ ...prev, currentBatch: batchIdx + 1, results: batch.map(r => ({ name: r.name, status: 'sending' })) }));
-
-      const batchResults = await Promise.allSettled(batch.map(async (r) => {
-        const res = await apiPost('/whatsapp/send-bulk-template', {
-          accountId: selectedAccountId,
-          to: r.phone,
-          templateName: selectedTemplate,
-          templateLang,
-          headerImageUrl,
-          headerFormat,
-          campaignId,
-          recipientName: r.name,
-          parameters: paramsArr.map(v => v === '{{name}}' ? r.name : v),
-        });
-        if (!res?.success) throw new Error(res?.message || 'Send failed');
-        return res;
-      }));
-
-      const batchSent = batchResults.filter(r => r.status === 'fulfilled').length;
-      const batchFailed = batchResults.filter(r => r.status === 'rejected').length;
-      totalSent += batchSent; totalFailed += batchFailed;
-
-      batchResults.forEach((r, i) => {
-        if (r.status === 'rejected') {
-          failedRows.push({ ...batch[i], error: r.reason?.message || 'Failed' });
-        }
+    try {
+      // The server owns the send loop from here. This request returns as soon
+      // as the queue is stored, so refreshing or leaving the page cannot stop
+      // the campaign.
+      const campaign = await apiPost('/whatsapp/campaigns', {
+        name: `Bulk - ${accounts.find(a => String(a.id) === String(selectedAccountId))?.name || 'WhatsApp'} - ${new Date().toISOString().slice(0, 10)}`,
+        accountId: selectedAccountId,
+        templateName: selectedTemplate,
+        templateLang,
+        headerImageUrl,
+        headerFormat,
+        recipients: queuedRecipients,
       });
+      if (!campaign?.id) throw new Error(campaign?.message || 'Could not start the campaign');
+      if (campaign.skippedUsed > 0) {
+        toast('warning', `${campaign.skippedUsed} number(s) were already messaged before and were skipped.`);
+      }
+      if (mode === 'extractor') void loadExtractorLeads();
 
-      setBulkState(prev => ({
-        ...prev,
-        sent: totalSent,
-        failed: totalFailed,
-        results: batchResults.map((r, i) => ({ name: batch[i].name, status: r.status === 'fulfilled' ? 'sent' : 'failed', error: r.status === 'rejected' ? r.reason?.message : null })),
-        previousBatches: [...prev.previousBatches, { batch: batchIdx + 1, sent: batchSent, failed: batchFailed }],
-      }));
-      if (batchIdx < batches.length - 1) await new Promise(r => setTimeout(r, 5000));
-    }
-
-    setBulkState(prev => ({ ...prev, active: false }));
-    if (failedRows.length) {
-      setRecipients(prev => {
-        const failedPhones = new Set(failedRows.map(f => f.phone));
-        return prev.filter(r => failedPhones.has(r.phone)).map(r => ({ ...r, failed: true }));
+      localStorage.setItem(CAMPAIGN_STORAGE_KEY, campaign.id);
+      setProgressHidden(false);
+      setBulkState({
+        active: true,
+        status: 'queued',
+        total: campaign.total || queuedRecipients.length,
+        sent: 0,
+        failed: 0,
+        unknown: 0,
+        currentBatch: 0,
+        totalBatches: Math.ceil(queuedRecipients.length / 5),
+        results: [],
+        previousBatches: [],
       });
-    } else {
-      setRecipients([]);
-      setSelectedRecipients([]);
+      pollCampaign(campaign.id);
+    } catch (e) {
+      toast('error', e?.message || 'Could not start the campaign');
     }
-    loadDeliveryStatuses(selectedAccountId);
-    toast(cancelBulkRef.current ? 'info' : 'success', cancelBulkRef.current ? `Cancelled. ${totalSent} sent, ${totalFailed} failed` : `Bulk send complete! ${totalSent} sent, ${totalFailed} failed`);
+  };
+
+  const handleCancelCampaign = async () => {
+    const id = campaignIdRef.current || activeCampaignId;
+    if (!id) return;
+    try {
+      await apiPost(`/whatsapp/campaigns/${id}/cancel`, {});
+      toast('info', 'Cancelling after the current batch...');
+    } catch (e) {
+      toast('error', e?.message || 'Could not cancel the campaign');
+    }
+  };
+
+  const handleResumeCampaign = async () => {
+    const id = campaignIdRef.current || activeCampaignId;
+    if (!id) return;
+    try {
+      await apiPost(`/whatsapp/campaigns/${id}/resume`, {});
+      setProgressHidden(false);
+      pollCampaign(id);
+    } catch (e) {
+      toast('error', e?.message || 'Could not resume the campaign');
+    }
   };
 
   const exportFailed = () => {
@@ -334,8 +695,19 @@ export default function WhatsAppBulk() {
         </div>
       )}
 
+      {activeCampaignId && progressHidden && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ color: '#1e3a8a', fontWeight: 600 }}>
+            {bulkState.status === 'interrupted'
+              ? 'Campaign paused — resume to continue sending'
+              : `Sending in the background… ${bulkState.sent + bulkState.failed + bulkState.unknown}/${bulkState.total}`}
+          </span>
+          <button className="wa-btn wa-btn-outline" onClick={() => setProgressHidden(false)}>View progress</button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        {['Select account', 'Choose template', 'Upload recipients', 'Review and send'].map((step, i) => (
+        {['Select account', 'Choose template', 'Choose recipients', 'Review and send'].map((step, i) => (
           <div key={step} style={{ padding: '6px 12px', borderRadius: 999, background: i === 0 ? '#0866FF' : '#f4f6fb', color: i === 0 ? '#fff' : '#5B6070', fontSize: 12, fontWeight: 600, border: '1px solid #cbd0dc' }}>
             {i + 1}. {step}
           </div>
@@ -409,6 +781,7 @@ export default function WhatsAppBulk() {
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <button className={`wa-btn ${mode === 'sheet' ? 'wa-btn-primary' : 'wa-btn-outline'}`} onClick={() => setMode('sheet')}>Sheet Upload</button>
         <button className={`wa-btn ${mode === 'station' ? 'wa-btn-primary' : 'wa-btn-outline'}`} onClick={() => setMode('station')}>Station / Donor</button>
+        <button className={`wa-btn ${mode === 'extractor' ? 'wa-btn-primary' : 'wa-btn-outline'}`} onClick={() => setMode('extractor')}>Extractor Leads</button>
       </div>
 
       {mode === 'sheet' && (
@@ -472,6 +845,233 @@ export default function WhatsAppBulk() {
         </section>
       )}
 
+      {mode === 'extractor' && (
+        <section className="wa-form" style={{ marginBottom: 12, background: '#fff', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(20,30,60,.10)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', paddingBottom: 16, borderBottom: '1px solid #eef1f6' }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>Extractor Leads</div>
+              <div style={{ fontSize: 12, color: '#5B6070', marginTop: 3 }}>
+                Unused leads load automatically. A number messaged once is used for every NGO.
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {[
+                { label: 'Total', value: extractorCounts.total, color: '#111827', bg: '#f8fafc', border: '#e5e7eb' },
+                { label: 'Used', value: extractorCounts.used, color: '#9f1239', bg: '#fff1f2', border: '#fecdd3' },
+                { label: 'Available', value: extractorCounts.available, color: '#065f46', bg: '#ecfdf5', border: '#a7f3d0' },
+              ].map(stat => (
+                <div key={stat.label} style={{ minWidth: 96, padding: '8px 14px', borderRadius: 10, background: stat.bg, border: `1px solid ${stat.border}` }}>
+                  <div style={{ fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase', color: '#6b7280', fontWeight: 700 }}>{stat.label}</div>
+                  <div style={{ fontSize: 19, fontWeight: 800, color: stat.color, lineHeight: 1.2 }}>{stat.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap', marginTop: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+              <span style={{ color: '#5B6070' }}>Show</span>
+              <div style={{ display: 'inline-flex', border: '1px solid #cbd0dc', borderRadius: 9, overflow: 'hidden' }}>
+                {[['unused', 'Unused'], ['used', 'Used'], ['all', 'All']].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setExtractorUsage(value)}
+                    style={{
+                      padding: '6px 14px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      background: extractorUsage === value ? '#0866FF' : '#fff',
+                      color: extractorUsage === value ? '#fff' : '#374151',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5 }}>
+              <span style={{ color: '#5B6070' }}>Sort</span>
+              <select className="wa-select" value={extractorSort} onChange={e => setExtractorSort(e.target.value)} style={{ width: 170 }}>
+                <option value="oldest">Oldest first</option>
+                <option value="newest">Newest first</option>
+                <option value="score">AI score high</option>
+              </select>
+            </label>
+            <span style={{ marginLeft: 'auto', fontSize: 11.5, color: '#6b7280' }}>
+              {extractorLoading ? 'Loading…' : 'Auto-refreshes as you change filters'}
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: 12, marginTop: 16 }}>
+            <label className="wa-f">
+              <span className="wa-f-label">Search</span>
+              <input className="wa-input" placeholder="Name, phone or address" value={extractorSearch} onChange={e => setExtractorSearch(e.target.value)} />
+            </label>
+            <label className="wa-f">
+              <span className="wa-f-label">Category</span>
+              <select className="wa-select" value={extractorCategory} onChange={e => setExtractorCategory(e.target.value)}>
+                <option value="">All categories</option>
+                {extractorCategories.map(c => <option key={c.id} value={c.id}>{c.label} ({c.count})</option>)}
+              </select>
+            </label>
+            <label className="wa-f">
+              <span className="wa-f-label">Min AI score</span>
+              <input className="wa-input" type="number" min="0" max="100" placeholder="0–100" value={extractorMinScore} onChange={e => setExtractorMinScore(e.target.value)} />
+            </label>
+            <label className="wa-f">
+              <span className="wa-f-label">City</span>
+              <input className="wa-input" placeholder="e.g. Mumbai" value={extractorCity} onChange={e => setExtractorCity(e.target.value)} />
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 14, padding: '10px 12px', background: '#f8fafc', border: '1px solid #eef1f6', borderRadius: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 700 }}>How many to send</span>
+              <input
+                className="wa-input"
+                type="number"
+                min="0"
+                max="2000"
+                value={extractorLimit}
+                onChange={e => setExtractorLimit(e.target.value)}
+                style={{ width: 90 }}
+              />
+              <span style={{ fontSize: 11, color: '#6b7280' }}>max {extractorCounts.available} · 0 = all</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="wa-btn wa-btn-outline" onClick={() => selectTopExtractor()} disabled={extractorLeads.length === 0}>
+                Select top {extractorLimit || 'all'}
+              </button>
+              <button type="button" className="wa-btn wa-btn-outline" onClick={() => setExtractorSelected([])}>Clear</button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 16, marginBottom: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#374151', fontWeight: 600 }}>
+              <input
+                type="checkbox"
+                checked={allExtractorVisibleSelected}
+                onChange={toggleAllExtractorVisible}
+                disabled={extractorSelectable.length === 0}
+              />
+              Select all shown ({extractorSelectable.length})
+            </label>
+            <span style={{ fontSize: 11.5, color: '#6b7280' }}>
+              Tip: click a row and drag to select many · hold at the edge to auto-scroll
+            </span>
+          </div>
+
+          <div
+            ref={extractorTableRef}
+            onMouseMove={handleExtractorTableMove}
+            style={{
+              maxHeight: 420,
+              overflow: 'auto',
+              border: '1px solid #e5e7eb',
+              borderRadius: 12,
+              background: '#fff',
+              userSelect: extractorDragging ? 'none' : 'auto',
+            }}
+          >
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                  <th style={{ width: 38, padding: '10px 10px', borderBottom: '1px solid #e5e7eb' }} />
+                  {['Business', 'Phone', 'City', 'AI score', 'Status'].map(h => (
+                    <th key={h} style={{ padding: '10px 10px', fontWeight: 700, color: '#374151', whiteSpace: 'nowrap', borderBottom: '1px solid #e5e7eb' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {extractorLeads.map(lead => {
+                  const checked = extractorSelected.includes(lead.id);
+                  return (
+                    <tr
+                      key={lead.id}
+                      data-extractor-row={lead.id}
+                      onMouseDown={(event) => startExtractorDrag(lead, event)}
+                      onMouseEnter={() => enterExtractorRow(lead)}
+                      onDragStart={(event) => event.preventDefault()}
+                      style={{ borderBottom: '1px solid #f3f4f6', background: lead.used ? '#fafafa' : '#fff', cursor: 'pointer' }}
+                    >
+                      <td style={{ padding: '9px 10px' }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setExtractorSelected(prev => checked ? prev.filter(id => id !== lead.id) : [...prev, lead.id])}
+                        />
+                      </td>
+                      <td style={{ padding: '9px 10px', fontWeight: 600, color: lead.used ? '#6b7280' : '#111827', minWidth: 240 }}>{lead.displayName}</td>
+                      <td style={{ padding: '9px 10px', fontFamily: 'monospace', whiteSpace: 'nowrap', color: '#374151' }}>{lead.phone}</td>
+                      <td style={{ padding: '9px 10px', whiteSpace: 'nowrap', color: '#5B6070' }}>{lead.city || '—'}</td>
+                      <td style={{ padding: '9px 10px', whiteSpace: 'nowrap' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{
+                            minWidth: 28,
+                            textAlign: 'center',
+                            padding: '2px 7px',
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            background: lead.aiScore >= 60 ? '#ecfdf5' : '#f3f4f6',
+                            color: lead.aiScore >= 60 ? '#065f46' : '#374151',
+                          }}>
+                            {lead.aiScore ?? '—'}
+                          </span>
+                          {(lead.aiTags || []).slice(0, 1).map(tag => (
+                            <span key={tag} style={{ fontSize: 10.5, color: '#4338ca' }}>{tag}</span>
+                          ))}
+                        </span>
+                      </td>
+                      <td style={{ padding: '9px 10px', whiteSpace: 'nowrap' }}>
+                        {lead.used ? (
+                          <span style={{ padding: '2px 9px', borderRadius: 999, background: '#fff1f2', color: '#9f1239', fontSize: 11, fontWeight: 700 }}>Used</span>
+                        ) : (
+                          <span style={{ padding: '2px 9px', borderRadius: 999, background: '#ecfdf5', color: '#065f46', fontSize: 11, fontWeight: 700 }}>Unused</span>
+                        )}
+                        {lead.used && lead.usedAt && (
+                          <div style={{ fontSize: 10.5, color: '#9ca3af', marginTop: 2 }}>Sent {fmtDay(lead.usedAt)}</div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {extractorLeads.length === 0 && !extractorLoading && (
+                  <tr>
+                    <td colSpan="6" style={{ padding: 24, textAlign: 'center', color: '#5B6070' }}>
+                      No leads match these filters. Try clearing the city or AI score.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 16, paddingTop: 14, borderTop: '1px solid #eef1f6' }}>
+            <div style={{ fontSize: 12, color: '#5B6070' }}>
+              <b style={{ color: '#111827' }}>{extractorSelected.length}</b> selected ·{' '}
+              <b style={{ color: '#065f46' }}>{extractorSelectedUnused}</b> usable ·{' '}
+              {extractorCounts.available} available globally
+              <span style={{ marginLeft: 8, color: '#9ca3af' }}>Used/unused updates automatically after each send.</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="wa-btn wa-btn-outline" onClick={() => markExtractorSelected(true)} disabled={extractorSelected.length === 0}>
+                Mark used
+              </button>
+              <button type="button" className="wa-btn wa-btn-outline" onClick={() => markExtractorSelected(false)} disabled={extractorSelected.length === 0}>
+                Mark unused
+              </button>
+              <button type="button" className="wa-btn wa-btn-primary" onClick={fetchExtractorRecipients} disabled={extractorSelectedUnused === 0}>
+                Fetch recipients
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="wa-form" style={{ marginBottom: 12, background: '#fff', borderRadius: 16, padding: 16, boxShadow: '0 1px 3px rgba(20,30,60,.10)' }}>
         <div style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div>
@@ -516,13 +1116,13 @@ export default function WhatsAppBulk() {
               }
             }} disabled={!recipients.length || !selectedAccountId}>Validate WhatsApp</button>
             <button className="wa-btn wa-btn-outline" onClick={exportFailed} disabled={!recipients.length}>Export Failed/Invalid</button>
-            <button className="wa-btn wa-btn-primary" onClick={handleSendAll} disabled={!validRecipients.length || bulkState.active}>
+            <button className="wa-btn wa-btn-primary" onClick={handleSendAll} disabled={!validRecipients.length || bulkState.active || Boolean(activeCampaignId)}>
               {bulkState.active ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin .7s linear infinite', display: 'inline-block' }} />
                   Sending...
                 </span>
-              ) : 'Send Bulk'}
+              ) : activeCampaignId ? 'Campaign in progress' : 'Send Bulk'}
             </button>
           </div>
         </div>
@@ -642,17 +1242,21 @@ export default function WhatsAppBulk() {
         />
       )}
 
-      {bulkState.active && (
+      {activeCampaignId && !progressHidden && (
         <BulkProgressModal
-          visible={bulkState.active}
+          visible
+          status={bulkState.status}
           total={bulkState.total}
           sent={bulkState.sent}
           failed={bulkState.failed}
+          unknown={bulkState.unknown}
           currentBatch={bulkState.currentBatch}
           totalBatches={bulkState.totalBatches}
           results={bulkState.results}
           previousBatches={bulkState.previousBatches}
-          onCancel={() => { cancelBulkRef.current = true; }}
+          onCancel={handleCancelCampaign}
+          onHide={() => setProgressHidden(true)}
+          onResume={bulkState.status === 'interrupted' ? handleResumeCampaign : undefined}
         />
       )}
     </div>

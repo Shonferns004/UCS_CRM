@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue, getMyLeadLoans, getMyLeadLoanItems, getDataVisibility } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
@@ -18,6 +18,7 @@ import { API_BASE } from '../../../lib/apiBase';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { CONNECTED_QUICK, NOT_CONNECTED_QUICK, OTHERS_ID, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 import { istDateString, istDateTimeToIso } from '../utils/time';
+import { parseLeadNotes } from '../../../utils/leadNotes';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -289,6 +290,23 @@ function useTomorrowStr() {
 
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
+// Lead Queues (WhatsApp / Meta / Email / Google) have their own card list and do
+// not go through the donor queue search. Match the search box the same way the
+// placeholder promises: a bare number hits the mobile digits, anything else hits
+// the name (plus campaign/NGO/station so a search by campaign still works).
+const waLeadMatchesSearch = (lead, rawTerm) => {
+  const term = String(rawTerm || '').trim().toLowerCase();
+  if (!term) return true;
+  const digits = term.replace(/\D/g, '');
+  const phoneDigits = String(lead?.phone || '').replace(/\D/g, '');
+  if (digits && phoneDigits.includes(digits)) return true;
+  if (digits && /^\d+$/.test(term)) return false;
+  const hay = [lead?.name, lead?.phone, lead?.campaign, lead?.ngo_name, lead?.station]
+    .map((v) => String(v || '').toLowerCase())
+    .join(' ');
+  return hay.includes(term);
+};
+
 // How many leads the MY LEADS list renders at a time. The allotment can be
 // thousands of rows; rendering them all at once makes the list janky on low-end
 // phones and wastes paint on rows nobody scrolls to. The window grows by this
@@ -307,6 +325,26 @@ const SEARCH_CACHE_MAX = 50;
 const SEARCH_DEBOUNCE_MS = 600;
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_MIN_DIGITS = 3;
+
+const DISPOSITION_TONE = {
+  green: ['done', 'lead_done', 'donation_collected', 'visit_donate'],
+  red: ['not_interested', 'not_interested_now', 'rejected', 'wrong_number', 'invalid_number', 'dnd', 'payment_rejected'],
+  amber: ['scheduled', 'callback', 'call_back', 'follow_up', 'promise_to_pay', 'will_donate_online', 'payment_pending', 'csr_inquiry'],
+  grey: ['busy', 'ringing', 'unreachable', 'switched_off', 'out_of_coverage', 'call_waiting', 'wrong_person', 'language_barrier', 'already_donated'],
+};
+
+// The card badge shows the lead's last disposition (what the FRO actually did),
+// not just "Assigned". A lead with no disposition yet stays Pending/New.
+const dispositionPill = (value, fallback) => {
+  const v = String(value || '').toLowerCase();
+  if (!v) return fallback;
+  const label = v.replace(/_/g, ' ');
+  if (DISPOSITION_TONE.green.includes(v)) return { label, color: '#16a34a', background: '#dcfce7' };
+  if (DISPOSITION_TONE.red.includes(v)) return { label, color: '#dc2626', background: '#fee2e2' };
+  if (DISPOSITION_TONE.amber.includes(v)) return { label, color: '#b45309', background: '#fef3c7' };
+  if (DISPOSITION_TONE.grey.includes(v)) return { label, color: '#475569', background: '#f1f5f9' };
+  return { label, color: '#1d4ed8', background: '#e7efff' };
+};
 
 export default function MyDonors({ embedded = false, portalEl = null, onDetailStateChange }) {
   const isMobile = useIsMobile()
@@ -415,17 +453,102 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   const [donationCategoryFilter, setDonationCategoryFilter] = useState(savedView?.donationCategoryFilter || 'all');
   // MY LEADS list view: the currently opened lead (null = showing the list).
   const [activeDonor, setActiveDonor] = useState(null);
+  // Deep link from the topbar bell: /fro/my-leads?alert=<assignmentId>.
+  // Opens that exact lead once the queue has loaded, then clears the param so a
+  // refresh does not reopen it.
+  const [searchParams, setSearchParams] = useSearchParams();
+
   // Whether the MY LEADS list includes donors the backend flagged as suppressed
   // (DND, donated this month, or already worked/closed). Default OFF so
   // the working stack stays clean, but every one of those donors is reachable in
   // one click and always counted — nothing is silently missing.
   const [listShowSuppressed, setListShowSuppressed] = useState(false);
   const [listView, setListView] = useState('leads'); // 'leads' | 'followups' | 'history'
+
   // Filter icon next to the search box: hides the New/Old/SS + NGO/station row
   // until the FRO asks for it, so the header stays one clean line.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [waLeads, setWaLeads] = useState([]);
   const [showWaLeads, setShowWaLeads] = useState(false);
+  const [waSource, setWaSource] = useState('whatsapp');
+
+  // Deep link from the topbar bell: /fro/my-leads?alert=<assignmentId>.
+  // Station leads (WhatsApp / Meta / Email) live in waLeads, not the normal
+  // donor queue, so the station list is fetched directly — the current tab
+  // filter must not hide the lead the FRO just clicked.
+  const handledAlertRef = useRef(null);
+  useEffect(() => {
+    const alertAssignment = Number(searchParams.get('alert'));
+    if (!alertAssignment) {
+      handledAlertRef.current = null;
+      return;
+    }
+    if (handledAlertRef.current === alertAssignment) return;
+    handledAlertRef.current = alertAssignment;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api('/fro/whatsapp-leads', { _prefix: 'ucs' });
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : (data?.data || []);
+        const lead = list.find((x) => Number(x.id) === alertAssignment);
+
+        if (lead) {
+          setWaLeads(list);
+          setShowWaLeads(true);
+          setWaSource(lead.source || 'whatsapp');
+          setActiveDonor({
+            id: lead.donor_id,
+            ngo_id: lead.ngo_id,
+            donor_name: lead.name || '—',
+            donor_mobile: lead.phone,
+            station: lead.station || '',
+            status: 'pending',
+            is_new: true,
+            ngo_name: lead.ngo_name || '',
+            notes: lead.notes,
+            reply_notes: lead.reply_notes || lead.notes,
+            lead_source: lead.lead_source || null,
+            campaign: lead.campaign || '',
+            received_at: lead.received_at || null,
+            donor_city: '',
+            donor_type: '',
+            donor_email: '',
+            donor_address: '',
+            donor_pan: '',
+            donor_dob: '',
+            assignment_id: lead.id,
+          });
+          setSelected(null);
+          setNotes('');
+          setLeadAmount('');
+          return;
+        }
+
+        // Not a station lead: fall back to the normal donor queue.
+        const row = donors.find((d) => Number(d.assignment_id) === alertAssignment);
+        if (row) {
+          const found = donors.indexOf(row);
+          if (found >= 0) setIndex(found);
+          setActiveDonor({ ...row, _fromList: listView });
+          setSelected(null);
+          setNotes('');
+          setLeadAmount('');
+        }
+      } catch {
+        // Silent: the FRO still lands on My Leads and can find the lead.
+      } finally {
+        if (!cancelled) {
+          const next = new URLSearchParams(searchParams);
+          next.delete('alert');
+          setSearchParams(next, { replace: true });
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [searchParams, setSearchParams]);
   const [historyLeads, setHistoryLeads] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   // Leads-tab fallback: when (and only when) the whole pending queue is empty,
@@ -2319,23 +2442,62 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               Fresh follow-ups you tagged. When a follow-up's given time passes, it moves to Overdue, where you'll see it until re-logged.
             </div>
           )}
-          {showWaLeads && (
+          {showWaLeads && (() => {
+            const q = searchQuery.trim();
+            const matches = waLeads.filter((lead) => waLeadMatchesSearch(lead, q));
+            const bySource = { whatsapp: 0, meta: 0, email: 0, google: 0 };
+            for (const lead of matches) bySource[lead.source || 'whatsapp'] += 1;
+            const shown = matches.filter((lead) => (lead.source || 'whatsapp') === waSource);
+            const TABS = [['whatsapp', 'WhatsApp'], ['meta', 'Meta'], ['email', 'Email'], ['google', 'Google']];
+            const sourceLabel = (TABS.find(([key]) => key === waSource) || TABS[0])[1];
+            return (
             <div style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {waLeads.length === 0 ? (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {TABS.map(([key, label]) => {
+                  const active = waSource === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setWaSource(key)}
+                      style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${active ? 'var(--sage)' : 'var(--line)'}`, background: active ? 'var(--sage)' : 'var(--card-bg)', color: active ? '#fff' : 'var(--ink-soft)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      {label}
+                      <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, opacity: .8 }}>{bySource[key]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {shown.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--ink-soft)' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 32, opacity: .4 }}>mark_email_unread</span>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>No SS leads yet</div>
-                  <div style={{ fontSize: 12 }}>Admin jab reply ko aapke SS station par add karega, lead yahan aa jayegi.</div>
+                  <span className="material-symbols-outlined" style={{ fontSize: 32, opacity: .4 }}>{q ? 'search_off' : 'mark_email_unread'}</span>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{q ? `No ${sourceLabel} leads match "${q}"` : `No ${sourceLabel} leads yet`}</div>
+                  <div style={{ fontSize: 12 }}>{q ? 'Clear the search to see every lead in this tab.' : `When the admin places a lead on your ${sourceLabel} station it appears here.`}</div>
                 </div>
-              ) : waLeads.map((l) => {
-                const raw = String(l.notes || '');
-                const replyLines = raw.split('\n')
-                  .filter((x) => !x.startsWith('[Template:') && !x.startsWith('[Account:') && !x.startsWith('[Lead:'))
-                  .map((x) => x.trim())
-                  .filter(Boolean);
-                const msg = replyLines.length ? replyLines[replyLines.length - 1] : '';
-                const earlierCount = Math.max(0, replyLines.length - 1);
-                const acct = (raw.match(/\[Account:\s*([^\]]+)\]/) || [])[1] || '';
+              ) : shown.map((l) => {
+                const parsed = parseLeadNotes(l.reply_notes || l.notes);
+                // Meta/Google: every chosen answer, no question label and no inbox URL.
+                // WhatsApp: keep the latest reply plus the earlier-reply count.
+                const isForm = l.source === 'meta' || l.source === 'google';
+                const bodyLines = parsed.message.split('\n').map((x) => x.trim()).filter(Boolean);
+                const msg = isForm ? parsed.message : (bodyLines[bodyLines.length - 1] || '');
+                const earlierCount = isForm ? 0 : Math.max(0, bodyLines.length - 1);
+                const replyLabel = l.source === 'meta'
+                  ? 'Meta form answer'
+                  : l.source === 'google'
+                    ? 'Google lead answer'
+                    : l.source === 'email'
+                      ? 'Email reply'
+                      : 'WhatsApp reply';
+                const receivedText = l.received_at
+                  ? new Date(l.received_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                  : '';
+                const pill = dispositionPill(
+                  l.last_disposition,
+                  l.status === 'assigned'
+                    ? { label: 'Pending', color: '#b45309', background: '#fef3c7' }
+                    : { label: 'New', color: '#1d4ed8', background: '#e7efff' },
+                );
+                const acct = parsed.account;
                 const acctName = l.ngo_name || (String(acct || '').toLowerCase().startsWith('bsct') ? 'BSCT' : String(acct || '').toLowerCase().startsWith('aflf') ? 'AFLF' : String(acct || '').toLowerCase().startsWith('mann') ? 'MANN' : (acct || ''));
                 const phone = String(l.phone || '').replace(/[^0-9]/g, '');
                  return (
@@ -2350,6 +2512,10 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                        is_new: true,
                        ngo_name: acctName,
                         notes: l.notes,
+                       reply_notes: l.reply_notes || l.notes,
+                       lead_source: l.lead_source || null,
+                       campaign: l.campaign || '',
+                       received_at: l.received_at || null,
                        donor_city: '',
                        donor_type: '',
                        donor_email: '',
@@ -2372,36 +2538,36 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                               <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, background: 'var(--line)', color: 'var(--ink-soft)' }}>{acctName}</span>
                             )}
                           </div>
+                          {(l.campaign || receivedText) && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 10.5, color: 'var(--ink-soft)' }}>
+                              {l.campaign && (
+                                <span title={l.campaign} style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  <b>Campaign:</b> {l.campaign}
+                                </span>
+                              )}
+                              {receivedText && <span><b>Received:</b> {receivedText}</span>}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                        <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap', color: l.status === 'assigned' ? '#16a34a' : '#b45309', background: l.status === 'assigned' ? '#16a34a1a' : '#b453091a' }}>
-                          {l.status === 'assigned' ? 'Assigned' : 'New'}
+                        <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap', color: pill.color, background: pill.background }}>
+                          {pill.label}
                         </span>
-                        <button
-                          type="button"
-                          title="Delete this lead from my SS queue"
-                          aria-label="Delete lead"
-                          onClick={(e) => { e.stopPropagation(); removeSsLead(l.id); }}
-                          style={{ width: 27, height: 27, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card-bg)', color: '#dc2626', display: 'inline-grid', placeItems: 'center', cursor: 'pointer' }}
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
-                        </button>
                       </div>
                     </div>
                      <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'var(--bg)', fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', border: '1px solid var(--line)' }}>
-                       {earlierCount > 0 && (
-                         <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', color: 'var(--ink-soft)', marginBottom: 3 }}>
-                           Latest reply · {earlierCount} earlier
-                         </div>
-                       )}
-                       {msg || '—'}
+                       <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', color: 'var(--ink-soft)', marginBottom: 3 }}>
+                         {replyLabel}{earlierCount > 0 ? ` · ${earlierCount} earlier` : ''}
+                       </div>
+                       <div>{msg || 'No answer captured'}</div>
                      </div>
                    </div>
                 );
               })}
             </div>
-          )}
+            );
+          })()}
           {/* The normal queue must not render underneath the SS list: without
               this the SS tab showed the SS cards AND the station's regular
               leads (MFD-4 etc.), which read like SS leads that were not there. */}
@@ -2647,7 +2813,16 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         </div>
         <div style={{ padding: '8px 14px', borderTop: '1px solid var(--line)', fontSize: 10, color: 'var(--ink-soft)' }}>
           {showWaLeads
-            ? `Showing ${waLeads.length} SS lead(s)`
+            ? (() => {
+                const q = searchQuery.trim();
+                const matches = waLeads.filter((l) => waLeadMatchesSearch(l, q));
+                const label = ({ whatsapp: 'WhatsApp', meta: 'Meta', email: 'Email', google: 'Google' })[waSource] || 'WhatsApp';
+                const sourceTotal = waLeads.filter((l) => (l.source || 'whatsapp') === waSource).length;
+                const shownCount = matches.filter((l) => (l.source || 'whatsapp') === waSource).length;
+                return q
+                  ? `Showing ${shownCount} of ${sourceTotal} ${label} lead(s) found`
+                  : `Showing ${sourceTotal} ${label} lead(s)`;
+              })()
             : loading
             ? 'Loading leads…'
             : isHistory
@@ -2735,20 +2910,41 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               )}
             </div>
 
-            {/^SS-/i.test(String(donor.station || '')) && donor.notes && (() => {
-              const lines = String(donor.notes)
-                .split('\n')
-                .filter((x) => !/^\[(Template|Account|Lead):/i.test(x.trim()))
-                .map((x) => x.trim())
-                .filter(Boolean);
-              const latest = lines[lines.length - 1] || '—';
-              const earlier = lines.slice(0, -1);
+            {(/^SS-/i.test(String(donor.station || '')) || /-Leads$/i.test(String(donor.station || ''))) && (donor.reply_notes || donor.notes) && (() => {
+              const parsed = parseLeadNotes(donor.reply_notes || donor.notes);
+              const stationKey = String(donor.station || '').toLowerCase();
+              const sourceKey = String(donor.lead_source || '').toLowerCase();
+              const isMeta = parsed.isMeta || stationKey.includes('-meta-leads') || sourceKey.includes('meta');
+              const isGoogle = stationKey.includes('-google-leads') || sourceKey.includes('google');
+              const isEmail = stationKey.includes('-email-leads') || sourceKey.includes('email');
+              const isForm = isMeta || isGoogle;
+              // Forms show the chosen answer only; WhatsApp keeps the latest
+              // reply plus the earlier ones.
+              const lines = parsed.message.split('\n').map((x) => x.trim()).filter(Boolean);
+              const latest = isForm ? parsed.message : (lines[lines.length - 1] || '');
+              const earlier = isForm ? [] : lines.slice(0, -1);
+              const label = isMeta
+                ? 'Meta form answer'
+                : isGoogle
+                  ? 'Google lead answer'
+                  : isEmail
+                    ? 'Email reply'
+                    : 'WhatsApp reply';
+              const receivedText = donor.received_at
+                ? new Date(donor.received_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                : '';
               return (
                 <div style={{ margin: '8px 12px 0', padding: '9px 11px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', fontSize: 11.5, lineHeight: 1.45 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', marginBottom: 3, opacity: .8 }}>
-                    WhatsApp reply{earlier.length ? ' · latest' : ''}
+                    {label}{earlier.length ? ' · latest' : ''}
                   </div>
-                  <div style={{ fontWeight: 700 }}>{latest}</div>
+                  <div style={{ fontWeight: 700, whiteSpace: 'pre-wrap' }}>{latest || 'No answer captured'}</div>
+                  {(donor.campaign || receivedText) && (
+                    <div style={{ marginTop: 5, fontSize: 10, opacity: .8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {donor.campaign && <span title={donor.campaign}>Campaign: {donor.campaign}</span>}
+                      {receivedText && <span>Received: {receivedText}</span>}
+                    </div>
+                  )}
                   {earlier.length > 0 && (
                     <div style={{ marginTop: 4, fontSize: 10.5, opacity: .65 }}>
                       Earlier: {earlier.join(' · ')}

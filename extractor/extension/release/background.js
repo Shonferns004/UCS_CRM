@@ -134,16 +134,25 @@
     const rows = state.jobs.reduce((total, job) => total + job.rows, 0);
     const phones = state.jobs.reduce((total, job) => total + job.phones, 0);
     const target = state.settings.targetPhones;
+    const pages = state.jobs.length;
     const parts = [
-      `${done} page${done === 1 ? "" : "s"} captured`,
+      `${done} of ${pages} page${pages === 1 ? "" : "s"} captured`,
       `${failed} failed`,
       `${rows} row${rows === 1 ? "" : "s"} saved`,
-      `${phones} with phone`
+      `${phones} number${phones === 1 ? "" : "s"} found`
     ];
     if (target > 0) {
-      parts.push(
-        phones >= target ? `target ${target} reached` : `target ${target} not reached (queue ended at ${phones})`
-      );
+      if (phones >= target) {
+        parts.push(`target ${target} reached`);
+      } else if (state.status === "running") {
+        parts.push(`target ${target} not reached yet (${phones} so far)`);
+      } else if (state.status === "paused") {
+        parts.push(`target ${target} not reached (paused at ${phones})`);
+      } else if (state.status === "stopped") {
+        parts.push(`target ${target} not reached (stopped at ${phones})`);
+      } else {
+        parts.push(`target ${target} not reached (queue ended at ${phones})`);
+      }
     }
     return parts.join(" \xB7 ");
   }
@@ -158,10 +167,13 @@
   var INJECTED_CONFIG = globalThis.UCS_EXTRACTOR_CONFIG || {};
   var DEFAULT_API_BASE = (INJECTED_CONFIG.apiBase || "http://localhost:5000").replace(/\/+$/, "");
   var DEFAULT_TOKEN = typeof INJECTED_CONFIG.token === "string" ? INJECTED_CONFIG.token : "";
+  var MAX_ROWS_PER_POST = 50;
+  var PENDING_KEY = "pendingCaptureQueue";
   var MAX_BUFFER = 2e3;
   var AUTO_STORAGE_KEY = "autoRun";
   var AUTO_JOB_TIMEOUT_MS = 45e3;
   var MAPS_READ_CONCURRENCY = 3;
+  var AUTO_MAPS_WALK_MAX_MS = 20 * 6e4;
   var sessions = /* @__PURE__ */ new Map();
   var lastCounts = /* @__PURE__ */ new Map();
   var autoTabs = /* @__PURE__ */ new Set();
@@ -170,6 +182,7 @@
   var authToken = DEFAULT_TOKEN;
   var autoState = null;
   var autoLoopToken = 0;
+  var pauseRetries = 0;
   var autoWake = null;
   var keepAliveTimer = null;
   async function loadSettings() {
@@ -189,9 +202,41 @@
     apiBaseUrl = DEFAULT_API_BASE;
     authToken = DEFAULT_TOKEN;
   });
+  void settingsReady.then(() => retryPendingBatches()).catch(() => {
+  });
+  setInterval(() => {
+    void retryPendingBatches();
+  }, 6e4);
   function delay(ms) {
     return new Promise((resolve) => {
       setTimeout(resolve, ms);
+    });
+  }
+  function fmtElapsed(ms) {
+    const totalSeconds = Math.max(0, Math.round(ms / 1e3));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+  }
+  function withTimeout(promise, ms, fallback) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        resolve(fallback);
+      }, ms);
+      promise.then((value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      }).catch(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(fallback);
+      });
     });
   }
   function autoSleep(ms) {
@@ -263,6 +308,69 @@
     void chrome.runtime.sendMessage({ type: "UCS_AUTORUN_STATE", state: autoState }).catch(() => {
     });
   }
+  async function postBatch(payload) {
+    const headers = { "Content-Type": "application/json" };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const response = await fetch(`${apiBaseUrl}/api/accounts/extractor/captures/batch`, {
+      method: "POST",
+      headers,
+      signal: AbortSignal.timeout(6e4),
+      body: JSON.stringify({ country: "IN", ...payload })
+    });
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        "CRM token missing or expired. Download a fresh package from Accounts > Extractor > Extension Setup."
+      );
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`API returned ${response.status}. ${text.slice(0, 160)}`);
+    }
+    return await response.json();
+  }
+  async function appendPendingBatch(batch) {
+    try {
+      const stored = await chrome.storage.local.get(PENDING_KEY);
+      const queue = Array.isArray(stored[PENDING_KEY]) ? stored[PENDING_KEY] : [];
+      queue.push(batch);
+      await chrome.storage.local.set({ [PENDING_KEY]: queue });
+    } catch {
+    }
+  }
+  async function retryPendingBatches() {
+    try {
+      const stored = await chrome.storage.local.get(PENDING_KEY);
+      const queue = Array.isArray(stored[PENDING_KEY]) ? stored[PENDING_KEY] : [];
+      if (queue.length === 0) return;
+      const remaining = [];
+      let saved = 0;
+      for (const batch of queue) {
+        try {
+          const result = await postBatch({
+            batchId: batch.batchId,
+            sessionId: batch.sessionId,
+            sourceUrl: batch.sourceUrl,
+            sourceName: batch.sourceName,
+            capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            rows: batch.rows
+          });
+          saved += result.accepted + result.updated + result.duplicatesIgnored;
+        } catch {
+          remaining.push(batch);
+        }
+      }
+      await chrome.storage.local.set({ [PENDING_KEY]: remaining });
+      if (saved > 0) {
+        void chrome.runtime.sendMessage({
+          type: "UCS_PENDING_FLUSHED",
+          saved,
+          remaining: remaining.reduce((total, batch) => total + batch.rows.length, 0)
+        }).catch(() => {
+        });
+      }
+    } catch {
+    }
+  }
   async function flush(session) {
     if (session.flushing || session.buffer.length === 0) return;
     if (holdFlushTabs.has(session.tabId)) return;
@@ -274,7 +382,7 @@
       session.flushing = false;
       return;
     }
-    const rows = session.buffer.splice(0, 100);
+    const rows = session.buffer.splice(0, MAX_ROWS_PER_POST);
     session.batchCounter += 1;
     const payload = {
       batchId: `${session.sessionId}-${session.batchCounter}`,
@@ -282,27 +390,10 @@
       sourceUrl: session.sourceUrl,
       sourceName: session.sourceName,
       capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      country: "IN",
       rows
     };
     try {
-      const headers = { "Content-Type": "application/json" };
-      if (authToken) headers.Authorization = `Bearer ${authToken}`;
-      const response = await fetch(`${apiBaseUrl}/api/accounts/extractor/captures/batch`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload)
-      });
-      if (response.status === 401 || response.status === 403) {
-        throw new Error(
-          "CRM token missing or expired. Download a fresh package from Accounts > Extractor > Extension Setup."
-        );
-      }
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new Error(`API returned ${response.status}. ${text.slice(0, 160)}`);
-      }
-      const result = await response.json();
+      const result = await postBatch(payload);
       session.sent += result.accepted + result.updated;
       session.duplicates += result.duplicatesIgnored;
       session.rejected += result.rejected;
@@ -327,7 +418,13 @@
       if (session.buffer.length === 0) return;
       const before = session.buffer.length;
       await flush(session);
-      if (session.buffer.length >= before) return;
+      if (session.buffer.length >= before) {
+        if (pass < 3) {
+          await delay(2e3 * (pass + 1));
+          continue;
+        }
+        return;
+      }
     }
   }
   function ensureSession(tabId, url, sourceName) {
@@ -365,10 +462,13 @@
     if (!/^https?:\/\//i.test(url)) {
       throw new Error("Open a normal http(s) page first. Chrome system pages cannot be captured.");
     }
-    const session = ensureSession(tabId, url, hostOf(url));
-    try {
-      await chrome.tabs.sendMessage(tabId, { type: "UCS_START", auto });
-    } catch {
+    ensureSession(tabId, url, hostOf(url));
+    const started = await withTimeout(
+      chrome.tabs.sendMessage(tabId, { type: "UCS_START", auto }),
+      5e3,
+      null
+    );
+    if (!started) {
       sessions.delete(tabId);
       throw new Error(
         "The page script is not loaded on this tab yet. Reload the page, then start capture again."
@@ -384,6 +484,15 @@
     }
     await flushAll(session);
     const pending = session.buffer.length;
+    if (pending > 0) {
+      await appendPendingBatch({
+        batchId: `${session.sessionId}-p${session.batchCounter + 1}`,
+        sessionId: session.sessionId,
+        sourceUrl: session.sourceUrl,
+        sourceName: session.sourceName,
+        rows: session.buffer.slice()
+      });
+    }
     lastCounts.set(tabId, {
       startedAt: session.startedAt,
       sourceHost: session.sourceName,
@@ -417,7 +526,8 @@
       activeTab: source.activeTab === true,
       targetPhones: clampNumber(source.targetPhones, 0, 1e4, 0),
       aiGenerate: source.aiGenerate === true,
-      aiBatchSize: clampNumber(source.aiBatchSize, 1, 10, 5)
+      aiBatchSize: clampNumber(source.aiBatchSize, 1, 10, 5),
+      autoResume: source.autoResume !== false
     };
   }
   function normalizeJob(raw) {
@@ -480,6 +590,14 @@
     }
   }
   var autoReady = loadAutoRun();
+  void autoReady.then(() => {
+    if (autoState && autoState.status === "paused" && autoState.settings.autoResume && autoState.index < autoState.jobs.length) {
+      pauseRetries = 0;
+      void resumeAutoRun().catch(() => {
+      });
+    }
+  }).catch(() => {
+  });
   async function waitForTabComplete(tabId, timeoutMs, token) {
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -520,14 +638,17 @@
     ensureSession(tabId, url, hostOf(url));
     let lastError = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        await chrome.tabs.sendMessage(tabId, { type: "UCS_START", auto: true });
+      const started = await withTimeout(
+        chrome.tabs.sendMessage(tabId, { type: "UCS_START", auto: true }),
+        5e3,
+        null
+      );
+      if (started) {
         broadcast(tabId);
         return;
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : "Could not reach the page script.";
-        await delay(700);
       }
+      lastError = "The page script did not answer within 5 seconds.";
+      await delay(700);
     }
     sessions.delete(tabId);
     throw new Error(
@@ -535,12 +656,12 @@
     );
   }
   async function scrollTab(tabId) {
-    try {
-      const response = await chrome.tabs.sendMessage(tabId, { type: "UCS_SCROLL" });
-      return Boolean(response?.ok && response.scrolled);
-    } catch {
-      return false;
-    }
+    const response = await withTimeout(
+      chrome.tabs.sendMessage(tabId, { type: "UCS_SCROLL" }),
+      5e3,
+      null
+    );
+    return Boolean(response?.ok && response.scrolled);
   }
   async function closeAutoTab(tabId) {
     autoTabs.delete(tabId);
@@ -553,7 +674,11 @@
     return placeId ?? href.split("?")[0] ?? href;
   }
   async function collectMapsLinks(tabId, max) {
-    const response = await chrome.tabs.sendMessage(tabId, { type: "UCS_MAPS_PLACES", max }).catch(() => null);
+    const response = await withTimeout(
+      chrome.tabs.sendMessage(tabId, { type: "UCS_MAPS_PLACES", max }),
+      5e3,
+      null
+    );
     return response?.places ?? [];
   }
   function nameKey(value) {
@@ -576,11 +701,15 @@
     for (let attempt = 0; attempt < 14; attempt += 1) {
       if (cancelled(token)) return { row: null, opened: false };
       try {
-        const response = await chrome.tabs.sendMessage(tabId, {
-          type: "UCS_READ_PLACE",
-          name: place.name,
-          placeId
-        });
+        const response = await withTimeout(
+          chrome.tabs.sendMessage(tabId, {
+            type: "UCS_READ_PLACE",
+            name: place.name,
+            placeId
+          }),
+          5e3,
+          null
+        );
         if (response?.ok && response.ready !== false) {
           const row = response.row ?? null;
           const nameOk = placeId.length > 0 || row !== null && samePlace(place.name, row.name);
@@ -624,12 +753,13 @@
       if (gainedPhone) session.withPhone += 1;
     }
   }
-  async function readMapsPhones(tabId, token, collected = []) {
+  async function readMapsPhones(tabId, token, collected = [], onProgress) {
     const places = collected.length > 0 ? collected.slice(0, AUTO_MAPS_DETAIL_MAX) : await collectMapsLinks(tabId, AUTO_MAPS_DETAIL_MAX);
     if (places.length === 0) return { links: 0, visited: 0, found: 0, panelOpened: 0 };
     const session = sessions.get(tabId) ?? null;
     const details = [];
     const queue = [...places];
+    const walkDeadline = Date.now() + AUTO_MAPS_WALK_MAX_MS;
     let visited = 0;
     let found = 0;
     let panelOpened = 0;
@@ -649,6 +779,7 @@
     const runWorker = async (workerTabId) => {
       for (; ; ) {
         if (cancelled(token)) return;
+        if (Date.now() > walkDeadline) return;
         const place = queue.shift();
         if (!place) return;
         try {
@@ -663,6 +794,7 @@
           details.push(result.row);
           if (result.row.phone) found += 1;
         }
+        onProgress?.(visited, places.length);
       }
     };
     try {
@@ -831,20 +963,53 @@
         }
         let mapsResult = null;
         if (mapsDeep) {
-          state.message = `Reading phone numbers from ${job.label}\u2026`;
+          const placeCount = mapsPlaces.size;
+          const walkStartedAt = Date.now();
+          let lastDone = 0;
+          let lastTotal = placeCount;
+          state.message = `Reading phone numbers from ${job.label} (0/${placeCount})\u2026`;
           broadcastAutoRun();
-          mapsResult = await readMapsPhones(tabId, token, [...mapsPlaces.values()]);
+          let lastProgressAt = 0;
+          const reportProgress = (done, total) => {
+            lastDone = done;
+            lastTotal = total;
+            const now = Date.now();
+            if (done < total && now - lastProgressAt < 1200) return;
+            lastProgressAt = now;
+            state.message = `Reading phone numbers from ${job.label} (${done}/${total}, ${fmtElapsed(now - walkStartedAt)})\u2026`;
+            broadcastAutoRun();
+          };
+          const heartbeat = setInterval(() => {
+            state.message = `Reading phone numbers from ${job.label} (${lastDone}/${lastTotal}, ${fmtElapsed(Date.now() - walkStartedAt)})\u2026`;
+            broadcastAutoRun();
+          }, 2e3);
+          try {
+            mapsResult = await readMapsPhones(
+              tabId,
+              token,
+              [...mapsPlaces.values()],
+              reportProgress
+            );
+          } finally {
+            clearInterval(heartbeat);
+          }
           if (cancelled(token)) throw new AutoCancelled();
+          state.message = `Saving ${job.label} rows to the CRM\u2026`;
+          broadcastAutoRun();
         }
         holdFlushTabs.delete(tabId);
+        state.message = `Saving ${job.label} rows to the CRM\u2026`;
+        broadcastAutoRun();
         const outcome = await handleStop(tabId);
         job.rows = outcome.sent;
         job.phones = outcome.withPhone;
         job.duplicates = outcome.duplicates;
         totalPhones += outcome.withPhone;
+        state.message = `Saved ${outcome.sent} row${outcome.sent === 1 ? "" : "s"} from ${job.label}${outcome.pending > 0 ? `, ${outcome.pending} held for retry` : ""}.`;
+        broadcastAutoRun();
         if (outcome.pending > 0) {
           job.status = "failed";
-          job.error = `${outcome.pending} row(s) could not reach the API and stayed in the extension.`;
+          job.error = `${outcome.pending} row(s) could not reach the API and are saved in the extension for automatic retry.${outcome.lastError ? ` ${outcome.lastError}` : ""}`;
         } else if (outcome.sent === 0) {
           job.status = "failed";
           job.error = outcome.rejected > 0 ? `The API rejected all ${outcome.rejected} row(s) from this page.` : "No leads were saved from this page. It may have hid its data, required a login, or still be loading.";
@@ -859,6 +1024,8 @@
             job.error = "Saved rows, but the results list exposed no place links, so no phone numbers were read.";
           } else if (deepMapsRan && mapsVisited === 0) {
             job.error = `Found ${mapsLinks} place link(s), but none could be opened. Check that tabs are allowed to open.`;
+          } else if (deepMapsRan && mapsVisited < mapsLinks) {
+            job.error = `Read phones from ${mapsVisited} of ${mapsLinks} place page(s); stopped at the 20-minute limit for this search.`;
           } else if (deepMapsRan && mapsFound === 0) {
             job.error = `Visited ${mapsVisited} place page(s), but none showed a phone number.`;
           } else if (deepMapsRan && outcome.withPhone === 0) {
@@ -869,7 +1036,7 @@
           } else if (outcome.withPhone === 0) {
             job.error = 'Saved rows, but none carried a phone number. For Google Maps, enable "Open each result".';
           } else if (outcome.rejected > 0) {
-            job.error = `${outcome.rejected} row(s) were rejected by the API.`;
+            job.error = `${outcome.rejected} row(s) were rejected by the CRM. Only mobile numbers are stored, so landlines are skipped.`;
           }
         }
       } catch (error) {
@@ -934,10 +1101,11 @@
       settings: normalizeSettings(input.settings),
       startedAt: (/* @__PURE__ */ new Date()).toISOString(),
       finishedAt: null,
-      message: parsed.errors.length > 0 ? `Queued ${parsed.jobs.length} page(s). ${parsed.errors.join(" ")}` : `Queued ${parsed.jobs.length} page(s).`,
+      message: parsed.errors.length > 0 ? `Queued ${parsed.jobs.length} page(s). It will run all of them unless you press Stop. ${parsed.errors.join(" ")}` : `Queued ${parsed.jobs.length} page(s). It will run all of them unless you press Stop.`,
       currentTabId: null
     };
     const token = autoLoopToken;
+    pauseRetries = 0;
     await persistAutoRun();
     broadcastAutoRun();
     void runAutoLoop(token).catch(async (error) => {
@@ -948,6 +1116,7 @@
       stopKeepAlive();
       await persistAutoRun();
       broadcastAutoRun();
+      schedulePauseRetry();
     });
     return { ok: true, state: autoState, errors: parsed.errors };
   }
@@ -1000,8 +1169,22 @@
       stopKeepAlive();
       await persistAutoRun();
       broadcastAutoRun();
+      schedulePauseRetry();
     });
     return { ok: true, state: autoState };
+  }
+  function schedulePauseRetry() {
+    if (!autoState || autoState.status !== "paused") return;
+    if (!autoState.settings.autoResume) return;
+    if (pauseRetries >= 3) return;
+    pauseRetries += 1;
+    const attempt = pauseRetries;
+    setTimeout(() => {
+      if (!autoState || autoState.status !== "paused") return;
+      autoState.message = `Retrying the run automatically (attempt ${attempt}/3)\u2026`;
+      void resumeAutoRun().catch(() => {
+      });
+    }, 1e4);
   }
   async function clearAutoRun() {
     await autoReady;

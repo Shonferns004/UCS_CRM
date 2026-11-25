@@ -2,6 +2,7 @@ import { useState, lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
 import { useUcs } from '../../store'
 import SocialDailyReport from './pages/SocialDailyReport'
+import SocialLeadsReport from './pages/SocialLeadsReport'
 import TechnicalTickets from '../../components/TechnicalTickets'
 import SocialReportApprovals from './pages/SocialReportApprovals'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
@@ -41,6 +42,7 @@ const NAV = [
   { id: 'reels-checklist', path: '/social/reels-checklist', label: 'Reels Checklist', icon: 'reels' },
   { id: 'media', path: '/social/media', label: 'Media / Banners', icon: 'media' },
   { id: 'monthly-report', path: '/social/monthly-report', label: 'Reports & Analytics', icon: 'report' },
+  { id: 'leads', path: '/social/leads', label: 'Leads Report', icon: 'leads' },
   // Acceptance / rejection of the team's daily reports — the head only. Hidden
   // from members because the review is her call (see canAssign below).
   { id: 'approvals', path: '/social/approvals', label: 'Report Approvals', icon: 'approvals', headOnly: true },
@@ -56,6 +58,7 @@ const ICONS = {
   reels: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>,
   media: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>,
   report: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>,
+  leads: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 4-6"/><circle cx="17" cy="8" r="1.6"/></svg>,
   approvals: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v18"/><path d="M8 8l4-4 4 4"/><path d="M8 16l4 4 4-4"/></svg>,
   chat: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg>,
 }
@@ -101,8 +104,17 @@ export default function SocialPanel() {
 
         <nav style={{ flex: 1, padding: '8px 0', overflowY: 'auto' }}>
           {NAV.filter((item) => !item.headOnly || canAssign).map((item) => (
-            <NavLink key={item.id} to={item.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: collapsed ? '10px 16px' : '10px 18px', fontSize: 12, fontWeight: 500, color: 'var(--ink-soft)', textDecoration: 'none', transition: 'all .12s', borderLeft: '3px solid transparent' }}
-              className={({ isActive }) => isActive ? 'nav-active' : ''}>
+            <NavLink key={item.id} to={item.path} style={({ isActive }) => ({
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: collapsed ? '10px 16px' : '10px 18px',
+              fontSize: 12,
+              fontWeight: isActive ? 600 : 500,
+              color: isActive ? 'var(--ink)' : 'var(--ink-soft)',
+              textDecoration: 'none',
+              transition: 'all .12s',
+              borderLeft: `3px solid ${isActive ? '#ec4899' : 'transparent'}`,
+              background: isActive ? 'color-mix(in srgb, var(--ink) 7%, var(--card-bg))' : 'transparent',
+            })}>
               <span style={{ flexShrink: 0, display: 'flex' }}>{ICONS[item.icon]}</span>
               {!collapsed && <span>{item.label}</span>}
               {item.id === 'chat' && <ChatNavBadge quiet />}
@@ -186,6 +198,7 @@ export default function SocialPanel() {
                 </Suspense>
               </div>
             } />
+            <Route path="leads" element={<SocialLeadsReport />} />
             <Route path="approvals" element={<SocialReportApprovals />} />
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="*" element={<Navigate to="/social/daily-report" replace />} />

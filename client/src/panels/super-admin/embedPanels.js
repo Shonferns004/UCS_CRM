@@ -15,6 +15,7 @@ export const EMBED_PANELS = {
     items: [
       { path: 'dashboard', label: 'Dashboard' },
       { path: 'station-mgmt', label: 'Stations & FROs' },
+
       { path: 'attendance', label: 'Attendance' },
       { path: 'codes', label: 'Acting FRO Codes' },
       { path: 'my-tickets', label: 'Tickets' },

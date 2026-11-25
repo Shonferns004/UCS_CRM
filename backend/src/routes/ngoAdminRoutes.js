@@ -21,6 +21,8 @@ import {
   addSsReplyLeadToStation,
   aiScoreSsLead,
   aiScoreSsLeadsBatch,
+  ssLeadStats,
+  bulkAddSsReplyLeads,
 } from '../controllers/ssLeadAdminController.js';
 import {
   getFroWorkers,
@@ -155,6 +157,15 @@ router.get('/ss-leads', authenticateRole('admin', 'super_admin'), listSsReplyLea
 router.post('/ss-leads/ai-batch', authenticateRole('admin', 'super_admin'), aiScoreSsLeadsBatch);
 router.post('/ss-leads/:id/ai', authenticateRole('admin', 'super_admin'), aiScoreSsLead);
 router.post('/ss-leads/:id/add', authenticateRole('admin', 'super_admin'), addSsReplyLeadToStation);
+
+// Leads Hub (WhatsApp + Meta + Email). Same handlers, source-aware stations;
+// the /ss-leads routes stay for old clients.
+router.get('/leads', authenticateRole('admin', 'super_admin'), listSsReplyLeads);
+router.get('/leads/stats', authenticateRole('admin', 'super_admin'), ssLeadStats);
+router.post('/leads/ai-batch', authenticateRole('admin', 'super_admin'), aiScoreSsLeadsBatch);
+router.post('/leads/bulk-station', authenticateRole('admin', 'super_admin'), bulkAddSsReplyLeads);
+router.post('/leads/:id/ai', authenticateRole('admin', 'super_admin'), aiScoreSsLead);
+router.post('/leads/:id/add', authenticateRole('admin', 'super_admin'), addSsReplyLeadToStation);
 router.get('/donors-by-ngo', authenticateRole('admin', 'super_admin', 'accounts'), getDonorsByNgo);
 router.get('/new-data', authenticateRole('admin', 'super_admin', 'accounts'), getNewData);
 router.post('/new-data/distribute', authenticateRole('admin', 'super_admin', 'accounts'), distributeNewData);

@@ -26,7 +26,8 @@ const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'))
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'station-mgmt', path: '/ngo-admin/station-mgmt', label: 'Stations & FROs', icon: 'station' },
-  { id: 'wa-reply-leads', path: '/ngo-admin/wa-reply-leads', label: 'WA Reply Leads', icon: 'leads' },
+  { id: 'leads-hub', path: '/ngo-admin/leads-hub', label: 'Leads Hub', icon: 'leads' },
+
   // { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
   { id: 'my-tickets', path: '/ngo-admin/my-tickets', label: 'Tickets', icon: 'tickets' },
   { id: 'chat', path: '/ngo-admin/chat', label: 'UCS Chat', icon: 'chat' },
@@ -558,7 +559,9 @@ return (
             <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="station-mgmt" element={<StationManagement />} />
-<Route path="wa-reply-leads" element={<WhatsAppReplyLeads />} />
+<Route path="leads-hub" element={<WhatsAppReplyLeads />} />
+        {/* Old bookmark: the same screen used to live at /wa-reply-leads. */}
+        <Route path="wa-reply-leads" element={<Navigate to="/ngo-admin/leads-hub" replace />} />
             <Route path="attendance" element={<NgoAttendance />} />
             <Route path="search" element={<SearchResults />} />
             <Route path="my-tickets" element={<TechnicalTickets panel="ngo_admin" />} />

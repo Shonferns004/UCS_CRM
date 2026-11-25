@@ -94,7 +94,7 @@ export function useChatMessages(
     gcTime: 5 * 60 * 1000,
     // The CRM does not hold the gateway API key, so the dashboard's socket feed is not
     // available here. Poll the open thread instead so incoming messages and acks appear.
-    refetchInterval: 15000,
+    refetchInterval: 3000,
   });
 
   // A page in flight carries a snapshot of `data.pages` taken when it started (TanStack's
@@ -301,3 +301,4 @@ export function useChatMessagesActions() {
     },
   };
 }
+

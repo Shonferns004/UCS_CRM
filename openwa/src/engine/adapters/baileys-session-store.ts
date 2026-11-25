@@ -383,6 +383,23 @@ export class BaileysSessionStore {
   }
 
   /**
+   * Clear a chat's unread counter after this session sent a read receipt for it.
+   *
+   * WhatsApp patches an app-state `markRead` onto the account's OTHER devices only; the device that
+   * sent the receipt never receives one. So the count established by the history sync outlived the
+   * read, every chat-list read reported the chat unread again, and a client that marks a chat read
+   * and then re-reads the list put the badge straight back. Clearing it here, for every spelling of
+   * the chat, is what makes a read stick.
+   */
+  markChatRead(chatId: string): void {
+    for (const key of new Set([this.chatKey(chatId), ...this.chatTwins(chatId)])) {
+      const record = this.chats.get(key);
+      if (!record || !record.unreadCount) continue;
+      this.chats.set(key, { ...record, unreadCount: 0 });
+    }
+  }
+
+  /**
    * A timer the chat itself reports (Baileys emits the EPHEMERAL_SETTING change as chats.update) is
    * newer than the one learned from messages, and turning the timer off produces no stamped message
    * that could clear it. Own key only, as in persistChatState: history-sync proto defaults are not news.
@@ -1341,7 +1358,9 @@ export class BaileysSessionStore {
   /**
    * Best-known display name for a chat id when Baileys gave the chat no title (#369). Prefers the saved
    * contact name, then verifiedName, then pushName (`notify`); for a @lid chat it also tries the contact
-   * behind the resolved phone. Falls back to the raw user-part so a number/lid is never shown as a JID.
+   * behind the resolved phone, and falls back to that PHONE before its lid. A lid is an opaque privacy
+   * identifier an operator cannot act on, so a number is always the better label — for a chat saved under
+   * no name, that is the difference between "263904533995715" and the number they can dial.
    */
   private resolveContactName(id: string): string {
     const direct = this.contactDisplayName(id);
@@ -1362,6 +1381,11 @@ export class BaileysSessionStore {
           this.contactDisplayName(`${userPart(pn)}@c.us`);
         if (viaPhone) {
           return viaPhone;
+        }
+        // The phone is known but nobody saved a name for it: show the number, never the lid.
+        const digits = userPart(pn);
+        if (digits) {
+          return digits;
         }
       }
     }

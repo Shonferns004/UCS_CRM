@@ -4,6 +4,8 @@ import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt, isBlankSuspenseValue, canonicalProject, projectCodeFromNgoId } from '../models/bankAuditModel.js';
 import { receiptsForDonor } from '../services/receiptLookup.js';
+import { ALL_LEAD_STATIONS } from '../services/ssLeadService.js';
+import { listLeadAlerts, leadAlertCounts, markLeadAlertSeen as markLeadAlertSeenRow, markAllLeadAlertsSeen as markAllLeadAlertsSeenRows, markAlertsAttended } from '../services/leadAlertService.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
@@ -4711,6 +4713,8 @@ export const createDonorLogHandler = async (req, res) => {
       // Any logged interaction means the worker attempted this donor — clear
       // the NEW flag so it stops counting/pinning as fresh data.
       await db.from('fro_assignments').update({ is_new: false }).eq('id', assignment.id);
+      // The bell alert is done the moment the lead is actually worked.
+      void markAlertsAttended(assignment.id).catch(() => {});
 
       // Update donor profile fields if provided
       const updateFields = {};
@@ -8262,11 +8266,39 @@ export const getWhatsAppLeads = async (req, res) => {
       `select a.id, a.donor_id, a.ngo_id, a.station, a.status, a.notes,
               a.assigned_at, a.fro_worker_id, a.batch_type,
               dp.name, dp.mobile_number as phone,
-              n.name as ngo_name
+              n.name as ngo_name,
+              ld.created_at as lead_created_at,
+              ld.notes as lead_notes,
+              ld.source as lead_source,
+              ld.meta_campaign_name,
+              ld.google_campaign_name,
+              ld.event_campaign_name,
+              dl.disposition_detail as last_disposition,
+              dl.disposition_category as last_disposition_category,
+              dl.created_at as last_disposition_at
          from fro_assignments a
          join donor_profiles dp on dp.id = a.donor_id
          left join ngos n on n.id = a.ngo_id
-        where a.station like 'SS-%'
+         left join lateral (
+           select l.created_at, l.notes, l.source,
+                  l.meta_campaign_name, l.google_campaign_name,
+                  (select e.campaign_name
+                     from meta_lead_events e
+                    where e.meta_lead_id = l.meta_lead_id
+                    limit 1) as event_campaign_name
+             from leads l
+            where a.notes like '%[Lead:' || l.id::text || ']%'
+            limit 1
+         ) ld on true
+         left join lateral (
+           select d.disposition_detail, d.disposition_category, d.created_at
+             from fro_donor_logs d
+            where d.assignment_id = a.id
+              and d.action = 'disposition'
+            order by d.created_at desc
+            limit 1
+         ) dl on true
+        where a.station = any($2::text[])
           and (a.status is null or a.status <> 'reassigned')
           and (
             a.fro_worker_id = $1
@@ -8278,9 +8310,31 @@ export const getWhatsAppLeads = async (req, res) => {
             )
           )
         order by a.assigned_at desc nulls last`,
-      [workerId],
+      [workerId, ALL_LEAD_STATIONS],
     );
-    return res.json((rows || []).map((r) => ({
+    // A station name is the cheapest reliable source marker: B-Meta-Leads is a
+    // Meta queue, M-Email-Leads is an email queue. Legacy SS rows fall back to
+    // the [Meta Lead:] tag baked into the notes at ingest time.
+    const sourceOf = (station, notes) => {
+      const value = String(station || '').toLowerCase();
+      if (value.includes('-meta-leads')) return 'meta';
+      if (value.includes('-email-leads')) return 'email';
+      if (value.includes('-google-leads')) return 'google';
+      if (value.includes('-whatsapp-leads')) return 'whatsapp';
+      if (String(notes || '').includes('[Meta Lead:')) return 'meta';
+      return 'whatsapp';
+    };
+
+    const campaignOf = (row) => {
+      const explicit = String(
+        row.meta_campaign_name || row.event_campaign_name || row.google_campaign_name || '',
+      ).trim();
+      if (explicit) return explicit;
+      return (String(row.lead_notes || row.notes || '').match(/\[Campaign:\s*([^\]]+)\]/i) || [])[1]?.trim() || '';
+    };
+
+    const requestedSource = String(req.query.source || '').trim().toLowerCase();
+    const payload = (rows || []).map((r) => ({
       id: r.id, // assignment id — what the delete button removes
       lead_id: (String(r.notes || '').match(/\[Lead:([^\]]+)\]/) || [])[1] || null,
       donor_id: r.donor_id,
@@ -8291,9 +8345,24 @@ export const getWhatsAppLeads = async (req, res) => {
       station: r.station,
       status: r.fro_worker_id ? 'assigned' : 'new',
       notes: r.notes,
+      // The assignment notes lose the [Meta Lead:]/[Campaign:] tags during
+      // materialisation, so the original lead row is what the FRO card must
+      // parse for the answer. It also carries the submission time and campaign.
+      reply_notes: r.lead_notes || r.notes,
+      lead_source: r.lead_source || null,
+      campaign: campaignOf(r),
+      received_at: r.lead_created_at || r.assigned_at || null,
+      last_disposition: r.last_disposition || null,
+      last_disposition_category: r.last_disposition_category || null,
+      last_disposition_at: r.last_disposition_at || null,
       assigned_at: r.assigned_at,
       batch_type: r.batch_type,
-    })));
+      source: sourceOf(r.station, r.notes),
+    }));
+
+    return res.json(requestedSource
+      ? payload.filter((row) => row.source === requestedSource)
+      : payload);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -8302,6 +8371,51 @@ export const getWhatsAppLeads = async (req, res) => {
 // Remove an SS lead from the FRO's queue. Soft-delete only: the assignment is
 // parked as 'reassigned' so the donor, its history and the admin's audit stay
 // intact, and the backfill script knows this reply was deliberately dropped.
+
+// ── Lead alerts (topbar bell) ───────────────────────────────────────────────
+// Durable per-FRO "new lead" rows written at placement time. The badge reads
+// these, not notification_log (which is retired), so it survives a refresh.
+export const getLeadAlerts = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const [alerts, counts] = await Promise.all([
+      listLeadAlerts(workerId, { limit: req.query.limit }),
+      leadAlertCounts(workerId),
+    ]);
+    return res.json({ alerts, counts });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getLeadAlertCount = async (req, res) => {
+  try {
+    return res.json(await leadAlertCounts(req.user.id));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const markLeadAlertSeen = async (req, res) => {
+  try {
+    const row = await markLeadAlertSeenRow(req.user.id, req.params.id);
+    return res.json({ ok: true, already: !row, alert: row || null });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const markAllLeadAlertsSeen = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const marked = await markAllLeadAlertsSeenRows(workerId);
+    const counts = await leadAlertCounts(workerId);
+    return res.json({ ok: true, marked, counts });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteSsLead = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -8314,10 +8428,10 @@ export const deleteSsLead = async (req, res) => {
       `select a.id, a.station, a.ngo_id, a.fro_worker_id, a.notes
          from fro_assignments a
         where a.id = $1
-          and a.station like 'SS-%'
+          and a.station = any($2::text[])
           and (a.status is null or a.status <> 'reassigned')
         limit 1`,
-      [assignmentId],
+      [assignmentId, ALL_LEAD_STATIONS],
     );
     const row = rows[0];
     if (!row) return res.status(404).json({ message: 'SS lead not found' });
@@ -8337,6 +8451,7 @@ export const deleteSsLead = async (req, res) => {
       `update fro_assignments set status = 'reassigned', updated_at = now() where id = $1`,
       [assignmentId],
     );
+    void markAlertsAttended(assignmentId).catch(() => {});
     // Put the inbox row back so the admin sees the reply again and can decide
     // whether to re-route it or delete it for good.
     const leadId = (String(row.notes || '').match(/\[Lead:([^\]]+)\]/) || [])[1] || null;

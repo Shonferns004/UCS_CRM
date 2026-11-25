@@ -19,6 +19,7 @@ import {
   X,
   AlertCircle,
   Building2,
+  StickyNote,
   MoreVertical,
   type LucideIcon,
 } from 'lucide-react';
@@ -299,6 +300,13 @@ export function Sessions() {
   const [assignSearch, setAssignSearch] = useState('');
   const [assignSaving, setAssignSaving] = useState(false);
   const [assignMetaStatus, setAssignMetaStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  // Free-text session notes (CRM side). Keyed by gateway session id; a session may carry a note
+  // before it is assigned to any NGO/station, which is why they are not part of the assignment row.
+  const [sessionNotes, setSessionNotes] = useState<Record<string, string>>({});
+  const [noteTarget, setNoteTarget] = useState<Session | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [noteBusy, setNoteBusy] = useState(false);
+  const notesRead = useRef(0);
   const assignGridRef = useRef<HTMLDivElement | null>(null);
   // Older list reads must never overwrite a newer one (mount + StrictMode + post-save reload).
   const assignmentsRead = useRef(0);
@@ -331,10 +339,24 @@ export function Sessions() {
     }
   }, []);
 
+  const reloadNotes = useCallback(async () => {
+    const request = ++notesRead.current;
+    try {
+      const data = await openwaAssignmentsApi.notes();
+      if (request !== notesRead.current) return;
+      const map: Record<string, string> = {};
+      for (const [sessionId, row] of Object.entries(data.notes || {})) map[sessionId] = row.notes || '';
+      setSessionNotes(map);
+    } catch {
+      /* Notes are auxiliary; a failed read must not block the session list. */
+    }
+  }, []);
+
   useEffect(() => {
     void loadAssignMeta();
     void reloadAssignments();
-  }, [loadAssignMeta, reloadAssignments]);
+    void reloadNotes();
+  }, [loadAssignMeta, reloadAssignments, reloadNotes]);
 
   // The overflow menu is anchored to a button's viewport rect, so a resize or scroll would leave
   // it pointing at the wrong place. Escape and the backdrop close it too.
@@ -603,6 +625,28 @@ export function Sessions() {
       );
     } finally {
       setRenameBusy(false);
+    }
+  };
+
+  // Session notes: everything an operator wants the next person to know about this number
+  // ("SIM with Sakshi", "don't unlink, bank OTP"), stored on the CRM side.
+  const openNotes = (session: Session) => {
+    setNoteTarget(session);
+    setNoteDraft(sessionNotes[session.id] || '');
+  };
+
+  const handleSaveNote = async () => {
+    if (!noteTarget) return;
+    setNoteBusy(true);
+    try {
+      await openwaAssignmentsApi.saveNote(noteTarget.id, noteDraft, noteTarget.name);
+      setSessionNotes(prev => ({ ...prev, [noteTarget.id]: noteDraft.trim() ? noteDraft : '' }));
+      toast.success('Note saved', noteDraft.trim() ? 'The note was updated.' : 'The note was cleared.');
+      setNoteTarget(null);
+    } catch (err) {
+      toast.error('Could not save the note', err instanceof Error && err.message ? err.message : t('common.unknownError'));
+    } finally {
+      setNoteBusy(false);
     }
   };
 
@@ -980,6 +1024,12 @@ export function Sessions() {
         run: () => openAssign(session),
       });
     }
+    actions.push({
+      key: 'notes',
+      label: sessionNotes[session.id] ? 'Edit note' : 'Notes',
+      icon: StickyNote,
+      run: () => openNotes(session),
+    });
     if (canWrite && isSessionStarted(session)) {
       actions.push({
         key: 'stop',
@@ -1384,6 +1434,52 @@ export function Sessions() {
               <p className="input-error">{t('sessions.create.tooLong', { length: renameName.length })}</p>
             )}
             {renameIssues.includes('duplicate') && <p className="input-error">{t('sessions.create.duplicate')}</p>}
+          </div>
+        </Modal>
+      )}
+
+      {noteTarget && (
+        <Modal
+          open
+          onClose={() => {
+            if (!noteBusy) setNoteTarget(null);
+          }}
+          title={`Notes — ${noteTarget.name}`}
+          closeLabel={t('common.close')}
+          className="session-create-modal"
+          footer={
+            <>
+              <button className="btn-secondary" onClick={() => setNoteTarget(null)} disabled={noteBusy}>
+                {t('common.cancel')}
+              </button>
+              <button className="btn-primary" onClick={() => void handleSaveNote()} disabled={noteBusy}>
+                {noteBusy ? <Loader2 className="animate-spin" size={16} /> : t('common.save')}
+              </button>
+            </>
+          }
+        >
+          <div className="form-field">
+            <label htmlFor="sess-note">Session note</label>
+            <textarea
+              id="sess-note"
+              rows={8}
+              maxLength={4000}
+              value={noteDraft}
+              placeholder="Anything the next person should know about this number — SIM holder, don't unlink, bank OTP, etc."
+              onChange={e => setNoteDraft(e.target.value)}
+              style={{
+                width: '100%',
+                minHeight: 140,
+                padding: '10px 12px',
+                borderRadius: 10,
+                border: '1px solid var(--line, #d8dbe3)',
+                font: 'inherit',
+                resize: 'vertical',
+              }}
+            />
+            <p className="row-note" style={{ marginTop: 6 }}>
+              {noteDraft.trim().length} / 4000
+            </p>
           </div>
         </Modal>
       )}
@@ -2029,6 +2125,12 @@ export function Sessions() {
                         {t(`sessions.restriction.${session.restriction.kind}`)}
                       </span>
                     ) : null}
+                    {sessionNotes[session.id] ? (
+                      <span className="row-note" title={sessionNotes[session.id]}>
+                        <StickyNote size={12} style={{ marginRight: 4, verticalAlign: '-2px' }} />
+                        Note
+                      </span>
+                    ) : null}
                   </div>
 
                   <div role="cell">
@@ -2138,3 +2240,4 @@ export function Sessions() {
     </div>
   );
 }
+
