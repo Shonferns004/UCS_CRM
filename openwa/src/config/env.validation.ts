@@ -644,6 +644,14 @@ export function validateEnv(config: EnvConfig): EnvConfig {
     }
   }
 
+  // BAILEYS_AUTH_STORE selects where the device creds and Signal keys live. Only these two values are
+  // implemented, and configuration.ts maps anything else to 'file': a typo must not silently leave an
+  // operator on the file store they think they left behind, which shows up as a relink on every restart.
+  const authStore = config['BAILEYS_AUTH_STORE'];
+  if (authStore !== undefined && String(authStore).trim() !== '' && authStore !== 'file' && authStore !== 'database') {
+    errors.push(`BAILEYS_AUTH_STORE must be "file" or "database" (got ${JSON.stringify(authStore)})`);
+  }
+
   // Boolean feature flags read at module-eval time (app.module.ts) with a bare `=== 'true'` /
   // `!== 'false'` comparison: a typo (`True`, `1`, `yes`) or trailing whitespace/CR silently
   // (dis)ables the feature. Validate the RAW value — NOT a trimmed one — so `'true '` / `'true\r'`

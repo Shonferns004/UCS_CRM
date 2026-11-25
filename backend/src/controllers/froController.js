@@ -144,7 +144,7 @@ const FRO_DONORS_REDIS_MAX_BYTES = 512 * 1024;
 const FRO_DONORS_KEY_PARAMS = [
   'status', 'status_group', 'ngo_id', 'station', 'new_only', 'old_only', 'high_tier_only',
   'verified_only', 'active_only', 'inactive_only', 'include_suppressed', 'all_statuses',
-  'period', 'limit', 'offset',
+  'period', 'limit', 'offset', 'donation_status', 'donation_category',
 ];
 
 /**
@@ -3059,6 +3059,126 @@ export const getReactivatedDonors = async (req, res) => {
 const NOT_CONNECTED_STATUSES = ['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail'];
 const CONNECTED_STATUSES = ['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected'];
 
+// ─── Per-NGO donor labels (same rules as the station-wise Excel) ─────────────
+// A donor's donation history belongs to the NGO that issued the receipt. The
+// FRO list previously showed donor_profiles totals, which aggregate every NGO,
+// so an AFLF donor could display a BSCT count. These helpers derive the four
+// labels from receipts scoped to the assignment's NGO only.
+const LABEL_AS_ON = new Date();
+const labelParseDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+};
+const labelAge = (lastDate) => {
+  const d = labelParseDate(lastDate);
+  if (!d) return 'Date Not Available';
+  const asOn = LABEL_AS_ON;
+  let months = (asOn.getUTCFullYear() - d.getUTCFullYear()) * 12 + (asOn.getUTCMonth() - d.getUTCMonth());
+  if (asOn.getUTCDate() < d.getUTCDate()) months -= 1;
+  if (months < 0) months = 0;
+  if (months === 0) return 'Less than 1 Month';
+  if (months < 12) return months === 1 ? '1 Month' : `${months} Months`;
+  const years = Math.floor(months / 12);
+  const rem = months % 12;
+  const ys = years === 1 ? '1 Year' : `${years} Years`;
+  if (!rem) return ys;
+  return `${ys} ${rem === 1 ? '1 Month' : `${rem} Months`}`;
+};
+const labelFrequency = (count, firstDate, lastDate) => {
+  if (!count) return 'No Donation';
+  if (count === 1) return 'One-Time Donor';
+  const first = labelParseDate(firstDate);
+  const last = labelParseDate(lastDate);
+  if (!first || !last || last < first) return 'Not Available';
+  const days = (last - first) / 86400000;
+  const gap = days / 30.4375 / (count - 1);
+  const n = Math.max(1, Math.round(gap));
+  if (n >= 13) return 'More Than Yearly';
+  if (n === 3) return 'Quarterly Donor (3 Months)';
+  if (n === 6) return 'Half-Yearly Donor (6 Months)';
+  if (n === 12) return 'Yearly Donor (12 Months)';
+  return `${n} Month Donor`;
+};
+const labelCategory = (count, total) => {
+  if (!count || !total) return 'Below Low';
+  const avg = total / count;
+  if (avg >= 5000) return 'Premium Donors';
+  if (avg >= 2000) return 'High Value Donors';
+  if (avg >= 500) return 'Medium Donors';
+  if (avg >= 251) return 'Low Value Donors';
+  return 'Below Low';
+};
+const labelStatus = (lastDate) => {
+  const d = labelParseDate(lastDate);
+  if (!d) return 'Inactive';
+  const asOn = LABEL_AS_ON;
+  const cutoff = new Date(Date.UTC(asOn.getUTCFullYear() - 1, asOn.getUTCMonth(), asOn.getUTCDate()));
+  return d > cutoff ? 'Active' : 'Inactive';
+};
+const buildDonorNgoLabels = (stat) => {
+  const count = Number(stat?.cnt || 0);
+  const total = Number(stat?.total || 0);
+  return {
+    donation_category: labelCategory(count, total),
+    donation_frequency_label: labelFrequency(count, stat?.first_date, stat?.last_date),
+    donation_status_label: labelStatus(stat?.last_date),
+    last_donation_age_label: labelAge(stat?.last_date),
+    ngo_receipt_count: count,
+    ngo_receipt_total: total,
+    ngo_last_receipt_date: stat?.last_date || null,
+  };
+};
+
+const attachDonorNgoLabels = async (rows) => {
+  if (!rows || rows.length === 0) return;
+  const donorIds = [...new Set(rows.map(r => r.donor_id).filter(Boolean))];
+  const projects = [...new Set(
+    rows.map(r => String(r.ngo_name || '').toLowerCase())
+      .filter(p => p === 'bsct' || p === 'aflf' || p === 'mann'),
+  )];
+  if (donorIds.length === 0 || projects.length === 0) return;
+  try {
+    const { rows: stats } = await db._pool.query(
+      `WITH rec AS (
+         SELECT COALESCE(r.donor_id, d.id) AS donor_id,
+                r.project_id,
+                r.amount,
+                r.receipt_date
+           FROM public.receipts r
+           LEFT JOIN public.donor_profiles d
+             ON r.donor_id IS NULL AND d.mobile_number = r.donor_mobile
+          WHERE (r.donor_id = ANY($1::int[]) OR d.id = ANY($1::int[]))
+            AND r.project_id = ANY($2::text[])
+            AND r.voided_at IS NULL
+            AND COALESCE(r.amount, 0) > 0
+       )
+       SELECT donor_id, project_id,
+              count(*)::int AS cnt,
+              sum(amount)::float8 AS total,
+              min(receipt_date)::date AS first_date,
+              max(receipt_date)::date AS last_date
+         FROM rec
+        WHERE donor_id IS NOT NULL
+        GROUP BY donor_id, project_id`,
+      [donorIds, projects],
+    );
+    const byPair = new Map(
+      (stats || []).map(s => [`${s.donor_id}|${String(s.project_id).toLowerCase()}`, s]),
+    );
+    for (const r of rows) {
+      const key = `${r.donor_id}|${String(r.ngo_name || '').toLowerCase()}`;
+      Object.assign(r, buildDonorNgoLabels(byPair.get(key)));
+    }
+  } catch (err) {
+    console.warn('[donor labels] skipped:', err?.message || String(err));
+  }
+};
+
 export const getMyDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -3866,6 +3986,7 @@ export const getMyDonors = async (req, res) => {
           return res.json({ donor: null, position: -1, total: totalActive, cycle_key: cycleKey({ ngoId: null, station: queueStation, tab: queueTab }), done: true });
         }
         const r = byId.get(next.donor_id);
+        await attachDonorNgoLabels([r]);
         await markShown({ workerId, donorId: next.donor_id, ngoId: next.ngo_id, station: queueStation, tab: queueTab, position: next.position });
         return res.json({
           donor: r,
@@ -3915,12 +4036,40 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
+    // Per-NGO labels power the new Active/Inactive and Category filters. When
+    // either filter is used we must label the whole scope before slicing; when
+    // they are not used, only the returned page is labelled (cheaper).
+    const donationStatus = String(req.query.donation_status || '').toLowerCase();
+    const donationCategory = String(req.query.donation_category || '').trim().toLowerCase();
+    const needsLabelFilter = (donationStatus === 'active' || donationStatus === 'inactive')
+      || (donationCategory && donationCategory !== 'all');
+
+    if (needsLabelFilter) {
+      await attachDonorNgoLabels(filtered);
+      if (donationStatus === 'active' || donationStatus === 'inactive') {
+        const want = donationStatus === 'active' ? 'Active' : 'Inactive';
+        filtered = filtered.filter(r => r.donation_status_label === want);
+      }
+      if (donationCategory && donationCategory !== 'all') {
+        const categoryByKey = {
+          premium: 'Premium Donors',
+          high: 'High Value Donors',
+          medium: 'Medium Donors',
+          low: 'Low Value Donors',
+          below: 'Below Low',
+        };
+        const wantCategory = categoryByKey[donationCategory] || req.query.donation_category;
+        filtered = filtered.filter(r => r.donation_category === wantCategory);
+      }
+    }
+
     const total = filtered.length;
     let page = filtered;
     if (Number.isFinite(limit) && limit > 0) {
       const start = (Number.isFinite(offset) && offset > 0) ? offset : 0;
       page = filtered.slice(start, start + limit);
     }
+    if (!needsLabelFilter) await attachDonorNgoLabels(page);
 
     if (total === 0 && assignments && assignments.length > 0) {
       console.warn('getMyDonors EMPTY after filters for worker', workerId,

@@ -21,9 +21,11 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     const InitializationSettings(android: androidSettings, iOS: iosSettings),
   );
 
-    final title = message.notification?.title ?? message.data['title'] ?? 'UCS Attend';
+  final title =
+      message.notification?.title ?? message.data['title'] ?? 'UCS Attend';
   final body = message.notification?.body ?? message.data['body'] ?? '';
-  final payload = '${message.data['type'] ?? ''}|${message.data['referenceId'] ?? ''}';
+  final payload =
+      '${message.data['type'] ?? ''}|${message.data['referenceId'] ?? ''}';
 
   await localNotifications.show(
     DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -66,7 +68,9 @@ class NotificationService {
       await Firebase.initializeApp();
     } catch (_) {}
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -81,11 +85,7 @@ class NotificationService {
 
     final messaging = FirebaseMessaging.instance;
 
-    await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    await messaging.requestPermission(alert: true, badge: true, sound: true);
 
     final token = await messaging.getToken();
     if (token != null) {
@@ -109,9 +109,11 @@ class NotificationService {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
-  final title = message.notification?.title ?? message.data['title'] ?? 'UCS Attend';
+    final title =
+        message.notification?.title ?? message.data['title'] ?? 'UCS Attend';
     final body = message.notification?.body ?? message.data['body'] ?? '';
-    final payload = '${message.data['type'] ?? ''}|${message.data['referenceId'] ?? ''}';
+    final payload =
+        '${message.data['type'] ?? ''}|${message.data['referenceId'] ?? ''}';
 
     await _localNotifications.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,

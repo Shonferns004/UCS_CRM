@@ -190,6 +190,10 @@ export default () => ({
     // Read by the Baileys plugin from the opaque engine config blob.
     baileys: {
       authDir: process.env.BAILEYS_AUTH_DIR || './data/baileys',
+      // Where the auth state (device creds + Signal keys) lives: 'file' (the multi-file auth dir above,
+      // default) or 'database' (the data connection's baileys_auth_state table), so a session survives a
+      // restart or redeploy without a durable volume. A value other than 'database' keeps the file store.
+      authStore: process.env.BAILEYS_AUTH_STORE === 'database' ? 'database' : 'file',
     },
   },
 

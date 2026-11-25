@@ -6633,6 +6633,301 @@ export const getAgentTeamCollections = async (req, res) => {
   }
 };
 
+// GET /accounts/report-monthly-collections?year=YYYY
+// Month-by-month collection for the Reports page:
+//   - NGO-wise  : BSCT / AFLF / MANN per calendar month (same bucket rules as
+//                 /report-data, so a receipt counted in the summary is counted
+//                 here too).
+//   - Team-wise : the same receipts rolled up to workers.team.
+//   - Agent-wise: per active FRO, resolved from receipts.agent_name exactly like
+//                 /report-agent-team, so the monthly rows reconcile with the
+//                 period table above them.
+// One year's receipts are aggregated in SQL; only the (month, project, agent)
+// groups cross the wire.
+export const getMonthlyCollections = async (req, res) => {
+  try {
+    const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const isRealDay = (value) => {
+      const s = String(value || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+      const [y, m, d] = s.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+    };
+
+    // The Reports filter bar drives this with From/To (Month, Year and
+    // Financial Year all collapse to a range). ?year= is kept for old links.
+    const qFrom = String(req.query.from || '').trim();
+    const qTo = String(req.query.to || '').trim();
+    let year = null;
+    let dateFrom;
+    let dateTo;
+    if (isRealDay(qFrom) && isRealDay(qTo)) {
+      dateFrom = qFrom;
+      dateTo = qTo;
+      if (dateFrom > dateTo) [dateFrom, dateTo] = [dateTo, dateFrom];
+    } else {
+      year = parseInt(req.query.year, 10);
+      if (!Number.isInteger(year) || year < 2000 || year > 2100) year = new Date().getFullYear();
+      dateFrom = `${year}-01-01`;
+      dateTo = `${year}-12-31`;
+    }
+
+    // Month columns spanning the selected range (Apr-Mar for a financial year).
+    // Capped so a very wide custom range cannot produce a 100-column table.
+    const months = [];
+    const startMonth = new Date(`${dateFrom.slice(0, 7)}-01T00:00:00Z`);
+    const endMonth = new Date(`${dateTo.slice(0, 7)}-01T00:00:00Z`);
+    for (let d = startMonth; d <= endMonth && months.length < 36; d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))) {
+      months.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+    }
+    const truncated = months.length >= 36 && `${months[months.length - 1]}` !== `${dateTo.slice(0, 7)}`;
+    const multiYear = new Set(months.map((m) => m.slice(0, 4))).size > 1;
+
+    // NGO codes -> slugs (bsct/aflf/mann), matching getReportData/getAgentTeamCollections.
+    const { data: allNgos, error: naErr } = await db.from('ngos').select('id, name, code').eq('is_active', true);
+    if (naErr) throw naErr;
+    const slugOf = (n) => {
+      if (!n) return null;
+      const code = String(n.code || '').trim().toLowerCase();
+      if (code) return code;
+      return String(n.name || '').trim().toLowerCase();
+    };
+    const ngoList = [];
+    const seen = {};
+    const uuidToSlug = {};
+    const nameNormToSlug = {};
+    for (const n of allNgos || []) {
+      const slug = slugOf(n);
+      uuidToSlug[String(n.id).toLowerCase()] = slug;
+      if (slug && !seen[slug] && ['bsct', 'aflf', 'mann'].includes(slug)) {
+        seen[slug] = true;
+        ngoList.push({ id: slug, name: n.name });
+      }
+      if (!slug || !['bsct', 'aflf', 'mann'].includes(slug)) continue;
+      const nn = normKey(n.name);
+      if (nn) nameNormToSlug[nn] = slug;
+      if (nn.includes('sevak') || nn.includes('beingsevak')) nameNormToSlug['bsct'] = slug;
+      if (nn.includes('ashray')) nameNormToSlug['aflf'] = slug;
+      if (nn.includes('mann')) nameNormToSlug['mann'] = slug;
+    }
+    if (ngoList.length === 0) {
+      for (const [slug, name] of [['bsct', 'BSCT'], ['aflf', 'AFLF'], ['mann', 'MANN']]) {
+        ngoList.push({ id: slug, name });
+      }
+    }
+    // Stable column order for the report: BSCT | AFLF | MANN, independent of
+    // the order the ngos table happens to return.
+    const NGO_ORDER = ['bsct', 'aflf', 'mann'];
+    ngoList.sort((a, b) => NGO_ORDER.indexOf(a.id) - NGO_ORDER.indexOf(b.id));
+    const ngoIds = ngoList.map((n) => n.id);
+    const slugSet = new Set(ngoIds);
+    const resolveNgo = (pid) => {
+      if (!pid) return null;
+      const low = String(pid).toLowerCase().trim();
+      if (slugSet.has(low)) return low;
+      if (uuidToSlug[low] && slugSet.has(uuidToSlug[low])) return uuidToSlug[low];
+      const nn = normKey(pid);
+      if (nameNormToSlug[nn]) return nameNormToSlug[nn];
+      return null;
+    };
+
+    // Active FRO roster: the same list /report-agent-team credits, so an agent's
+    // month total and their period total come from the same identity map.
+    const { data: froWorkers, error: fwErr } = await db
+      .from('workers')
+      .select('id, name, team')
+      .eq('department', 'FRO')
+      .eq('employment_status', 'active')
+      .eq('is_test', false);
+    if (fwErr) throw fwErr;
+    const workerList = (froWorkers || []).filter((w) => w.id);
+    const workerByKey = {};
+    for (const w of workerList) {
+      const k = normKey(w.name);
+      if (k && !workerByKey[k]) workerByKey[k] = w;
+    }
+
+    // Month + project + raw agent aggregate. The DISTINCT ON mirrors the dedup
+    // key used by /report-agent-team (receipt_no|donor|amount|date|payment_id),
+    // so an imported duplicate cannot inflate the monthly numbers.
+    const { rows: aggRows } = await db._pool.query(
+      `WITH dedup AS (
+         SELECT DISTINCT ON (
+                  COALESCE(r.receipt_no::text, ''),
+                  COALESCE(r.donor_id::text, ''),
+                  r.amount,
+                  (r.receipt_date AT TIME ZONE 'Asia/Kolkata')::date,
+                  COALESCE(r.payment_id::text, '')
+                )
+                (r.receipt_date AT TIME ZONE 'Asia/Kolkata')::date AS rdate,
+                lower(btrim(COALESCE(r.project_id, ''))) AS project,
+                btrim(COALESCE(r.agent_name, '')) AS agent_name,
+                r.amount
+           FROM receipts r
+          WHERE r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')
+            AND r.receipt_date <  (($2::date + 1) AT TIME ZONE 'Asia/Kolkata')
+            AND r.receipt_no IS NOT NULL
+            AND r.amount > 0
+          ORDER BY COALESCE(r.receipt_no::text, ''),
+                   COALESCE(r.donor_id::text, ''),
+                   r.amount,
+                   (r.receipt_date AT TIME ZONE 'Asia/Kolkata')::date,
+                   COALESCE(r.payment_id::text, '')
+       )
+       SELECT to_char(rdate, 'YYYY-MM') AS ym,
+              project,
+              agent_name,
+              SUM(amount)::numeric AS total,
+              COUNT(*)::int AS receipts
+         FROM dedup
+        GROUP BY 1, 2, 3`,
+      [dateFrom, dateTo],
+    );
+
+    // Columns are positions in `months`, not calendar-month numbers: a financial
+    // year starts at April, so index 0 must be April (not January).
+    const monthIndexByKey = new Map(months.map((key, i) => [key, i]));
+    const zeroMonths = () => Array.from({ length: months.length }, () => 0);
+    const monthlyNgo = {};
+    const monthlyNgoCount = {};
+    for (const n of ngoIds) {
+      monthlyNgo[n] = zeroMonths();
+      monthlyNgoCount[n] = zeroMonths();
+    }
+    const monthlyTotal = zeroMonths();
+
+    const teamsMap = new Map();
+    const agentsMap = new Map();
+    const categoryNames = ['pg', 'library', 'suspense'];
+    const ensureTeam = (team) => {
+      const key = team || 'No Team';
+      if (!teamsMap.has(key)) {
+        teamsMap.set(key, { team: key, months: zeroMonths(), total: 0, receipts: 0, members: 0 });
+      }
+      return teamsMap.get(key);
+    };
+    const ensureAgent = ({ id, name, team, category }) => {
+      const key = id ? `w:${id}` : (category ? `c:${category}` : '__none');
+      if (!agentsMap.has(key)) {
+        agentsMap.set(key, {
+          id: id || null,
+          name: name || 'Unknown',
+          team: team || null,
+          category: category || null,
+          months: zeroMonths(),
+          total: 0,
+          receipts: 0,
+        });
+      }
+      return agentsMap.get(key);
+    };
+    // Seed every active FRO's team so a quiet team still gets a column (and a
+    // zero row) instead of vanishing from the table.
+    for (const w of workerList) {
+      const team = w.team && String(w.team).trim() ? String(w.team).trim().toUpperCase() : null;
+      if (!team) continue;
+      ensureTeam(team).members += 1;
+    }
+
+    const canonicalCache = new Map();
+    const resolveWorker = async (raw) => {
+      if (canonicalCache.has(raw)) return canonicalCache.get(raw);
+      const canonical = await normalizeAgentName(raw);
+      const found = workerByKey[normKey(canonical)] || null;
+      canonicalCache.set(raw, found);
+      return found;
+    };
+
+    for (const row of aggRows || []) {
+      const amount = Number(row.total) || 0;
+      if (!(amount > 0)) continue;
+      const monthIdx = monthIndexByKey.get(String(row.ym));
+      if (monthIdx == null) continue;
+
+      // NGO row: same bucket precedence as /report-data. Suspense/NA/blank,
+      // library and pg are separate Accounts buckets, not one of the three NGOs.
+      const agentLower = String(row.agent_name || '').trim().toLowerCase();
+      if (!categoryNames.includes(agentLower) && agentLower !== 'na' && agentLower !== '') {
+        const ngo = resolveNgo(row.project);
+        if (ngo) {
+          monthlyNgo[ngo][monthIdx] += amount;
+          monthlyNgoCount[ngo][monthIdx] += Number(row.receipts) || 0;
+          monthlyTotal[monthIdx] += amount;
+        }
+      }
+
+      // Agent / team rows: keep the /report-agent-team scope, which resolves the
+      // project to an NGO and then credits the receipt to the named FRO.
+      const ngoForAgent = resolveNgo(row.project);
+      if (!ngoForAgent) continue;
+
+      let worker = null;
+      let category = null;
+      if (categoryNames.includes(agentLower)) category = agentLower;
+      else if (agentLower && agentLower !== 'na') worker = await resolveWorker(row.agent_name);
+
+      let agent;
+      if (category) {
+        agent = ensureAgent({ id: null, name: category[0].toUpperCase() + category.slice(1), category });
+      } else if (worker) {
+        const team = worker.team && String(worker.team).trim() ? String(worker.team).trim().toUpperCase() : null;
+        agent = ensureAgent({ id: worker.id, name: worker.name || 'Unknown', team });
+        const teamRow = ensureTeam(team || 'No Team');
+        teamRow.months[monthIdx] += amount;
+        teamRow.total += amount;
+        teamRow.receipts += Number(row.receipts) || 0;
+      } else {
+        agent = ensureAgent({ id: null, name: 'No Agent' });
+      }
+
+      if (!agent) continue;
+      agent.months[monthIdx] += amount;
+      agent.total += amount;
+      agent.receipts += Number(row.receipts) || 0;
+    }
+
+    // Team rows: named teams sorted UFS1..UFS4 (numeric), with a No Team lane at
+    // the end only when something actually landed in it.
+    const teamRows = [...teamsMap.values()]
+      .filter((t) => t.team !== 'No Team' || t.total > 0)
+      .sort((a, b) => {
+        if (a.team === 'No Team') return 1;
+        if (b.team === 'No Team') return -1;
+        return String(a.team).localeCompare(String(b.team), undefined, { numeric: true });
+      });
+
+    const agentRows = [...agentsMap.values()]
+      .sort((a, b) => b.total - a.total || String(a.name).localeCompare(String(b.name)));
+
+    const grandTotal = agentRows.reduce((s, a) => s + a.total, 0);
+
+    return res.json({
+      year,
+      from: dateFrom,
+      to: dateTo,
+      truncated,
+      months: months.map((key) => {
+        const [y, m] = key.split('-').map(Number);
+        return {
+          key,
+          label: multiYear ? `${MONTHS_SHORT[m - 1]} '${String(y).slice(2)}` : MONTHS_SHORT[m - 1],
+          full: `${MONTHS_SHORT[m - 1]} ${y}`,
+        };
+      }),
+      ngos: ngoList,
+      monthlyNgo,
+      monthlyNgoCount,
+      monthlyTotal,
+      teams: teamRows,
+      agents: agentRows,
+      grandTotal,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // Per-user 4-digit access code gating downloads & the locked Reports/status pages.
 // Each accounts user has their own code, stored in the settings table under a key
 // derived from their id. Only accounts / super_admin can reach these routes

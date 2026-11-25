@@ -4,7 +4,10 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts', 'recruiter', 'leads', 'telecaller', 'team_lead'), async (req, res) => {
+// The attendance worker app's profile calendar reads this endpoint, so every
+// worker-facing role must be able to load their own month's holidays/events/
+// birthdays (shawn@ufs is `digital`, not `worker`).
+router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts', 'recruiter', 'leads', 'telecaller', 'team_lead', 'worker', 'fro', 'digital', 'social', 'event_head'), async (req, res) => {
   try {
     const { year, month } = req.query;
     const y = parseInt(year) || new Date().getFullYear();
@@ -27,8 +30,9 @@ router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts', 'recr
 
     if (ngoId) {
       eventsQuery = eventsQuery.eq('ngo_id', ngoId);
-      holidaysQuery = holidaysQuery.eq('ngo_id', ngoId);
       workersQuery = workersQuery.eq('ngo_id', ngoId);
+      // Holidays are fetched company-wide below: a null ngo_id row is a
+      // company-wide declared holiday and must reach every worker's calendar.
     }
 
     eventsQuery = eventsQuery.order('event_date', { ascending: true });
@@ -49,6 +53,7 @@ router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts', 'recr
     }));
 
     const holidays = (holidaysRes.data || [])
+      .filter(h => !ngoId || !h.ngo_id || h.ngo_id === ngoId)
       .filter(h => {
         const d = new Date(h.date + 'T00:00:00');
         if (h.is_recurring) return d.getMonth() + 1 === m;

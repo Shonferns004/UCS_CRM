@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:liquid_pull_to_refresh/liquid_pull_to_refresh.dart';
+import '../widgets/app_toast.dart';
+import '../widgets/ui_motion.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
@@ -12,10 +15,12 @@ class WorkerAttendanceDetailPage extends StatefulWidget {
   const WorkerAttendanceDetailPage({super.key, required this.worker});
 
   @override
-  State<WorkerAttendanceDetailPage> createState() => _WorkerAttendanceDetailPageState();
+  State<WorkerAttendanceDetailPage> createState() =>
+      _WorkerAttendanceDetailPageState();
 }
 
-class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage> {
+class _WorkerAttendanceDetailPageState
+    extends State<WorkerAttendanceDetailPage> {
   List<dynamic> _records = [];
   int _selectedMonth = DateTime.now().month;
   int _selectedYear = DateTime.now().year;
@@ -23,14 +28,18 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
   String? _error;
   Timer? _refreshTimer;
 
-  String get _monthKey => '$_selectedYear-${_selectedMonth.toString().padLeft(2, '0')}';
+  String get _monthKey =>
+      '$_selectedYear-${_selectedMonth.toString().padLeft(2, '0')}';
 
   @override
   void initState() {
     super.initState();
     _load();
     RealtimeService.instance.addListener(_onRealtimeChange);
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _load(silent: true));
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _load(silent: true),
+    );
   }
 
   @override
@@ -42,13 +51,18 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
 
   void _onRealtimeChange() {
     final event = RealtimeService.instance.lastEvent;
-    if (event == RealtimeEvent.attendance || event == RealtimeEvent.corrections) {
+    if (event == RealtimeEvent.attendance ||
+        event == RealtimeEvent.corrections) {
       _load(silent: true);
     }
   }
 
   Future<void> _load({bool silent = false}) async {
-    if (!silent) setState(() { _loading = true; _error = null; });
+    if (!silent)
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
     try {
       final records = await ApiService.getWorkerMonthlyAttendance(
         widget.worker['id'].toString(),
@@ -57,7 +71,11 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
       if (mounted) {
         setState(() {
           _records = List<dynamic>.from(records)
-            ..sort((a, b) => (b['date']?.toString() ?? '').compareTo(a['date']?.toString() ?? ''));
+            ..sort(
+              (a, b) => (b['date']?.toString() ?? '').compareTo(
+                a['date']?.toString() ?? '',
+              ),
+            );
           _loading = false;
         });
       }
@@ -101,25 +119,38 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
     int tempMonth = _selectedMonth;
     int tempYear = _selectedYear;
 
-    final picked = await showModalBottomSheet<(int, int)?>(
+    final picked = await showSpringSheet<(int, int)?>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setSheetState) {
             return Padding(
-              padding: EdgeInsets.fromLTRB(Responsive.pad(ctx, 24), Responsive.pad(ctx, 20), Responsive.pad(ctx, 24), Responsive.pad(ctx, 32)),
+              padding: EdgeInsets.fromLTRB(
+                Responsive.pad(ctx, 24),
+                Responsive.pad(ctx, 20),
+                Responsive.pad(ctx, 24),
+                Responsive.pad(ctx, 32),
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(width: Responsive.pad(ctx, 40), height: Responsive.pad(ctx, 4),
-                    decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+                  Container(
+                    width: Responsive.pad(ctx, 40),
+                    height: Responsive.pad(ctx, 4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
                   SizedBox(height: Responsive.pad(ctx, 20)),
-                  Text('Select Month & Year', style: TextStyle(
-                    fontSize: Responsive.sp(ctx, 17), fontWeight: FontWeight.w700, color: const Color(0xFF1f1f1f),
-                  )),
+                  Text(
+                    'Select Month & Year',
+                    style: TextStyle(
+                      fontSize: Responsive.sp(ctx, 17),
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1f1f1f),
+                    ),
+                  ),
                   SizedBox(height: Responsive.pad(ctx, 20)),
                   Row(
                     children: [
@@ -128,12 +159,26 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
                           value: tempMonth,
                           decoration: InputDecoration(
                             labelText: 'Month',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                            contentPadding: EdgeInsets.symmetric(horizontal: Responsive.pad(ctx, 14), vertical: Responsive.pad(ctx, 12)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: Responsive.pad(ctx, 14),
+                              vertical: Responsive.pad(ctx, 12),
+                            ),
                           ),
-                          items: List.generate(12, (i) => i + 1).map((m) =>
-                            DropdownMenuItem(value: m, child: Text(DateFormat('MMMM').format(DateTime(2000, m))))
-                          ).toList(),
+                          items: List.generate(12, (i) => i + 1)
+                              .map(
+                                (m) => DropdownMenuItem(
+                                  value: m,
+                                  child: Text(
+                                    DateFormat(
+                                      'MMMM',
+                                    ).format(DateTime(2000, m)),
+                                  ),
+                                ),
+                              )
+                              .toList(),
                           onChanged: (v) => setSheetState(() => tempMonth = v!),
                         ),
                       ),
@@ -143,12 +188,22 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
                           value: tempYear,
                           decoration: InputDecoration(
                             labelText: 'Year',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                            contentPadding: EdgeInsets.symmetric(horizontal: Responsive.pad(ctx, 14), vertical: Responsive.pad(ctx, 12)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: Responsive.pad(ctx, 14),
+                              vertical: Responsive.pad(ctx, 12),
+                            ),
                           ),
-                          items: years.map((y) =>
-                            DropdownMenuItem(value: y, child: Text(y.toString()))
-                          ).toList(),
+                          items: years
+                              .map(
+                                (y) => DropdownMenuItem(
+                                  value: y,
+                                  child: Text(y.toString()),
+                                ),
+                              )
+                              .toList(),
                           onChanged: (v) => setSheetState(() => tempYear = v!),
                         ),
                       ),
@@ -159,8 +214,11 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
                     width: double.infinity,
                     height: Responsive.pad(ctx, 44),
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pop(ctx, (tempMonth, tempYear)),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563eb)),
+                      onPressed: () =>
+                          Navigator.pop(ctx, (tempMonth, tempYear)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xff174a7c),
+                      ),
                       child: const Text('OK'),
                     ),
                   ),
@@ -198,17 +256,27 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
               child: _loading
                   ? const _RecordsSkeleton()
                   : _error != null
-                      ? _buildError(scheme, tt)
-                      : RefreshIndicator(
-                          onRefresh: () => _load(),
-                          child: _records.isEmpty
-                              ? _empty(tt, scheme, 'No records for this month')
-                              : ListView.builder(
-                                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), 0, Responsive.pad(context, 16), Responsive.pad(context, 40)),
-                                  itemCount: _records.length,
-                                  itemBuilder: (context, i) => _recordCard(_records[i], tt, scheme),
-                                ),
-                        ),
+                  ? _buildError(scheme, tt)
+                  : LiquidPullToRefresh(
+                      color: const Color(0xff174a7c),
+                      backgroundColor: const Color(0xffe6f0fa),
+                      showChildOpacityTransition: false,
+                      springAnimationDurationInMilliseconds: 700,
+                      onRefresh: () => _load(),
+                      child: _records.isEmpty
+                          ? _empty(tt, scheme, 'No records for this month')
+                          : ListView.builder(
+                              padding: EdgeInsets.fromLTRB(
+                                Responsive.pad(context, 16),
+                                0,
+                                Responsive.pad(context, 16),
+                                Responsive.pad(context, 40),
+                              ),
+                              itemCount: _records.length,
+                              itemBuilder: (context, i) =>
+                                  _recordCard(_records[i], tt, scheme),
+                            ),
+                    ),
             ),
           ],
         ),
@@ -221,11 +289,16 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
     final dept = widget.worker['department']?.toString() ?? '';
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(Responsive.pad(context, 4), Responsive.pad(context, 8), Responsive.pad(context, 8), 0),
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pad(context, 4),
+        Responsive.pad(context, 8),
+        Responsive.pad(context, 8),
+        0,
+      ),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(LucideIcons.arrowLeft),
+            icon: const Icon(TablerIcons.arrow_left),
             color: scheme.onSurface,
             onPressed: () => Navigator.pop(context),
           ),
@@ -234,7 +307,13 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Attendance Details', style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                Text(
+                  'Attendance Details',
+                  style: tt.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurface,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 Text(
                   dept.isNotEmpty ? '$name · $dept' : name,
@@ -250,7 +329,7 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
               backgroundColor: scheme.secondary.withValues(alpha: 0.1),
               foregroundColor: scheme.secondary,
             ),
-            icon: const Icon(LucideIcons.plus),
+            icon: const Icon(TablerIcons.plus),
             onPressed: _records.isEmpty ? null : _openAddSheet,
             tooltip: 'Add record',
           ),
@@ -260,7 +339,7 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
               backgroundColor: scheme.secondary.withValues(alpha: 0.1),
               foregroundColor: scheme.secondary,
             ),
-            icon: const Icon(LucideIcons.refreshCw),
+            icon: const Icon(TablerIcons.refresh),
             onPressed: () => _load(),
             tooltip: 'Refresh',
           ),
@@ -276,32 +355,43 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
         children: [
           Expanded(
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 4)),
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 6),
+                vertical: Responsive.pad(context, 4),
+              ),
               decoration: BoxDecoration(
                 color: scheme.surface,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
               ),
               child: Row(
                 children: [
-                  IconButton(icon: const Icon(LucideIcons.chevronLeft), onPressed: _prevMonth),
+                  IconButton(
+                    icon: const Icon(TablerIcons.chevron_left),
+                    onPressed: _prevMonth,
+                  ),
                   Expanded(
                     child: InkWell(
                       onTap: _pickMonthYear,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(22),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         child: Column(
                           children: [
                             Text(
-                              DateFormat('MMMM yyyy').format(DateTime(_selectedYear, _selectedMonth)),
-                              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                              DateFormat(
+                                'MMMM yyyy',
+                              ).format(DateTime(_selectedYear, _selectedMonth)),
+                              style: tt.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 2),
                             Text(
                               '${_records.length} record${_records.length == 1 ? '' : 's'}',
-                              style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+                              style: tt.labelSmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
                               textAlign: TextAlign.center,
                             ),
                           ],
@@ -309,7 +399,10 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
                       ),
                     ),
                   ),
-                  IconButton(icon: const Icon(LucideIcons.chevronRight), onPressed: _nextMonth),
+                  IconButton(
+                    icon: const Icon(TablerIcons.chevron_right),
+                    onPressed: _nextMonth,
+                  ),
                 ],
               ),
             ),
@@ -324,9 +417,16 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(LucideIcons.cloudOff, size: Responsive.sp(context, 40), color: scheme.outline),
+          Icon(
+            TablerIcons.cloud_off,
+            size: Responsive.sp(context, 40),
+            color: scheme.outline,
+          ),
           const SizedBox(height: 12),
-          Text(_error ?? 'Failed to load attendance', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            _error ?? 'Failed to load attendance',
+            style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           const SizedBox(height: 12),
           OutlinedButton(onPressed: _load, child: const Text('Retry')),
         ],
@@ -341,13 +441,20 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
 
     final punchIn = _formatTime(record['punch_in_time']);
     final punchOut = _formatTime(record['punch_out_time']);
-    final hours = _hoursWorked(record['punch_in_time'], record['punch_out_time']);
+    final hours = _hoursWorked(
+      record['punch_in_time'],
+      record['punch_out_time'],
+    );
     final hasId = record['id'] != null;
-    final lateMinutes = (record['late_minutes'] ?? 0) > 0 ? record['late_minutes'] : null;
+    final lateMinutes = (record['late_minutes'] ?? 0) > 0
+        ? record['late_minutes']
+        : null;
 
     if (punchIn != null && (status == 'absent' || status.isEmpty)) {
       final lateMin = record['late_minutes'];
-      if (lateMin != null && (lateMin is int ? lateMin : (lateMin is num ? lateMin.toInt() : 0)) > 0) {
+      if (lateMin != null &&
+          (lateMin is int ? lateMin : (lateMin is num ? lateMin.toInt() : 0)) >
+              0) {
         status = 'late';
       } else {
         status = 'present';
@@ -358,7 +465,7 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
     String statusLabel;
     switch (status) {
       case 'present':
-        statusColor = const Color(0xFF16a34a);
+        statusColor = const Color(0xff17a97f);
         statusLabel = 'Present';
         break;
       case 'late':
@@ -366,11 +473,11 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
         statusLabel = 'Late';
         break;
       case 'half-day':
-        statusColor = const Color(0xFF7c3aed);
+        statusColor = const Color(0xff174a7c);
         statusLabel = 'Half Day';
         break;
       case 'leave':
-        statusColor = const Color(0xFF2563eb);
+        statusColor = const Color(0xff174a7c);
         statusLabel = 'Leave';
         break;
       default:
@@ -384,8 +491,8 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
         margin: EdgeInsets.only(bottom: Responsive.pad(context, 10)),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+          borderRadius: BorderRadius.circular(24),
+
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.03),
@@ -399,20 +506,50 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
           children: [
             Container(
               width: Responsive.pad(context, 62),
-              padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 12)),
+              padding: EdgeInsets.symmetric(
+                vertical: Responsive.pad(context, 12),
+              ),
               decoration: BoxDecoration(
                 color: statusColor.withValues(alpha: 0.1),
-                borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  bottomLeft: Radius.circular(16),
+                ),
               ),
               child: dt == null
-                  ? Center(child: Icon(LucideIcons.calendarX, color: statusColor, size: Responsive.sp(context, 20)))
+                  ? Center(
+                      child: Icon(
+                        TablerIcons.calendar_x,
+                        color: statusColor,
+                        size: Responsive.sp(context, 20),
+                      ),
+                    )
                   : Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(DateFormat('d').format(dt), style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800, color: statusColor, height: 1.1)),
-                        Text(DateFormat('EEE').format(dt).toUpperCase(), style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w700, letterSpacing: 0.4)),
+                        Text(
+                          DateFormat('d').format(dt),
+                          style: tt.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: statusColor,
+                            height: 1.1,
+                          ),
+                        ),
+                        Text(
+                          DateFormat('EEE').format(dt).toUpperCase(),
+                          style: tt.labelSmall?.copyWith(
+                            color: statusColor,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
                         const SizedBox(height: 2),
-                        Text(DateFormat('MMM').format(dt), style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
+                        Text(
+                          DateFormat('MMM').format(dt),
+                          style: tt.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
                       ],
                     ),
             ),
@@ -425,36 +562,79 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
                     Row(
                       children: [
                         Container(
-                          padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 4)),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: Responsive.pad(context, 10),
+                            vertical: Responsive.pad(context, 4),
+                          ),
                           decoration: BoxDecoration(
                             color: statusColor.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: Text(statusLabel, style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w800)),
+                          child: Text(
+                            statusLabel,
+                            style: tt.labelSmall?.copyWith(
+                              color: statusColor,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                         if (hours != null) ...[
                           const Spacer(),
-                          Icon(LucideIcons.timer, size: Responsive.sp(context, 13), color: scheme.onSurfaceVariant),
+                          Icon(
+                            TablerIcons.hourglass,
+                            size: Responsive.sp(context, 13),
+                            color: scheme.onSurfaceVariant,
+                          ),
                           const SizedBox(width: 4),
-                          Text(hours, style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant, fontWeight: FontWeight.w700)),
+                          Text(
+                            hours,
+                            style: tt.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ],
                       ],
                     ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        _timePill(scheme, tt, LucideIcons.logIn, 'In', punchIn, const Color(0xFF16a34a)),
+                        _timePill(
+                          scheme,
+                          tt,
+                          TablerIcons.login,
+                          'In',
+                          punchIn,
+                          const Color(0xff17a97f),
+                        ),
                         const SizedBox(width: 10),
-                        _timePill(scheme, tt, LucideIcons.logOut, 'Out', punchOut, const Color(0xFFd97706)),
+                        _timePill(
+                          scheme,
+                          tt,
+                          TablerIcons.logout,
+                          'Out',
+                          punchOut,
+                          const Color(0xFFd97706),
+                        ),
                       ],
                     ),
                     if (lateMinutes != null) ...[
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          Icon(LucideIcons.alertTriangle, size: Responsive.sp(context, 13), color: const Color(0xFFd97706)),
+                          Icon(
+                            TablerIcons.alert_triangle,
+                            size: Responsive.sp(context, 13),
+                            color: const Color(0xFFd97706),
+                          ),
                           const SizedBox(width: 5),
-                          Text('Late by $lateMinutes min', style: tt.labelSmall?.copyWith(color: const Color(0xFFd97706), fontWeight: FontWeight.w700)),
+                          Text(
+                            'Late by $lateMinutes min',
+                            style: tt.labelSmall?.copyWith(
+                              color: const Color(0xFFd97706),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -468,7 +648,10 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
                 child: Padding(
                   padding: EdgeInsets.only(top: Responsive.pad(context, 6)),
                   child: IconButton(
-                    icon: Icon(LucideIcons.pencil, size: Responsive.sp(context, 17)),
+                    icon: Icon(
+                      TablerIcons.pencil,
+                      size: Responsive.sp(context, 17),
+                    ),
                     onPressed: () => _openEditSheet(record),
                     tooltip: 'Edit',
                   ),
@@ -480,14 +663,23 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
     );
   }
 
-  Widget _timePill(ColorScheme scheme, TextTheme tt, IconData icon, String label, String? value, Color color) {
+  Widget _timePill(
+    ColorScheme scheme,
+    TextTheme tt,
+    IconData icon,
+    String label,
+    String? value,
+    Color color,
+  ) {
     return Expanded(
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 7)),
+        padding: EdgeInsets.symmetric(
+          horizontal: Responsive.pad(context, 10),
+          vertical: Responsive.pad(context, 7),
+        ),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerLow.withValues(alpha: 0.7),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+          borderRadius: BorderRadius.circular(18),
         ),
         child: Row(
           children: [
@@ -497,10 +689,21 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant, fontSize: Responsive.sp(context, 10))),
+                  Text(
+                    label,
+                    style: tt.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: Responsive.sp(context, 10),
+                    ),
+                  ),
                   Text(
                     value ?? '--',
-                    style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w700, color: value == null ? scheme.onSurfaceVariant : scheme.onSurface),
+                    style: tt.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: value == null
+                          ? scheme.onSurfaceVariant
+                          : scheme.onSurface,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -531,14 +734,15 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
   }
 
   Future<void> _openEditSheet(dynamic record) async {
-    final changed = await showModalBottomSheet<bool>(
+    final changed = await showSpringSheet<bool>(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => _EditAttendanceSheet(
         record: record,
         onSave: (payload) async {
-          final result = await ApiService.updateAttendance(record['id'].toString(), payload);
+          final result = await ApiService.updateAttendance(
+            record['id'].toString(),
+            payload,
+          );
           return result;
         },
       ),
@@ -547,10 +751,8 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
   }
 
   Future<void> _openAddSheet() async {
-    final changed = await showModalBottomSheet<bool>(
+    final changed = await showSpringSheet<bool>(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => _AddAttendanceSheet(
         worker: widget.worker,
         onSave: (payload) async {
@@ -563,11 +765,13 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
   }
 
   Future<void> _confirmDelete(dynamic record) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSpringDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Attendance'),
-        content: Text('Delete attendance for ${record['date']?.toString() ?? 'this day'}?'),
+        content: Text(
+          'Delete attendance for ${record['date']?.toString() ?? 'this day'}?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -575,7 +779,9 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: const Color(0xFFdc2626)),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFdc2626),
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -585,16 +791,12 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
     try {
       await ApiService.deleteAttendance(record['id'].toString());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Attendance deleted')),
-        );
+        AppToast.success('Attendance deleted');
         _load();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-        );
+        AppToast.error(e.toString().replaceFirst('Exception: ', ''));
       }
     }
   }
@@ -609,9 +811,18 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(LucideIcons.calendarDays, size: Responsive.sp(context, 40), color: scheme.outline),
+                Icon(
+                  TablerIcons.calendar_event,
+                  size: Responsive.sp(context, 40),
+                  color: scheme.outline,
+                ),
                 const SizedBox(height: 12),
-                Text(message, style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+                Text(
+                  message,
+                  style: tt.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ),
@@ -628,16 +839,20 @@ class _RecordsSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SkeletonLoader(
       child: ListView.builder(
-        padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 40)),
+        padding: EdgeInsets.fromLTRB(
+          Responsive.pad(context, 16),
+          Responsive.pad(context, 8),
+          Responsive.pad(context, 16),
+          Responsive.pad(context, 40),
+        ),
         physics: const NeverScrollableScrollPhysics(),
         itemCount: 8,
         itemBuilder: (context, i) => Container(
           margin: EdgeInsets.only(bottom: Responsive.pad(context, 10)),
           padding: EdgeInsets.all(Responsive.pad(context, 14)),
           decoration: BoxDecoration(
-            color: const Color(0xFFf6fafe),
+            color: const Color(0xffe6f0fa),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFe0e4ea)),
           ),
           child: const Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -657,7 +872,8 @@ class _RecordsSkeleton extends StatelessWidget {
 
 class _EditAttendanceSheet extends StatefulWidget {
   final dynamic record;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic> payload) onSave;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> payload)
+  onSave;
   const _EditAttendanceSheet({required this.record, required this.onSave});
 
   @override
@@ -676,8 +892,12 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
   @override
   void initState() {
     super.initState();
-    final pi = DateTime.tryParse(widget.record['punch_in_time']?.toString() ?? '')?.toLocal();
-    final po = DateTime.tryParse(widget.record['punch_out_time']?.toString() ?? '')?.toLocal();
+    final pi = DateTime.tryParse(
+      widget.record['punch_in_time']?.toString() ?? '',
+    )?.toLocal();
+    final po = DateTime.tryParse(
+      widget.record['punch_out_time']?.toString() ?? '',
+    )?.toLocal();
     _inTime = pi != null ? TimeOfDay.fromDateTime(pi) : null;
     _outTime = po != null ? TimeOfDay.fromDateTime(po) : null;
     _status = widget.record['status']?.toString() ?? 'present';
@@ -686,7 +906,9 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
   Future<void> _pickTime({required bool isIn}) async {
     final picked = await showTimePicker(
       context: context,
-      initialTime: isIn ? (_inTime ?? const TimeOfDay(hour: 9, minute: 0)) : (_outTime ?? const TimeOfDay(hour: 18, minute: 0)),
+      initialTime: isIn
+          ? (_inTime ?? const TimeOfDay(hour: 9, minute: 0))
+          : (_outTime ?? const TimeOfDay(hour: 18, minute: 0)),
     );
     if (picked != null) {
       setState(() => isIn ? _inTime = picked : _outTime = picked);
@@ -698,16 +920,28 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
     final y = int.parse(parts[0]);
     final m = int.parse(parts[1]);
     final d = int.parse(parts[2]);
-    return DateTime.utc(y, m, d, t.hour, t.minute)
-        .subtract(const Duration(hours: 5, minutes: 30));
+    return DateTime.utc(
+      y,
+      m,
+      d,
+      t.hour,
+      t.minute,
+    ).subtract(const Duration(hours: 5, minutes: 30));
   }
 
   Future<void> _save() async {
-    setState(() { _saving = true; _error = null; });
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       final payload = {
-        'punch_in_time': _inTime != null ? _combine(_inTime!).toIso8601String() : null,
-        'punch_out_time': _outTime != null ? _combine(_outTime!).toIso8601String() : null,
+        'punch_in_time': _inTime != null
+            ? _combine(_inTime!).toIso8601String()
+            : null,
+        'punch_out_time': _outTime != null
+            ? _combine(_outTime!).toIso8601String()
+            : null,
         'status': _status,
       };
       await widget.onSave(payload);
@@ -731,30 +965,53 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
         left: Responsive.pad(context, 24),
         right: Responsive.pad(context, 24),
         top: Responsive.pad(context, 20),
-        bottom: MediaQuery.of(context).viewInsets.bottom + Responsive.pad(context, 32),
+        bottom:
+            MediaQuery.of(context).viewInsets.bottom +
+            Responsive.pad(context, 32),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Center(
-            child: Container(width: Responsive.pad(context, 40), height: Responsive.pad(context, 4),
-              decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            child: Container(
+              width: Responsive.pad(context, 40),
+              height: Responsive.pad(context, 4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
           ),
           SizedBox(height: Responsive.pad(context, 16)),
-          Text('Edit Attendance', style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            'Edit Attendance',
+            style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
           SizedBox(height: Responsive.pad(context, 4)),
-          Text(DateFormat('EEE, dd MMM yyyy').format(DateTime.parse(_dateStr)),
-            style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            DateFormat('EEE, dd MMM yyyy').format(DateTime.parse(_dateStr)),
+            style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           SizedBox(height: Responsive.pad(context, 20)),
           Row(
             children: [
               Expanded(
-                child: _timeField('Punch In', _inTime, () => _pickTime(isIn: true), onClear: () => setState(() => _inTime = null)),
+                child: _timeField(
+                  'Punch In',
+                  _inTime,
+                  () => _pickTime(isIn: true),
+                  onClear: () => setState(() => _inTime = null),
+                ),
               ),
               SizedBox(width: Responsive.pad(context, 16)),
               Expanded(
-                child: _timeField('Punch Out', _outTime, () => _pickTime(isIn: false), onClear: () => setState(() => _outTime = null)),
+                child: _timeField(
+                  'Punch Out',
+                  _outTime,
+                  () => _pickTime(isIn: false),
+                  onClear: () => setState(() => _outTime = null),
+                ),
               ),
             ],
           ),
@@ -763,8 +1020,13 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
             value: _status,
             decoration: InputDecoration(
               labelText: 'Status',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              contentPadding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 14), vertical: Responsive.pad(context, 12)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 14),
+                vertical: Responsive.pad(context, 12),
+              ),
             ),
             items: const [
               DropdownMenuItem(value: 'present', child: Text('Present')),
@@ -777,7 +1039,10 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
           ),
           if (_error != null) ...[
             SizedBox(height: Responsive.pad(context, 12)),
-            Text(_error!, style: tt.bodySmall?.copyWith(color: const Color(0xFFdc2626))),
+            Text(
+              _error!,
+              style: tt.bodySmall?.copyWith(color: const Color(0xFFdc2626)),
+            ),
           ],
           SizedBox(height: Responsive.pad(context, 20)),
           SizedBox(
@@ -785,10 +1050,10 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
             height: Responsive.pad(context, 46),
             child: ElevatedButton(
               onPressed: _saving ? null : _save,
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563eb)),
-              child: _saving
-                  ? const ButtonSkeleton()
-                  : const Text('Save'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xff174a7c),
+              ),
+              child: _saving ? const ButtonSkeleton() : const Text('Save'),
             ),
           ),
         ],
@@ -796,32 +1061,47 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
     );
   }
 
-  Widget _timeField(String label, TimeOfDay? time, VoidCallback onTap, {VoidCallback? onClear}) {
+  Widget _timeField(
+    String label,
+    TimeOfDay? time,
+    VoidCallback onTap, {
+    VoidCallback? onClear,
+  }) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(18),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 14), vertical: Responsive.pad(context, 12)),
-        decoration: BoxDecoration(
-          border: Border.all(color: scheme.outlineVariant),
-          borderRadius: BorderRadius.circular(10),
+        padding: EdgeInsets.symmetric(
+          horizontal: Responsive.pad(context, 14),
+          vertical: Responsive.pad(context, 12),
         ),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(18)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Expanded(
-                  child: Text(label, style: TextStyle(fontSize: Responsive.sp(context, 12), color: scheme.onSurfaceVariant)),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: Responsive.sp(context, 12),
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
                 if (time != null && onClear != null)
                   InkWell(
                     onTap: onClear,
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(12),
                     child: Padding(
                       padding: const EdgeInsets.all(2),
-                      child: Icon(LucideIcons.x, size: Responsive.sp(context, 14), color: scheme.onSurfaceVariant),
+                      child: Icon(
+                        TablerIcons.x,
+                        size: Responsive.sp(context, 14),
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
               ],
@@ -829,7 +1109,9 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
             SizedBox(height: Responsive.pad(context, 4)),
             Text(
               time != null
-                  ? DateFormat('h:mm a').format(DateTime(2000, 1, 1, time.hour, time.minute))
+                  ? DateFormat(
+                      'h:mm a',
+                    ).format(DateTime(2000, 1, 1, time.hour, time.minute))
                   : 'Not set',
               style: TextStyle(
                 fontSize: Responsive.sp(context, 16),
@@ -846,7 +1128,8 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
 
 class _AddAttendanceSheet extends StatefulWidget {
   final dynamic worker;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic> payload) onSave;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> payload)
+  onSave;
   const _AddAttendanceSheet({required this.worker, required this.onSave});
 
   @override
@@ -882,12 +1165,20 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
   }
 
   Future<void> _save() async {
-    setState(() { _saving = true; _error = null; });
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
-      final dateStr = '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
-      String toUtcIso(TimeOfDay t) => DateTime.utc(_date.year, _date.month, _date.day, t.hour, t.minute)
-          .subtract(const Duration(hours: 5, minutes: 30))
-          .toIso8601String();
+      final dateStr =
+          '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
+      String toUtcIso(TimeOfDay t) => DateTime.utc(
+        _date.year,
+        _date.month,
+        _date.day,
+        t.hour,
+        t.minute,
+      ).subtract(const Duration(hours: 5, minutes: 30)).toIso8601String();
       final payload = {
         'worker_id': widget.worker['id'].toString(),
         'date': dateStr,
@@ -917,37 +1208,62 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
         left: Responsive.pad(context, 24),
         right: Responsive.pad(context, 24),
         top: Responsive.pad(context, 20),
-        bottom: MediaQuery.of(context).viewInsets.bottom + Responsive.pad(context, 32),
+        bottom:
+            MediaQuery.of(context).viewInsets.bottom +
+            Responsive.pad(context, 32),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Center(
-            child: Container(width: Responsive.pad(context, 40), height: Responsive.pad(context, 4),
-              decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            child: Container(
+              width: Responsive.pad(context, 40),
+              height: Responsive.pad(context, 4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
           ),
           SizedBox(height: Responsive.pad(context, 16)),
-          Text('Add Attendance', style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            'Add Attendance',
+            style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
           SizedBox(height: Responsive.pad(context, 4)),
-          Text(widget.worker['name']?.toString() ?? '', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            widget.worker['name']?.toString() ?? '',
+            style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           SizedBox(height: Responsive.pad(context, 20)),
           InkWell(
             onTap: _pickDate,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(18),
             child: Container(
               width: double.infinity,
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 14), vertical: Responsive.pad(context, 14)),
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 14),
+                vertical: Responsive.pad(context, 14),
+              ),
               decoration: BoxDecoration(
-                border: Border.all(color: scheme.outlineVariant),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(18),
               ),
               child: Row(
                 children: [
-                  Icon(LucideIcons.calendarDays, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
+                  Icon(
+                    TablerIcons.calendar_event,
+                    size: Responsive.sp(context, 18),
+                    color: scheme.onSurfaceVariant,
+                  ),
                   SizedBox(width: Responsive.pad(context, 10)),
-                  Text(DateFormat('EEEE, d MMMM yyyy').format(_date),
-                    style: TextStyle(fontSize: Responsive.sp(context, 15), fontWeight: FontWeight.w600)),
+                  Text(
+                    DateFormat('EEEE, d MMMM yyyy').format(_date),
+                    style: TextStyle(
+                      fontSize: Responsive.sp(context, 15),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -956,11 +1272,19 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
           Row(
             children: [
               Expanded(
-                child: _timeField('Punch In', _inTime, () => _pickTime(isIn: true)),
+                child: _timeField(
+                  'Punch In',
+                  _inTime,
+                  () => _pickTime(isIn: true),
+                ),
               ),
               SizedBox(width: Responsive.pad(context, 16)),
               Expanded(
-                child: _timeField('Punch Out', _outTime, () => _pickTime(isIn: false)),
+                child: _timeField(
+                  'Punch Out',
+                  _outTime,
+                  () => _pickTime(isIn: false),
+                ),
               ),
             ],
           ),
@@ -969,8 +1293,13 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
             value: _status,
             decoration: InputDecoration(
               labelText: 'Status',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              contentPadding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 14), vertical: Responsive.pad(context, 12)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 14),
+                vertical: Responsive.pad(context, 12),
+              ),
             ),
             items: const [
               DropdownMenuItem(value: 'present', child: Text('Present')),
@@ -983,7 +1312,10 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
           ),
           if (_error != null) ...[
             SizedBox(height: Responsive.pad(context, 12)),
-            Text(_error!, style: tt.bodySmall?.copyWith(color: const Color(0xFFdc2626))),
+            Text(
+              _error!,
+              style: tt.bodySmall?.copyWith(color: const Color(0xFFdc2626)),
+            ),
           ],
           SizedBox(height: Responsive.pad(context, 20)),
           SizedBox(
@@ -991,10 +1323,10 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
             height: Responsive.pad(context, 46),
             child: ElevatedButton(
               onPressed: _saving ? null : _save,
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563eb)),
-              child: _saving
-                  ? const ButtonSkeleton()
-                  : const Text('Save'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xff174a7c),
+              ),
+              child: _saving ? const ButtonSkeleton() : const Text('Save'),
             ),
           ),
         ],
@@ -1006,20 +1338,33 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(18),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 14), vertical: Responsive.pad(context, 12)),
-        decoration: BoxDecoration(
-          border: Border.all(color: scheme.outlineVariant),
-          borderRadius: BorderRadius.circular(10),
+        padding: EdgeInsets.symmetric(
+          horizontal: Responsive.pad(context, 14),
+          vertical: Responsive.pad(context, 12),
         ),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(18)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: Responsive.sp(context, 12), color: scheme.onSurfaceVariant)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: Responsive.sp(context, 12),
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
             SizedBox(height: Responsive.pad(context, 4)),
-            Text(DateFormat('h:mm a').format(DateTime(2000, 1, 1, time.hour, time.minute)),
-              style: TextStyle(fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w700)),
+            Text(
+              DateFormat(
+                'h:mm a',
+              ).format(DateTime(2000, 1, 1, time.hour, time.minute)),
+              style: TextStyle(
+                fontSize: Responsive.sp(context, 16),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
         ),
       ),

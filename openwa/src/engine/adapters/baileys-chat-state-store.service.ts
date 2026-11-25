@@ -126,6 +126,13 @@ const SEP = '\u0000'; // a null byte never appears in a session name or JID, so 
 export const CHAT_STATE_CACHE_DEFAULT = 5000;
 
 /**
+ * Global cap under `BAILEYS_MEMORY_PROFILE=low`. The mirror is one map for every session, so on a
+ * 70-session box the default can pin tens of thousands of rows; 1000 keeps the chats an operator is
+ * actually looking at while the rest read through to the table.
+ */
+export const CHAT_STATE_CACHE_LOW_MEMORY = 1000;
+
+/**
  * Backs the Baileys `muted`/`archived`/`pinned` chat fields with the persisted {@link ChatState} table.
  * The read is synchronous (the chat list cannot await a query), so the table is loaded into an in-memory
  * map on boot and kept warm by write-through. Live `chats.update` mutations update it (an unmute arrives
@@ -189,7 +196,10 @@ export class ChatStateStoreService implements ChatStateStore, OnModuleInit {
     @InjectRepository(ChatState, 'data')
     private readonly repo: Repository<ChatState>,
   ) {
-    this.maxEntries = resolveNonNegativeIntEnv(process.env.BAILEYS_CHAT_STATE_CACHE_MAX, CHAT_STATE_CACHE_DEFAULT);
+    this.maxEntries = resolveNonNegativeIntEnv(
+      process.env.BAILEYS_CHAT_STATE_CACHE_MAX,
+      process.env.BAILEYS_MEMORY_PROFILE === 'low' ? CHAT_STATE_CACHE_LOW_MEMORY : CHAT_STATE_CACHE_DEFAULT,
+    );
   }
 
   async onModuleInit(): Promise<void> {

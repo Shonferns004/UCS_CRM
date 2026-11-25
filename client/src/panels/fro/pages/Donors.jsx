@@ -43,6 +43,33 @@ const ACTIVITY_TABS = [
 
 const initials = (name) => (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
+const DONATION_TONES = {
+  premium: ['#fef3c7', '#92400e'],
+  high: ['#f3e8ff', '#6b21a8'],
+  medium: ['#dbeafe', '#1e40af'],
+  low: ['#dcfce7', '#166534'],
+  below: ['#f1f5f9', '#475569'],
+  active: ['#dcfce7', '#166534'],
+  inactive: ['#fee2e2', '#b91c1c'],
+  age: ['#e0e7ff', '#4338ca'],
+  freq: ['#ccfbf1', '#0f766e'],
+  neutral: ['#f1f5f9', '#475569'],
+};
+const donationLabelChip = (text, tone = 'neutral') => {
+  const [bg, fg] = DONATION_TONES[tone] || DONATION_TONES.neutral;
+  return (
+    <span style={{ padding: '1px 6px', borderRadius: 999, fontSize: 8.5, fontWeight: 800, whiteSpace: 'nowrap', background: bg, color: fg }}>
+      {text}
+    </span>
+  );
+};
+const donationCategoryTone = (label) => (
+  label === 'Premium Donors' ? 'premium'
+    : label === 'High Value Donors' ? 'high'
+      : label === 'Medium Donors' ? 'medium'
+        : label === 'Low Value Donors' ? 'low' : 'below'
+);
+
 const formatDonationDate = (value) => {
   if (!value) return null;
   const d = new Date(value);
@@ -383,6 +410,19 @@ export default function Donors() {
                         </>
                       )}
                     </div>
+                    {(d.donation_category || d.donation_status_label || d.last_donation_age_label || d.donation_frequency_label) && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
+                        {d.donation_category && donationLabelChip(d.donation_category, donationCategoryTone(d.donation_category))}
+                        {d.donation_frequency_label && donationLabelChip(d.donation_frequency_label, 'freq')}
+                        {d.donation_status_label && donationLabelChip(d.donation_status_label, d.donation_status_label === 'Active' ? 'active' : 'inactive')}
+                        {d.last_donation_age_label && donationLabelChip(
+                          d.last_donation_age_label === 'Date Not Available'
+                            ? 'Last Donation: Date Not Available'
+                            : `Last Donation: ${d.last_donation_age_label} ago`,
+                          'age',
+                        )}
+                      </div>
+                    )}
                   </div>
                   {d.donor_mobile && (
                     <button onClick={e => {

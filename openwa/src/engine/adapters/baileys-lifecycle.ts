@@ -14,8 +14,9 @@ import { EngineEventCallbacks, EngineStatus } from '../interfaces/whatsapp-engin
 import { EngineNotReadyError } from '../../common/errors/engine-not-ready.error';
 import { createProxyDispatcher, hasUnauthenticatableSocks4Credentials } from '../../common/security/proxy-dispatcher';
 import { type createLogger } from '../../common/services/logger.service';
-import { BaileysAdapterConfig } from '../types/baileys.types';
+import { BaileysAdapterConfig, type BaileysAuthStore } from '../types/baileys.types';
 import { useAtomicMultiFileAuthState } from './baileys-auth-store';
+import { useDatabaseAuthState } from './baileys-auth-db-store';
 import { createBaileysLogger } from './baileys-logger';
 import { GroupMetadataCache, groupMetadataCacheTtlMs } from './baileys-group-metadata-cache';
 import { BaileysVersionResolver } from './baileys-version-resolver';
@@ -148,6 +149,11 @@ export interface BaileysLifecycleHost {
   readonly logger: ReturnType<typeof createLogger>;
   /** This session's multi-file auth dir (authDir/sessionId) — wiped by clearAuthState on terminal logout. */
   readonly authPath: string;
+  /**
+   * Database-backed auth state, set only when `BAILEYS_AUTH_STORE=database`. When present it replaces
+   * the auth dir for reads, writes and the terminal-logout wipe; `authPath` is then unused.
+   */
+  readonly authStore?: BaileysAuthStore;
   /** Adapter config, passed through: proxyUrl/sessionId in connectInner, messageStore/dbSessionId in
    *  the retry-getMessage path and logout's session cleanup. */
   readonly config: BaileysAdapterConfig;
@@ -354,7 +360,9 @@ export class BaileysLifecycle {
     if (this.intentionalClose) {
       return;
     }
-    const { state, saveCreds } = await useAtomicMultiFileAuthState(this.host.authPath, b, this.host.logger);
+    const { state, saveCreds } = this.host.authStore
+      ? await useDatabaseAuthState(this.host.config.sessionId, b, this.host.authStore, this.host.logger)
+      : await useAtomicMultiFileAuthState(this.host.authPath, b, this.host.logger);
     // A teardown during those loads already closed the dispatcher: the lookup would build a new one
     // that nothing closes and send the stopped session's requests through its proxy. One during the
     // lookup aborts it, and the latch check below bails.
@@ -1125,6 +1133,15 @@ export class BaileysLifecycle {
    * A dir that cannot be listed is answered yes: nothing then proves the session has no linked device.
    */
   private async keepsQuarantinedCredentials(): Promise<boolean> {
+    if (this.host.authStore) {
+      // A store that cannot answer is answered yes, like an unlistable dir below: nothing then proves
+      // the session has no linked device.
+      try {
+        return await this.host.authStore.hasQuarantined(this.host.config.sessionId);
+      } catch {
+        return true;
+      }
+    }
     try {
       return (await fs.promises.readdir(this.host.authPath)).some(entry => entry.startsWith('corrupt-'));
     } catch (err) {
@@ -1239,6 +1256,14 @@ export class BaileysLifecycle {
    */
   private async clearAuthState(): Promise<void> {
     try {
+      if (this.host.authStore) {
+        await this.host.authStore.clear(this.host.config.sessionId);
+        this.host.logger.log('Cleared Baileys auth state', {
+          sessionId: this.host.config.sessionId,
+          store: 'database',
+        });
+        return;
+      }
       await fs.promises.rm(this.host.authPath, { recursive: true, force: true });
       this.host.logger.log('Cleared Baileys auth state', { authPath: this.host.authPath });
     } catch (err) {

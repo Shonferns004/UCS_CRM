@@ -14,7 +14,7 @@ const router = Router();
 // holiday is just a normal `holidays` row, so payroll treats that date as a
 // paid, non-absent day exactly like holidays added by HR.
 router.post('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), addHoliday);
-router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts', 'recruiter', 'leads', 'telecaller', 'team_lead', 'worker', 'fro'), listHolidays);
+router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts', 'recruiter', 'leads', 'telecaller', 'team_lead', 'worker', 'fro', 'digital', 'social', 'event_head'), listHolidays);
 router.get('/:id', authenticateRole('super_admin', 'admin', 'hr'), getHoliday);
 router.put('/:id', authenticateRole('super_admin', 'admin', 'hr'), editHoliday);
 router.delete('/:id', authenticateRole('super_admin', 'admin', 'hr'), removeHoliday);

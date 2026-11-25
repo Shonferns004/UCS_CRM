@@ -35,6 +35,35 @@ export interface BaileysMessageStore {
 }
 
 /**
+ * One Baileys auth-state entry: the device credentials (`category: 'creds'`) or a Signal key.
+ * `value` is the BufferJSON JSON text the file store would have written; null deletes the entry.
+ */
+export interface BaileysAuthRow {
+  category: string;
+  keyId: string;
+  value: string | null;
+}
+
+/**
+ * Persistence port for the Baileys auth state. Implemented over the `data` connection
+ * ({@link BaileysAuthStateStoreService}) so a session can live without a persistent volume: the
+ * creds and Signal keys, which are all a linked device needs, are rows instead of files. The adapter
+ * depends on this narrow interface (not the Nest service) so it stays unit-testable with a fake.
+ */
+export interface BaileysAuthStore {
+  /** Every live row for a session (quarantined rows excluded), in one read. */
+  load(sessionId: string): Promise<BaileysAuthRow[]>;
+  /** Apply a batch: a value upserts the entry, null deletes it. One transaction per batch. */
+  write(sessionId: string, rows: BaileysAuthRow[]): Promise<void>;
+  /** Delete the session's auth state (terminal logout, or deleting the session). */
+  clear(sessionId: string): Promise<void>;
+  /** Whether the session keeps rows moved aside after unparseable creds (the `corrupt-*` equivalent). */
+  hasQuarantined(sessionId: string): Promise<boolean>;
+  /** Move the session's rows aside: kept, but not loaded by the next connect. */
+  quarantine(sessionId: string): Promise<void>;
+}
+
+/**
  * Per-call construction config for {@link BaileysAdapter}. Engine-neutral fields come from the
  * factory; `authDir` is the base multi-file auth directory from the opaque `engine.baileys.*` blob
  * (the adapter appends the session id to isolate each session).
@@ -52,6 +81,11 @@ export interface BaileysAdapterConfig {
   lidMappingStore?: LidMappingStore;
   /** Persisted per-session mute/archive/pin, so those chat fields survive a reconnect Baileys cannot resync. */
   chatStateStore?: ChatStateStore;
+  /**
+   * Persisted auth state. Set (only when `BAILEYS_AUTH_STORE=database`) instead of `authDir`, which is
+   * then left unused: creds and Signal keys are read from and written to the `data` connection.
+   */
+  authStore?: BaileysAuthStore;
 }
 
 /**

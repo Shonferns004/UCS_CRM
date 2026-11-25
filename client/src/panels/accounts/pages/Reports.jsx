@@ -1,9 +1,33 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts';
 import { apiGet, apiPut, apiPost, apiGetBlob } from '../api/auth';
 import useAccessCode from '../components/AccessGate';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+
+const compactMoney = (n) => {
+  const v = Number(n) || 0;
+  if (v >= 10000000) return '\u20B9' + parseFloat((v / 10000000).toFixed(1)) + 'Cr';
+  if (v >= 100000) return '\u20B9' + parseFloat((v / 100000).toFixed(1)) + 'L';
+  if (v >= 1000) return '\u20B9' + parseFloat((v / 1000).toFixed(1)) + 'k';
+  return '\u20B9' + Math.round(v).toLocaleString('en-IN');
+};
+
+const NGO_COLORS = { bsct: '#38bdf8', aflf: '#8b5cf6', mann: '#ec4899' };
+const NGO_SHORT = { bsct: 'BSCT', aflf: 'AFLF', mann: 'MANN' };
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const monthKeyOf = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+const monthBounds = (ym) => {
+  const [y, m] = String(ym || monthKeyOf()).split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return { from: `${y}-${pad2(m)}-01`, to: `${y}-${pad2(m)}-${pad2(last)}` };
+};
+const fiscalStartOf = (d = new Date()) => (d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1);
+const fiscalBounds = (startYear) => ({ from: `${startYear}-04-01`, to: `${startYear + 1}-03-31` });
 
 const TEAM_STYLE = {
   UFS1: { bg: '#E7F3EC', fg: '#1f6f3f' },
@@ -58,7 +82,28 @@ const TenorCrab = () => (
   </div>
 );
 
+const MonthlyTip = ({ active, payload, label }) => {
+  if (!active || !payload || !payload.length) return null;
+  const rows = payload.filter(p => p.dataKey !== 'total');
+  const total = payload.find(p => p.dataKey === 'total')?.value
+    ?? rows.reduce((s, p) => s + (Number(p.value) || 0), 0);
+  return (
+    <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontSize: 12, boxShadow: '0 6px 18px rgba(0,0,0,.10)' }}>
+      <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--ink)' }}>{label}</div>
+      {rows.map(p => (
+        <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#4b5563' }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
+          <span>{p.name}</span>
+          <span style={{ marginLeft: 'auto', fontWeight: 700, color: 'var(--ink)' }}>{currency(p.value)}</span>
+        </div>
+      ))}
+      <div style={{ borderTop: '1px solid var(--line)', marginTop: 4, paddingTop: 4, fontWeight: 700, color: 'var(--ink)' }}>Total {currency(total)}</div>
+    </div>
+  );
+};
+
 const inputStyle = { fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontWeight: 600, background: '#fff', color: 'var(--ink)' };
+const filterLabelStyle = { fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: '#6b7280', marginBottom: 4 };
 
 const printStyle = `
   @media print {
@@ -90,15 +135,20 @@ const animStyle = `
 `;
 
 export default function Reports() {
-  const [month, setMonth] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
-  const [reportDay, setReportDay] = useState(null);
-  const [reportFrom, setReportFrom] = useState(null);
-  const [reportTo, setReportTo] = useState(null);
+  const [month, setMonth] = useState(() => monthKeyOf());
+  const [reportFrom, setReportFrom] = useState(() => monthBounds(monthKeyOf()).from);
+  const [reportTo, setReportTo] = useState(() => monthBounds(monthKeyOf()).to);
+  // One period filter row drives the whole report. 'month' keeps the backend's
+  // exact monthly working-day/target maths; every other choice is a From-To
+  // range (calendar year, financial year, or a custom range).
+  const [activePeriod, setActivePeriod] = useState('month');
+  const [filterYear, setFilterYear] = useState(() => new Date().getFullYear());
+  const [filterFy, setFilterFy] = useState(() => fiscalStartOf());
   const [data, setData] = useState(null);
   const [atc, setAtc] = useState(null);
+  const [monthly, setMonthly] = useState(null);
+  const [monthlyLoading, setMonthlyLoading] = useState(true);
+  const [monthlyError, setMonthlyError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [sourceTab, setSourceTab] = useState('All');
@@ -133,12 +183,6 @@ export default function Reports() {
     return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
   }, []);
 
-  const dayLabel = useCallback((d) => {
-    if (!d) return '';
-    const [y, mm, dd] = d.split('-').map(Number);
-    return new Date(y, mm - 1, dd).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-  }, []);
-
   const rangeLabel = useCallback((f, t) => {
     if (!f || !t) return '';
     const fmt = (d) => {
@@ -148,13 +192,64 @@ export default function Reports() {
     return `${fmt(f)} – ${fmt(t)}`;
   }, []);
 
+  // Filter bar handlers. Month / Year / FY all write the same From-To pair, so
+  // every card on the page reads one period and cannot disagree with another.
+  const applyMonth = (ym) => {
+    if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return;
+    const b = monthBounds(ym);
+    setMonth(ym);
+    setReportFrom(b.from);
+    setReportTo(b.to);
+    setActivePeriod('month');
+  };
+  const applyYear = (value) => {
+    if (!value) { setActivePeriod('range'); return; }
+    const y = Number(value);
+    setFilterYear(y);
+    setMonth(`${y}-01`);
+    setReportFrom(`${y}-01-01`);
+    setReportTo(`${y}-12-31`);
+    setActivePeriod('year');
+  };
+  const applyFy = (value) => {
+    if (!value) { setActivePeriod('range'); return; }
+    const y = Number(value);
+    const b = fiscalBounds(y);
+    setFilterFy(y);
+    setMonth(`${y}-04`);
+    setReportFrom(b.from);
+    setReportTo(b.to);
+    setActivePeriod('fy');
+  };
+  const onFromChange = (value) => {
+    if (!value) return;
+    setReportFrom(value);
+    if (reportTo && value > reportTo) setReportTo(value);
+    setMonth(value.slice(0, 7));
+    setActivePeriod('range');
+  };
+  const onToChange = (value) => {
+    if (!value) return;
+    setReportTo(value);
+    if (reportFrom && value < reportFrom) setReportFrom(value);
+    setMonth(value.slice(0, 7));
+    setActivePeriod('range');
+  };
+  const periodLabel = activePeriod === 'month'
+    ? monthLabel(month)
+    : (activePeriod === 'year'
+      ? `${filterYear} · ${rangeLabel(reportFrom, reportTo)}`
+      : (activePeriod === 'fy'
+        ? `FY ${filterFy}-${String(filterFy + 1).slice(2)} · ${rangeLabel(reportFrom, reportTo)}`
+        : rangeLabel(reportFrom, reportTo)));
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      let q = `month=${month}`;
-      if (reportFrom && reportTo) q = `from=${reportFrom}&to=${reportTo}`;
-      else if (reportDay) q = `date=${reportDay}`;
+      const q = activePeriod === 'month'
+        ? `month=${month}`
+        : `from=${reportFrom}&to=${reportTo}`;
       const res = await apiGet('/accounts/report-data?' + q);
       setData(res);
       try {
@@ -168,9 +263,25 @@ export default function Reports() {
     } finally {
       setLoading(false);
     }
-  }, [reportDay, month, reportFrom, reportTo]);
+  }, [activePeriod, month, reportFrom, reportTo]);
 
-  useEffect(() => { load(); }, [reportDay, month, reportFrom, reportTo]);
+  useEffect(() => { load(); }, [activePeriod, month, reportFrom, reportTo]);
+
+  // Monthly collection follows the same From-To window as the rest of the page.
+  // A month selection is the month's bounds, a year is Jan-Dec, a financial year
+  // is Apr-Mar, and a custom range is whatever the two date inputs say.
+  useEffect(() => {
+    if (!reportFrom || !reportTo) return;
+    let cancelled = false;
+    setMonthlyLoading(true);
+    setMonthlyError(null);
+    apiGet(`/accounts/report-monthly-collections?from=${reportFrom}&to=${reportTo}`)
+      .then((res) => { if (!cancelled) setMonthly(res); })
+      .catch((e) => { if (!cancelled) setMonthlyError(e.message || 'Failed to load monthly collection'); })
+      .finally(() => { if (!cancelled) setMonthlyLoading(false); });
+    return () => { cancelled = true; };
+  }, [reportFrom, reportTo]);
+
   useEffect(() => {
     apiGet('/accounts/team-targets?month=' + month).then(d => {
       setTargetForm(f => ({ ...f, byTeam: d.byTeam || {}, modes: d.modes || {}, resolved: d.resolved || [] }));
@@ -371,6 +482,34 @@ export default function Reports() {
   const atcLabel = { bsct: 'BSCT', aflf: 'AFLF', mann: 'MANN' };
   const sumByNgo = (arr, n) => arr.reduce((s, a) => s + (a.byNgo?.[n] || 0), 0);
 
+  // Monthly collection (months covered by the selected From-To period)
+  const monthlyNgos = monthly?.ngos || [];
+  const monthlyMonths = monthly?.months || [];
+  const monthlyTeams = monthly?.teams || [];
+  const monthlyAgents = monthly?.agents || [];
+  const monthlyChartData = useMemo(() => {
+    const ngoData = monthly?.monthlyNgo || {};
+    const monthList = monthly?.months || [];
+    return monthList.map((m, i) => {
+      const point = { month: m.label, total: monthly?.monthlyTotal?.[i] || 0 };
+      for (const n of monthly?.ngos || []) point[n.id] = ngoData[n.id]?.[i] || 0;
+      return point;
+    });
+  }, [monthly]);
+  const yearOptions = useMemo(() => {
+    const now = new Date().getFullYear();
+    const years = [];
+    for (let y = now; y >= now - 10; y--) years.push(y);
+    return years;
+  }, []);
+  const fyOptions = useMemo(() => {
+    const current = fiscalStartOf();
+    const years = [];
+    for (let y = current; y >= current - 10; y--) years.push(y);
+    return years;
+  }, []);
+  const sumMonths = (arr) => (arr || []).reduce((s, v) => s + (Number(v) || 0), 0);
+
   // export CSV
   const exportCsv = async () => {
     if (locked) { const ok = await access.open(); if (!ok) return; setLocked(false); }
@@ -400,7 +539,7 @@ export default function Reports() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `accounts-report-${(reportFrom && reportTo) ? reportFrom + '-' + reportTo : (reportDay || month)}.csv`;
+    a.download = `accounts-report-${activePeriod === 'month' ? month : `${reportFrom}_${reportTo}`}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
@@ -411,15 +550,14 @@ export default function Reports() {
     setDownloading(true);
     try {
       const q = new URLSearchParams();
-      if (reportFrom && reportTo) { q.set('from', reportFrom); q.set('to', reportTo); }
-      else if (reportDay) q.set('date', reportDay);
-      else q.set('month', month);
+      q.set('from', reportFrom);
+      q.set('to', reportTo);
       q.set('ngo', downloadNgo);
       const blob = await apiGetBlob('/accounts/station-collection.xlsx?' + q.toString());
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `station-collection-${downloadNgo}-${(reportFrom && reportTo) ? `${reportFrom}_${reportTo}` : (reportDay || month)}.xlsx`;
+      a.download = `station-collection-${downloadNgo}-${reportFrom}_${reportTo}.xlsx`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -441,30 +579,10 @@ export default function Reports() {
         <div>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>Collection Report</h1>
           <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 2 }}>
-            {reportFrom && reportTo ? rangeLabel(reportFrom, reportTo) : (reportDay ? dayLabel(reportDay) : monthLabel(month))}
+            {periodLabel}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>From</span>
-            <input type="date" value={reportFrom || ''} style={inputStyle}
-              onChange={e => { const v = e.target.value || null; setReportFrom(v); if (v) { setReportDay(null); } }} />
-          </div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>To</span>
-            <input type="date" value={reportTo || ''} style={inputStyle}
-              onChange={e => { const v = e.target.value || null; setReportTo(v); if (v) { setReportDay(null); } }} />
-          </div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Day</span>
-            <input type="date" value={reportDay || ''} style={inputStyle}
-              onChange={e => { const v = e.target.value || null; setReportDay(v); if (v) { setMonth(v.slice(0, 7)); setReportFrom(null); setReportTo(null); } }} />
-          </div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Month</span>
-            <input type="month" value={month} style={inputStyle}
-              onChange={e => { setMonth(e.target.value); setReportDay(null); setReportFrom(null); setReportTo(null); }} />
-          </div>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Excel</span>
             <select value={downloadNgo} onChange={e => setDownloadNgo(e.target.value)} style={inputStyle} aria-label="NGO for Excel download">
@@ -499,6 +617,44 @@ export default function Reports() {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Add Monthly Target
           </button>
+        </div>
+      </div>
+
+      {/* Report period — one filter row for the summary, source, team, monthly
+          and agent tables. Month/Year/FY write the same From-To pair, so the
+          page can never show two different periods at once. */}
+      <div className="no-print rp-card" style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', padding: '12px 14px', marginBottom: 18, border: '1px solid var(--line)', borderRadius: 12, background: '#fff' }}>
+        <div>
+          <div style={filterLabelStyle}>From</div>
+          <input type="date" value={reportFrom} style={inputStyle} onChange={e => onFromChange(e.target.value)} />
+        </div>
+        <div>
+          <div style={filterLabelStyle}>To</div>
+          <input type="date" value={reportTo} style={inputStyle} onChange={e => onToChange(e.target.value)} />
+        </div>
+        <div>
+          <div style={filterLabelStyle}>Month</div>
+          <input type="month" value={reportFrom.slice(0, 7)} style={inputStyle} onChange={e => applyMonth(e.target.value)} />
+        </div>
+        <div>
+          <div style={filterLabelStyle}>Calendar Year</div>
+          <select value={activePeriod === 'year' ? filterYear : ''} style={inputStyle}
+            onChange={e => applyYear(e.target.value)} aria-label="Calendar year (January to December)">
+            <option value="">Select year</option>
+            {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={filterLabelStyle}>Financial Year</div>
+          <select value={activePeriod === 'fy' ? filterFy : ''} style={inputStyle}
+            onChange={e => applyFy(e.target.value)} aria-label="Financial year (April to March)">
+            <option value="">Select financial year</option>
+            {fyOptions.map(y => <option key={y} value={y}>FY {y}-{String(y + 1).slice(2)} (Apr–Mar)</option>)}
+          </select>
+        </div>
+        <div style={{ marginLeft: 'auto', textAlign: 'right', minWidth: 150 }}>
+          <div style={filterLabelStyle}>Showing</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{periodLabel}</div>
         </div>
       </div>
 
@@ -716,7 +872,7 @@ export default function Reports() {
             </div>
             <div className="stat-info" style={{ color: '#fff', position: 'relative' }}>
               <div className="stat-num" style={{ color: '#fff' }}>{mask(currency(grandTotal))} <span style={{ fontSize: 13, fontWeight: 500, opacity: .85 }}>collected</span></div>
-              <div className="stat-lbl" style={{ color: 'rgba(255,255,255,.9)' }}>{mask(grandReceiptCount.toLocaleString('en-IN'))} receipts · {reportFrom && reportTo ? rangeLabel(reportFrom, reportTo) : (reportDay ? dayLabel(reportDay) : monthLabel(month))}</div>
+              <div className="stat-lbl" style={{ color: 'rgba(255,255,255,.9)' }}>{mask(grandReceiptCount.toLocaleString('en-IN'))} receipts · {periodLabel}</div>
             </div>
             <TenorCrab />
           </div>
@@ -760,7 +916,7 @@ export default function Reports() {
             <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 14 }}>NGO-wise Target vs Collection</h3>
-                <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>vs monthly target · {reportFrom && reportTo ? 'range' : (reportDay ? 'daily view' : 'monthly')}</span>
+                <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>vs monthly target · {activePeriod === 'month' ? 'monthly' : 'range'}</span>
               </div>
               {workDays && (
                 <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>
@@ -1016,6 +1172,186 @@ export default function Reports() {
               )}
             </div>
           )}
+
+          {/* Monthly collection — one column per month covered by the period
+              filter at the top of the page (Jan-Dec for a year, Apr-Mar for a
+              financial year, or the months inside a custom From-To range). */}
+          <div className="card rp-card" style={{ marginBottom: 16 }}>
+            <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 14, color: 'var(--ink)' }}>Monthly Collection</h3>
+                <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Month-by-month totals · NGO-wise, team-wise and agent-wise</span>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 10px' }}>
+                {periodLabel}
+              </span>
+            </div>
+            {monthly?.truncated && (
+              <div style={{ margin: '10px 14px 0', padding: '8px 10px', borderRadius: 8, background: '#FEF3C7', color: '#92400E', fontSize: 12, fontWeight: 600 }}>
+                Showing the first 36 months of this range. Choose a shorter From-To range to see every month.
+              </div>
+            )}
+
+            {monthlyLoading ? (
+              <TableSkeleton cols={6} rows={5} />
+            ) : monthlyError ? (
+              <div className="empty" style={{ padding: 32, textAlign: 'center', color: '#B3392B', fontSize: 13 }}>{monthlyError}</div>
+            ) : monthly ? (
+              <>
+                {/* Graph: three NGO series, one group per month */}
+                <div style={{ position: 'relative', padding: '10px 14px 0' }}>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={monthlyChartData} margin={{ top: 12, right: 8, left: 4, bottom: 0 }} barCategoryGap="26%" barGap={3}>
+                      <CartesianGrid vertical={false} stroke="#eef2f7" strokeDasharray="3 5" />
+                      <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} dy={6} />
+                      <YAxis axisLine={false} tickLine={false} width={52} tick={{ fontSize: 10.5, fill: '#94a3b8' }} tickFormatter={compactMoney} />
+                      <Tooltip cursor={{ fill: 'rgba(37,99,235,0.05)' }} content={<MonthlyTip />} />
+                      <Legend wrapperStyle={{ fontSize: 12, paddingTop: 6 }} />
+                      {monthlyNgos.map(n => (
+                        <Bar key={n.id} dataKey={n.id} name={NGO_SHORT[n.id] || n.name}
+                          fill={NGO_COLORS[n.id] || '#2563eb'} radius={[4, 4, 0, 0]} maxBarSize={22} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                  {locked && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,.78)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 10 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-soft)' }}>Unlock values to view the monthly chart</span>
+                      <button className="btn btn-sm" onClick={handleUnlock}>Unlock values</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Number chart: Month | BSCT | AFLF | MANN | Total */}
+                <div style={{ padding: '14px 14px 0' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>NGO-wise Monthly Collection</div>
+                  <div className="table-wrap" style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 560 }}>
+                      <thead>
+                        <tr style={{ textAlign: 'left', fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', background: '#f9fafb' }}>
+                          <th style={{ padding: '9px 12px' }}>Month</th>
+                          {monthlyNgos.map(n => <th key={n.id} style={{ padding: '9px 12px' }}>{NGO_SHORT[n.id] || n.name}</th>)}
+                          <th style={{ padding: '9px 12px' }}>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthlyMonths.map((m, i) => {
+                          const monthTotal = monthly.monthlyTotal?.[i] || 0;
+                          const isCurrent = m.key === monthKeyOf();
+                          return (
+                            <tr key={m.key} style={{ borderTop: '1px solid var(--line)', background: isCurrent ? '#F3FBF6' : 'transparent' }}>
+                              <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                                {m.label}
+                                {isCurrent && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#1f6f3f', background: '#D9F2E3', padding: '2px 6px', borderRadius: 999 }}>This month</span>}
+                              </td>
+                              {monthlyNgos.map(n => <td key={n.id} style={{ padding: '8px 12px' }}>{mask(currency(monthly.monthlyNgo?.[n.id]?.[i] || 0))}</td>)}
+                              <td style={{ padding: '8px 12px', fontWeight: 700 }}>{mask(currency(monthTotal))}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ borderTop: '2px solid var(--sage)', background: '#F6F8F7', fontWeight: 700 }}>
+                          <td style={{ padding: '8px 12px' }}>Total</td>
+                          {monthlyNgos.map(n => <td key={n.id} style={{ padding: '8px 12px' }}>{mask(currency(sumMonths(monthly.monthlyNgo?.[n.id])))}</td>)}
+                          <td style={{ padding: '8px 12px' }}>{mask(currency(sumMonths(monthly.monthlyTotal)))}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Team-wise months */}
+                <div style={{ padding: '14px 14px 0' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>Team-wise Monthly Collection</div>
+                  {monthlyTeams.length === 0 ? (
+                    <div className="empty" style={{ padding: 20, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>No team collection for this period.</div>
+                  ) : (
+                    <div className="table-wrap" style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 560 }}>
+                        <thead>
+                          <tr style={{ textAlign: 'left', fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', background: '#f9fafb' }}>
+                            <th style={{ padding: '9px 12px' }}>Month</th>
+                            {monthlyTeams.map(t => <th key={t.team} style={{ padding: '9px 12px' }}>{t.team}{t.members > 0 ? <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}> · {t.members}</span> : null}</th>)}
+                            <th style={{ padding: '9px 12px' }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {monthlyMonths.map((m, i) => {
+                            const monthTotal = monthlyTeams.reduce((s, t) => s + (t.months?.[i] || 0), 0);
+                            return (
+                              <tr key={m.key} style={{ borderTop: '1px solid var(--line)' }}>
+                                <td style={{ padding: '8px 12px', fontWeight: 600 }}>{m.label}</td>
+                                {monthlyTeams.map(t => <td key={t.team} style={{ padding: '8px 12px' }}>{mask(currency(t.months?.[i] || 0))}</td>)}
+                                <td style={{ padding: '8px 12px', fontWeight: 700 }}>{mask(currency(monthTotal))}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ borderTop: '2px solid var(--sage)', background: '#F6F8F7', fontWeight: 700 }}>
+                            <td style={{ padding: '8px 12px' }}>Total</td>
+                            {monthlyTeams.map(t => <td key={t.team} style={{ padding: '8px 12px' }}>{mask(currency(t.total))}</td>)}
+                            <td style={{ padding: '8px 12px' }}>{mask(currency(monthlyTeams.reduce((s, t) => s + (t.total || 0), 0)))}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Agent-wise months: agents as rows, months as columns, so the
+                    table stays scrollable instead of growing a column per agent. */}
+                <div style={{ padding: '14px 14px 16px' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>Agent-wise Monthly Collection</div>
+                  {monthlyAgents.length === 0 ? (
+                    <div className="empty" style={{ padding: 20, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>No agent collection for this period.</div>
+                  ) : (
+                    <div className="table-wrap" style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
+                      <table style={{ borderCollapse: 'collapse', fontSize: 12.5, minWidth: 980 }}>
+                        <thead>
+                          <tr style={{ textAlign: 'left', fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', background: '#f9fafb' }}>
+                            <th style={{ padding: '9px 12px' }}>#</th>
+                            <th style={{ padding: '9px 12px', minWidth: 170 }}>Agent</th>
+                            <th style={{ padding: '9px 12px' }}>Team</th>
+                            {monthlyMonths.map(m => <th key={m.key} style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>{m.label}</th>)}
+                            <th style={{ padding: '9px 12px' }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {monthlyAgents.map((a, i) => {
+                            const st = TEAM_STYLE[a.team] || TEAM_STYLE['No Team'];
+                            return (
+                              <tr key={a.id || a.category || 'no-agent'} style={{ borderTop: '1px solid var(--line)', background: !a.id && !a.category ? '#F9FAFB' : 'transparent' }}>
+                                <td style={{ padding: '8px 12px', color: '#6b7280' }}>{i + 1}</td>
+                                <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                                  {a.name}
+                                  {a.category && <span style={{ color: '#9ca3af', fontWeight: 400 }}> · category</span>}
+                                </td>
+                                <td style={{ padding: '8px 12px' }}>
+                                  {a.team ? <span className="pill" style={{ background: st.bg, color: st.fg, fontWeight: 600 }}>{a.team}</span> : <span style={{ color: '#9ca3af' }}>—</span>}
+                                </td>
+                                {monthlyMonths.map((m, mi) => <td key={m.key} style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{mask(currency(a.months?.[mi] || 0))}</td>)}
+                                <td style={{ padding: '8px 12px', fontWeight: 700 }}>{mask(currency(a.total))}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ borderTop: '2px solid var(--sage)', background: '#F6F8F7', fontWeight: 700 }}>
+                            <td style={{ padding: '8px 12px' }}>Total</td>
+                            <td style={{ padding: '8px 12px' }}>{monthlyAgents.length} agents</td>
+                            <td style={{ padding: '8px 12px' }}></td>
+                            {monthlyMonths.map((m, mi) => <td key={m.key} style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{mask(currency(monthlyAgents.reduce((s, a) => s + (a.months?.[mi] || 0), 0)))}</td>)}
+                            <td style={{ padding: '8px 12px' }}>{mask(currency(monthly.grandTotal || 0))}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : null}
+          </div>
 
           <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn" onClick={exportCsv} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

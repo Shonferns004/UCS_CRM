@@ -34,7 +34,9 @@ class OfflinePunchQueue {
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
-          await db.execute('ALTER TABLE pending_punches ADD COLUMN worker_id TEXT');
+          await db.execute(
+            'ALTER TABLE pending_punches ADD COLUMN worker_id TEXT',
+          );
         }
       },
     );
@@ -44,28 +46,26 @@ class OfflinePunchQueue {
   /// Add a punch record to the queue.
   static Future<void> enqueue(Map<String, dynamic> record) async {
     final db = await _database;
-    await db.insert(
-      'pending_punches',
-      {
-        'local_id': record['local_id'],
-        'action': record['action'],
-        'code': record['code'],
-        'latitude': record['latitude'],
-        'longitude': record['longitude'],
-        'punch_method': record['punch_method'],
-        'timestamp': record['timestamp'],
-        'worker_id': record['worker_id'],
-        'synced': 0,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('pending_punches', {
+      'local_id': record['local_id'],
+      'action': record['action'],
+      'code': record['code'],
+      'latitude': record['latitude'],
+      'longitude': record['longitude'],
+      'punch_method': record['punch_method'],
+      'timestamp': record['timestamp'],
+      'worker_id': record['worker_id'],
+      'synced': 0,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// Get pending (unsynced) records for [workerId].
   ///
   /// Rows queued before v2 carry no owner; they are still returned so an
   /// in-flight punch from another account is never silently thrown away.
-  static Future<List<Map<String, dynamic>>> getPending({String? workerId}) async {
+  static Future<List<Map<String, dynamic>>> getPending({
+    String? workerId,
+  }) async {
     final db = await _database;
     final rows = await db.query(
       'pending_punches',
@@ -75,16 +75,20 @@ class OfflinePunchQueue {
       whereArgs: workerId == null || workerId.isEmpty ? [0] : [0, workerId],
       orderBy: 'timestamp ASC',
     );
-    return rows.map((r) => {
-      'local_id': r['local_id'],
-      'action': r['action'],
-      'code': r['code'],
-      'latitude': r['latitude'],
-      'longitude': r['longitude'],
-      'punch_method': r['punch_method'],
-      'timestamp': r['timestamp'],
-      'worker_id': r['worker_id'],
-    }).toList();
+    return rows
+        .map(
+          (r) => {
+            'local_id': r['local_id'],
+            'action': r['action'],
+            'code': r['code'],
+            'latitude': r['latitude'],
+            'longitude': r['longitude'],
+            'punch_method': r['punch_method'],
+            'timestamp': r['timestamp'],
+            'worker_id': r['worker_id'],
+          },
+        )
+        .toList();
   }
 
   /// Number of pending records.

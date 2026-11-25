@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
-import { COMPENSATORY_WORKDAYS, computePaidDays, getISTToday } from '../utils/salaryDays.js';
+import { COMPENSATORY_WORKDAYS, computePaidDays, getISTToday, getHolidayForfeitureRules } from '../utils/salaryDays.js';
 import { normalizeAgentName } from '../utils/workerNameMatch.js';
 import { projectedLoanDeduction } from '../utils/loanTerm.js';
 import { getSetting, upsertSetting } from './settingsModel.js';
@@ -1308,6 +1308,26 @@ export const getWorkerAttendanceByName = async (month, name) => {
     .lte('date', endDate);
   const holidaySet = new Set((hErr || !holidays ? [] : holidays).map(h => String(h.date).slice(0, 10)));
 
+  // Month-scoped holiday forfeiture (mirrors computePaidDays).
+  const forfeitedHolidaySet = new Set();
+  {
+    const joinYmd = String(worker.created_at || '').slice(0, 10);
+    for (const rule of getHolidayForfeitureRules(year, monthIdx)) {
+      const trigger = String(rule.triggerDate || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(trigger)) continue;
+      if (joinYmd && trigger < joinYmd) continue;
+      const triggerRec = records.find((r) => String(r.date).slice(0, 10) === trigger);
+      if (triggerRec && ['present', 'late', 'half-day'].includes(triggerRec.status)) continue;
+      for (const holiday of rule.holidayDates || []) {
+        const date = String(holiday).slice(0, 10);
+        if (!holidaySet.has(date) || (joinYmd && date < joinYmd)) continue;
+        const worked = records.some((r) => String(r.date).slice(0, 10) === date
+          && ['present', 'late', 'half-day'].includes(r.status));
+        if (!worked) forfeitedHolidaySet.add(date);
+      }
+    }
+  }
+
   // Mirrors computePaidDays(): only days up to "today" (IST) count as absent;
   // holidays, Sundays and days before joining are not absences.
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -1338,16 +1358,19 @@ export const getWorkerAttendanceByName = async (month, name) => {
     const rec = recByDate[dateStr];
     let status;
     if (rec) {
-      // A declared holiday wins over a stale absent/leave row for that date.
+      // A declared holiday wins over a stale absent/leave row for that date,
+      // unless this month's rule forfeited the holiday (then it is absent).
       status = (holidaySet.has(dateStr) && (rec.status === 'absent' || rec.status === 'leave'))
-        ? 'holiday'
+        ? (forfeitedHolidaySet.has(dateStr) ? 'absent' : 'holiday')
         : rec.status;
     } else if (leaveDates.has(dateStr)) {
       status = 'leave';
     } else if (beforeJoinSet.has(dateStr) || d > viewDay) {
       status = 'future';
     } else if (dow !== 0) {
-      status = holidaySet.has(dateStr) ? 'holiday' : 'absent';
+      status = holidaySet.has(dateStr)
+        ? (forfeitedHolidaySet.has(dateStr) ? 'absent' : 'holiday')
+        : 'absent';
     } else {
       status = 'sunday';
     }

@@ -172,13 +172,31 @@ export const upload = async (req, res) => {
       return expandLeaveDatesForDetection(l).includes(date);
     });
     if (!covering) {
-      return res.status(400).json({ message: 'Proof can only be uploaded for a rejected or pending leave day' });
+      // No rejected/pending leave covers this date. It can still be an
+      // unauthorized absence ("no leave filed"), so proofs are accepted for
+      // any past/today day in the current month that is not a worked day.
+      const todayStr = `${nowMonth}-${pad(ist.day)}`;
+      if (!date.startsWith(nowMonth) || date > todayStr) {
+        return res.status(400).json({
+          message: 'Proof can only be uploaded for a day in the current month',
+        });
+      }
+      const dayRecords = await dbAttendanceRange(workerId, date, date);
+      const record = dayRecords[0];
+      if (
+        record &&
+        ['present', 'late', 'half-day', 'leave'].includes(record.status)
+      ) {
+        return res.status(400).json({
+          message: 'Proof can only be uploaded for an absent day',
+        });
+      }
     }
 
     const proof = await upsertAbsenceProof({
       workerId,
       date,
-      leaveId: leave_id || covering.id,
+      leaveId: leave_id || covering?.id || null,
       proofData: proof_base64,
       proofMime: mime_type || 'image/jpeg',
     }).catch((e) => {

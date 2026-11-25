@@ -211,6 +211,7 @@ export class BaileysAdapter implements IWhatsAppEngine {
       getOnHistoryMessages: () => this.callbacks.onHistoryMessages,
       getStoredWriteGeneration: () => this.events.getStoredWriteGeneration(),
       authPath: this.authPath,
+      authStore: this.config.authStore,
       config: this.config,
       // A getter so the events delegate exists by first read: the literal is built before the
       // delegates are constructed, and the OLD wiring captured this.events.liveCalls eagerly -

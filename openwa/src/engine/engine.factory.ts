@@ -9,6 +9,7 @@ import { createLogger } from '../common/services/logger.service';
 import { BaileysMessageStoreService } from './adapters/baileys-message-store.service';
 import { LidMappingStoreService } from './identity/lid-mapping-store.service';
 import { ChatStateStoreService } from './adapters/baileys-chat-state-store.service';
+import { BaileysAuthStateStoreService } from './adapters/baileys-auth-state-store.service';
 import { isSafeSessionName } from '../common/utils/path-safety';
 import { ensurePrivateDir } from '../common/utils/private-dir.util';
 import { baileysAuthDir, readAuthDirEntries } from './auth-dir-paths';
@@ -31,6 +32,8 @@ export interface EngineCreateOptions {
 export class EngineFactory implements OnModuleInit {
   private readonly logger = createLogger('EngineFactory');
   private readonly engineType: string;
+  /** True when `BAILEYS_AUTH_STORE=database`: creds and Signal keys live in the `data` connection. */
+  private readonly useDatabaseAuthStore: boolean;
 
   constructor(
     private readonly configService: ConfigService,
@@ -38,7 +41,9 @@ export class EngineFactory implements OnModuleInit {
     private readonly baileysMessageStore: BaileysMessageStoreService,
     private readonly lidMappingStore: LidMappingStoreService,
     private readonly chatStateStore: ChatStateStoreService,
+    private readonly baileysAuthStore: BaileysAuthStateStoreService,
   ) {
+    this.useDatabaseAuthStore = this.configService.get<string>('engine.baileys.authStore') === 'database';
     // Baileys is the only engine. ENGINE_TYPE is still read so a stale deploy that pins another value
     // fails loudly here rather than silently running an engine this build no longer ships.
     const configured = this.configService.get<string>('engine.type');
@@ -76,7 +81,13 @@ export class EngineFactory implements OnModuleInit {
     };
     this.pluginLoader.registerBuiltInPlugin(
       baileysManifest,
-      new BaileysPlugin(this.baileysMessageStore, engineConfig, this.lidMappingStore, this.chatStateStore),
+      new BaileysPlugin(
+        this.baileysMessageStore,
+        engineConfig,
+        this.lidMappingStore,
+        this.chatStateStore,
+        this.useDatabaseAuthStore ? this.baileysAuthStore : undefined,
+      ),
       engineConfig,
     );
 
@@ -106,8 +117,11 @@ export class EngineFactory implements OnModuleInit {
     }
 
     // A baileys creds.json holds everything needed to take over the linked account, so read access to
-    // the data volume must not be enough. Mirrors purgeSessionData.
-    ensurePrivateDir(this.baileysAuthDir(options.sessionId));
+    // the data volume must not be enough. Mirrors purgeSessionData. With the database-backed auth store
+    // there is no credential dir to harden.
+    if (!this.useDatabaseAuthStore) {
+      ensurePrivateDir(this.baileysAuthDir(options.sessionId));
+    }
 
     // Try to get engine from plugin system
     const enginePlugin = this.pluginLoader.getPlugin(this.engineType);
@@ -159,6 +173,25 @@ export class EngineFactory implements OnModuleInit {
       return;
     }
     await this.lidMappingStore.releaseSession(sessionId);
+    if (this.useDatabaseAuthStore) {
+      try {
+        await this.baileysAuthStore.clear(sessionId);
+        this.logger.log('Purged session auth state', {
+          action: 'engine_purge',
+          engine: 'baileys',
+          sessionId,
+          store: 'database',
+        });
+      } catch (error) {
+        this.logger.warn('Failed to purge session auth state', {
+          action: 'engine_purge_failed',
+          engine: 'baileys',
+          sessionId,
+          store: 'database',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     const dirs: Array<{ engine: string; dir: string }> = [
       { engine: 'baileys', dir: this.baileysAuthDir(sessionId) },
     ];

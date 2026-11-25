@@ -116,6 +116,7 @@ export async function getWorkerAttendanceReport(workerId, month) {
   // ---- Day-by-day grid -------------------------------------------------
   const recordByDate = new Map(records.map((r) => [String(r.date).slice(0, 10), r]));
   const holidaySet = new Set(holidayDates.map((d) => String(d).slice(0, 10)));
+  const forfeitedHolidaySet = new Set((calc.forfeitedHolidayDates || []).map((d) => String(d).slice(0, 10)));
   const compensationByWorkDate = new Map(compensations.map((c) => [c.workDate, c]));
   const compensationByHolidayDate = new Map(compensations.map((c) => [c.holidayDate, c]));
   const deductedSet = calc.deducted;
@@ -130,18 +131,20 @@ export async function getWorkerAttendanceReport(workerId, month) {
     let status;
     if (isBeforeJoin) status = 'not-joined';
     else if (rec && rec.status) {
-      // A declared holiday wins over a stale absent/leave row for that date.
+      // A declared holiday wins over a stale absent/leave row for that date,
+      // unless this month's rule forfeited the holiday (then it is absent).
       status = (holidaySet.has(dateStr) && (rec.status === 'absent' || rec.status === 'leave'))
-        ? 'holiday'
+        ? (forfeitedHolidaySet.has(dateStr) ? 'absent' : 'holiday')
         : rec.status;
     }
     else if (dayName === 'Sun') status = 'sunday';
-    else if (holidaySet.has(dateStr)) status = 'holiday';
+    else if (holidaySet.has(dateStr)) status = forfeitedHolidaySet.has(dateStr) ? 'absent' : 'holiday';
     else if (d > viewingToday) status = 'future';
     else status = 'absent';
 
     let note = '';
     if (isBeforeJoin) note = 'Before date of joining';
+    else if (forfeitedHolidaySet.has(dateStr)) note = 'Holiday forfeited — did not report on the next working day; counted as absent';
     else if (compensationByWorkDate.has(dateStr)) note = `Compensatory workday for ${compensationByHolidayDate.get(compensationByWorkDate.get(dateStr).holidayDate)?.name || 'holiday'}`;
     else if (compensationByHolidayDate.has(dateStr)) note = `Holiday compensated on ${compensationByHolidayDate.get(dateStr).workDate}`;
 

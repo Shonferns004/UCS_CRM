@@ -52,10 +52,9 @@ class RealtimeService extends ChangeNotifier {
     final token = await ApiService.getToken();
     final socket = socket_io.io(
       Config.socketUrl,
-      socket_io.OptionBuilder()
-          .setTransports(['websocket'])
-          .setAuth({'token': token})
-          .build(),
+      socket_io.OptionBuilder().setTransports(['websocket']).setAuth({
+        'token': token,
+      }).build(),
     );
     _socket = socket;
 

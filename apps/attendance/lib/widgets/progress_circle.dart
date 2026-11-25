@@ -25,7 +25,7 @@ class ProgressCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = backgroundColor ?? const Color(0xFFeaeef2);
+    final bg = backgroundColor ?? const Color(0xffecf4fb);
 
     return SizedBox(
       width: size,

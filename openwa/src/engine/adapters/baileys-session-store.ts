@@ -21,6 +21,25 @@ interface LastMessage {
 export const SESSION_STORE_MAP_CAP_DEFAULT = 5000;
 
 /**
+ * Per-map cap under `BAILEYS_MEMORY_PROFILE=low`. Nine maps per session, so the 5000 default can hold
+ * tens of thousands of entries for a busy account; 200 keeps the recent working set while everything
+ * older re-resolves from the socket or from the persisted stores. This is the single largest per-session
+ * memory lever the engine has.
+ */
+export const SESSION_STORE_MAP_CAP_LOW_MEMORY = 200;
+
+/**
+ * The per-map LRU cap. An explicit `BAILEYS_SESSION_STORE_MAX_ENTRIES` always wins (0 = unbounded);
+ * otherwise the profile picks the default. Read per session, so a restart picks up a change.
+ */
+export function resolveSessionStoreMapCap(env: NodeJS.ProcessEnv = process.env): number {
+  return resolveNonNegativeIntEnv(
+    env.BAILEYS_SESSION_STORE_MAX_ENTRIES,
+    env.BAILEYS_MEMORY_PROFILE === 'low' ? SESSION_STORE_MAP_CAP_LOW_MEMORY : SESSION_STORE_MAP_CAP_DEFAULT,
+  );
+}
+
+/**
  * Insertion-ordered Map with an LRU cap, the same discipline as LidMappingStoreService: a read or
  * write re-inserts the key at the most-recent end, and a set evicts the least-recently-used entry
  * while over `max`. `max = 0` means unbounded.
@@ -259,10 +278,8 @@ export class BaileysSessionStore {
     private readonly chatStateStore?: ChatStateStore,
   ) {
     // Mirrors LidMappingStoreService: a finite default, 0 opts back into unbounded, garbage falls back.
-    const maxEntries = resolveNonNegativeIntEnv(
-      process.env.BAILEYS_SESSION_STORE_MAX_ENTRIES,
-      SESSION_STORE_MAP_CAP_DEFAULT,
-    );
+    // `BAILEYS_MEMORY_PROFILE=low` lowers that default (see resolveSessionStoreMapCap).
+    const maxEntries = resolveSessionStoreMapCap();
     // A saved name only ever arrives from the account's own app-state address book, never from peer
     // traffic, so pinning on it keeps the curated set out of reach of the peers this session happens
     // to observe. The pinned population is bounded by the account's own contact list.

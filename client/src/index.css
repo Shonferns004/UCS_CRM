@@ -1194,6 +1194,140 @@
 .panel-hr .hr-filter-field .dropdown-item { padding:6px 9px; font-size:12.5px; }
 .panel-hr .hr-filter-field .datepicker { flex:1; min-width:0; }
 .panel-hr .hr-filter-field .dp-trigger { padding:6px 9px; font-size:12.5px; white-space:nowrap; }
+/* FRO My Leads reuses the HR volunteer-style funnel popover. */
+.panel-fro .hr-filter-anchor { position:relative; display:inline-flex; flex-shrink:0; }
+.panel-fro .hr-filter-btn { position:relative; display:inline-flex; align-items:center; justify-content:center; padding:8px 10px; }
+.panel-fro .hr-filter-btn.is-on { border-color:var(--sage); color:var(--sage); background:var(--sage-soft); }
+.panel-fro .hr-filter-badge { position:absolute; top:-5px; right:-5px; min-width:16px; height:16px; padding:0 4px; border-radius:9px; background:var(--sage); color:#fff; font-size:10px; font-weight:700; line-height:16px; text-align:center; }
+.panel-fro .hr-filter-popover { position:absolute; top:50px; right:0; z-index:400; width:min(660px, 100%); max-width:calc(100vw - 24px); background:var(--paper); border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 28px rgba(16,24,40,.14); padding:10px 12px; display:flex; flex-direction:column; gap:9px; box-sizing:border-box; }
+.panel-fro .hr-filter-popover-head { display:flex; align-items:center; justify-content:space-between; padding:0 1px; }
+.panel-fro .hr-filter-popover-head strong { font-size:12px; }
+.panel-fro .hr-filter-reset { background:none; border:none; padding:0; color:var(--sage); font:inherit; font-size:11.5px; font-weight:600; cursor:pointer; }
+.panel-fro .hr-filter-reset:hover { text-decoration:underline; }
+.panel-fro .hr-filter-row { display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; }
+.panel-fro .hr-filter-field { display:flex; flex-direction:column; align-items:flex-start; gap:3px; flex:0 0 150px; }
+.panel-fro .hr-filter-field-wide { flex:1 1 100%; }
+.panel-fro .hr-filter-lbl { font-size:10px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; }
+.panel-fro .hr-filter-field select.filter-dd { width:100%; padding:7px 28px 7px 10px; border:1px solid var(--line); border-radius:8px; font-family:inherit; font-size:12.5px; font-weight:600; color:var(--ink); cursor:pointer; outline:none; background:#fff; box-sizing:border-box; }
+.panel-fro .hr-filter-field select.filter-dd:focus { border-color:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
+.panel-fro .hr-filter-field .dropdown,
+.panel-fro .hr-filter-field .dropdown-trigger { width:100%; }
+.panel-fro .hr-filter-field .dropdown-trigger { padding:6px 9px; font-size:12.5px; box-sizing:border-box; }
+.panel-fro .hr-filter-field .dropdown-menu { font-size:12.5px; }
+.panel-fro .hr-filter-field .dropdown-item { padding:6px 9px; font-size:12.5px; }
+.panel-fro .fro-filter-tabs { display:inline-flex; align-self:flex-start; background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:3px; }
+.panel-fro .fro-filter-tabs > button { padding:5px 10px !important; font-size:10.5px !important; border-radius:7px !important; }
+.panel-fro .fro-filter-foot { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding-top:2px; }
+.panel-fro .fro-list-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 0 0; }
+
+/* FRO lead filter card — replaces the old flat popover */
+.panel-fro .fro-filter-panel {
+  position:absolute; top:calc(100% + 8px); right:0; z-index:400;
+  width:min(720px, calc(100vw - 48px)); max-height:calc(100vh - 150px); overflow-y:auto;
+  background:var(--card-bg); border:1px solid var(--line); border-radius:16px;
+  box-shadow:0 28px 70px -28px rgba(16,24,40,.38);
+  padding:18px; box-sizing:border-box; display:flex; flex-direction:column; gap:16px;
+}
+.panel-fro .fro-filter-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.panel-fro .fro-filter-eyebrow { display:block; font-size:9px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--sage); }
+.panel-fro .fro-filter-head h3 { margin:3px 0 0; font-size:18px; line-height:1.1; color:var(--ink); letter-spacing:-.02em; }
+.panel-fro .fro-filter-head-actions { display:flex; align-items:center; gap:8px; flex:none; }
+.panel-fro .fro-filter-reset,
+.panel-fro .fro-filter-close {
+  display:inline-flex; align-items:center; justify-content:center; gap:5px; height:32px;
+  padding:0 10px; border:1px solid var(--line); border-radius:8px; background:var(--card-bg);
+  color:var(--ink-soft); font:inherit; font-size:11.5px; font-weight:700; cursor:pointer;
+  transition:border-color .15s, color .15s, background .15s;
+}
+.panel-fro .fro-filter-close { width:32px; padding:0; }
+.panel-fro .fro-filter-reset:hover,
+.panel-fro .fro-filter-close:hover { border-color:var(--sage); color:var(--sage); background:var(--sage-soft); }
+.panel-fro .fro-filter-reset .material-symbols-outlined,
+.panel-fro .fro-filter-close .material-symbols-outlined { font-size:15px; }
+.panel-fro .fro-filter-block { display:flex; flex-direction:column; gap:7px; padding-top:14px; border-top:1px solid var(--line); }
+.panel-fro .fro-filter-block:first-of-type { padding-top:0; border-top:0; }
+.panel-fro .fro-filter-block-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.panel-fro .fro-filter-label { font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); }
+.panel-fro .fro-filter-hint { font-size:10.5px; font-weight:700; color:var(--sage); }
+.panel-fro .fro-seg {
+  display:flex; align-items:center; gap:3px; width:100%; padding:3px; box-sizing:border-box;
+  background:var(--bg); border:1px solid var(--line); border-radius:10px;
+}
+.panel-fro .fro-seg button {
+  flex:1 1 auto; min-height:32px; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  padding:0 10px; border:0; border-radius:7px; background:transparent; color:var(--ink-soft);
+  font:inherit; font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap;
+  transition:background .15s, color .15s, box-shadow .15s;
+}
+.panel-fro .fro-seg button:hover { background:rgba(91,107,78,.08); color:var(--ink); }
+.panel-fro .fro-seg button.is-active { background:var(--sage); color:#fff; box-shadow:0 2px 6px rgba(91,107,78,.25); }
+.panel-fro .fro-seg button em {
+  font-style:normal; min-width:18px; padding:1px 5px; border-radius:999px;
+  background:rgba(0,0,0,.06); color:var(--ink-soft); font-size:9.5px; line-height:1.5;
+}
+.panel-fro .fro-seg button.is-active em { background:rgba(255,255,255,.2); color:#fff; }
+.panel-fro .fro-seg-data button { flex:0 1 auto; min-width:86px; }
+.panel-fro .fro-filter-grid {
+  display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px;
+  padding-top:14px; border-top:1px solid var(--line);
+}
+.panel-fro .fro-filter-field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.panel-fro .fro-filter-field .dropdown,
+.panel-fro .fro-filter-field .dropdown-trigger { width:100%; box-sizing:border-box; }
+.panel-fro .fro-filter-field .dropdown-trigger {
+  height:38px; padding:0 10px; border:1px solid var(--line); border-radius:8px;
+  background:var(--card-bg); color:var(--ink); font-size:12px; font-weight:600; box-shadow:none;
+}
+.panel-fro .fro-filter-field .dropdown-trigger:hover { border-color:#cdd5c6; background:#fbfcf9; }
+.panel-fro .fro-filter-field .dropdown-trigger:focus-visible { border-color:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
+.panel-fro .fro-filter-field select.filter-dd {
+  height:38px; width:100%; padding:0 28px 0 10px; border:1px solid var(--line); border-radius:8px;
+  background:var(--card-bg); font-family:inherit; font-size:12px; font-weight:600; color:var(--ink); outline:none;
+}
+.panel-fro .fro-filter-field select.filter-dd:focus { border-color:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
+.panel-fro .fro-filter-foot {
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding-top:14px; border-top:1px solid var(--line);
+}
+.panel-fro .fro-filter-toggles { display:flex; flex-wrap:wrap; gap:8px; }
+.panel-fro .fro-filter-toggle {
+  display:inline-flex; align-items:center; gap:9px; min-height:34px;
+  padding:0 10px 0 12px; border:1px solid var(--line); border-radius:8px; background:var(--card-bg);
+  color:var(--ink-soft); font:inherit; font-size:11px; font-weight:700; cursor:pointer;
+  transition:border-color .15s, background .15s, color .15s;
+}
+.panel-fro .fro-filter-toggle:hover { border-color:var(--sage); color:var(--ink); }
+.panel-fro .fro-filter-toggle.is-on { background:var(--sage-soft); border-color:var(--sage); color:var(--sage); }
+.panel-fro .fro-filter-toggle b { font-weight:800; color:var(--ink); }
+.panel-fro .fro-filter-toggle.is-on b { color:var(--sage); }
+.panel-fro .fro-filter-toggle:disabled { opacity:.45; cursor:not-allowed; }
+.panel-fro .fro-filter-switch {
+  position:relative; flex:none; width:28px; height:16px; border-radius:999px;
+  background:#d6dbd0; transition:background .15s;
+}
+.panel-fro .fro-filter-switch i {
+  position:absolute; top:2px; left:2px; width:12px; height:12px; border-radius:50%;
+  background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.16); transition:transform .15s;
+}
+.panel-fro .fro-filter-toggle.is-on .fro-filter-switch { background:var(--sage); }
+.panel-fro .fro-filter-toggle.is-on .fro-filter-switch i { transform:translateX(12px); }
+.panel-fro .fro-filter-done {
+  min-height:36px; padding:0 16px; border:1px solid var(--sage); border-radius:8px;
+  background:var(--sage); color:#fff; font:inherit; font-size:11.5px; font-weight:800;
+  cursor:pointer; transition:background .15s, border-color .15s, transform .15s;
+}
+.panel-fro .fro-filter-done:hover { background:#4b5a40; border-color:#4b5a40; transform:translateY(-1px); }
+@media (max-width:760px) {
+  .panel-fro .fro-filter-panel { width:calc(100vw - 32px); padding:14px; max-height:calc(100vh - 120px); }
+  .panel-fro .fro-filter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .panel-fro .fro-seg { flex-wrap:wrap; }
+  .panel-fro .fro-seg button { flex:1 1 calc(50% - 3px); }
+  .panel-fro .fro-seg-data button { flex:1 1 calc(33.333% - 3px); min-width:0; }
+  .panel-fro .fro-filter-foot { flex-direction:column; align-items:stretch; }
+  .panel-fro .fro-filter-toggles { flex-direction:column; }
+  .panel-fro .fro-filter-toggle { justify-content:space-between; width:100%; }
+  .panel-fro .fro-filter-done { width:100%; }
+}
 .panel-hr .hr-actions-btn { padding:7px; }
 .panel-hr .hr-actions-menu { position:absolute; top:calc(100% + 6px); right:0; z-index:400; min-width:210px; background:var(--paper); border:1px solid var(--line); border-radius:10px; box-shadow:0 14px 36px rgba(16,24,40,.16); padding:6px; }
 .panel-hr .hr-actions-menu button { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; white-space:nowrap; text-align:left; background:none; border:none; padding:8px 10px; border-radius:7px; font:inherit; font-size:13px; color:var(--ink); cursor:pointer; }

@@ -138,6 +138,16 @@ class _ProfilePageState extends State<ProfilePage> {
     return _salaryBreakdown;
   }
 
+  Set<String> _forfeitedHolidayKeys() {
+    final bd = _selectedBreakdown;
+    if (bd == null) return const {};
+    final dates = bd['forfeitedHolidayDates'];
+    if (dates is List) {
+      return dates.map((d) => d.toString()).where((s) => s.isNotEmpty).toSet();
+    }
+    return const {};
+  }
+
   Set<String> _deductedSundayKeys() {
     final bd = _selectedBreakdown;
     if (bd == null || bd['hasSalary'] != true) return const {};
@@ -1108,6 +1118,7 @@ class _ProfilePageState extends State<ProfilePage> {
             selectedDate: _selectedDateKey,
             calendarDates: _calendarDates,
             deductedSundays: _deductedSundayKeys(),
+            forfeitedHolidays: _forfeitedHolidayKeys(),
             onDateSelected: (key) => setState(() {
               _selectedDateKey = _selectedDateKey == key ? null : key;
             }),

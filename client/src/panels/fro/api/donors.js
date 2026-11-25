@@ -16,6 +16,8 @@ export async function getMyDonors(status, statusGroup, options = {}) {
   if (options.newOnly) params.set('new_only', 'true');
   if (options.oldOnly) params.set('old_only', 'true');
   if (options.highTierOnly) params.set('high_tier_only', 'true');
+  if (options.donationStatus) params.set('donation_status', options.donationStatus);
+  if (options.donationCategory) params.set('donation_category', options.donationCategory);
   if (options.includeSuppressed) params.set('include_suppressed', 'true');
   // Donor-book mode: every allotted donor, not just the pending queue.
   if (options.allStatuses) params.set('all_statuses', 'true');
@@ -35,6 +37,8 @@ export async function getQueueCurrent(options = {}) {
   if (options.newOnly) params.set('new_only', 'true');
   if (options.oldOnly) params.set('old_only', 'true');
   if (options.highTierOnly) params.set('high_tier_only', 'true');
+  if (options.donationStatus) params.set('donation_status', options.donationStatus);
+  if (options.donationCategory) params.set('donation_category', options.donationCategory);
   if (options.station) params.set('station', options.station);
   if (options.ngoId) params.set('ngo_id', options.ngoId);
   const qs = params.toString();
