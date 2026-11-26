@@ -731,7 +731,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     width: Responsive.pad(context, 18),
                     height: Responsive.pad(context, 18),
                     decoration: const BoxDecoration(
-                      color: AppPalette.aqua,
+                      color: AppPalette.success,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -816,7 +816,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final complete = _worker?['documents_submitted'] == true || uploaded > 0;
     final color = complete ? const Color(0xff0f7a5a) : const Color(0xFFba1a1a);
     final tagColor = onDark
-        ? (complete ? AppPalette.aqua : const Color(0xFFFFB4AB))
+        ? (complete ? AppPalette.accentOnDark : const Color(0xFFFFB4AB))
         : color;
     return Container(
       padding: EdgeInsets.symmetric(
@@ -1031,7 +1031,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 style: GoogleFonts.hankenGrotesk(
                   fontSize: Responsive.sp(context, 16),
                   fontWeight: FontWeight.w600,
-                  color: const Color(0xff0f2e4a),
+                  color: const Color(0xFF5A6473),
                 ),
               ),
               const Spacer(),
@@ -1040,7 +1040,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 style: GoogleFonts.hankenGrotesk(
                   fontSize: Responsive.sp(context, 11),
                   fontWeight: FontWeight.w600,
-                  color: const Color(0xff5e7e99),
+                  color: const Color(0xFF7C8698),
                 ),
               ),
             ],
@@ -1153,7 +1153,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     fontSize: Responsive.sp(context, 10),
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.05,
-                    color: const Color(0xff5e7e99),
+                    color: const Color(0xFF7C8698),
                   ),
                 ),
                 SizedBox(height: Responsive.pad(context, 6)),
@@ -1192,7 +1192,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   Icon(
                     TablerIcons.info_circle,
                     size: Responsive.sp(context, 14),
-                    color: const Color(0xff2f7fb5),
+                    color: const Color(0xFF4A78E0),
                   ),
                   SizedBox(width: Responsive.pad(context, 8)),
                   Expanded(
@@ -1223,7 +1223,7 @@ class _ProfilePageState extends State<ProfilePage> {
             width: 8,
             height: 8,
             decoration: BoxDecoration(
-              color: active ? const Color(0xff1f6b52) : const Color(0xffdceaf6),
+              color: active ? const Color(0xff1f6b52) : const Color(0xFFDDE3EC),
               shape: BoxShape.circle,
             ),
           ),
@@ -1233,7 +1233,7 @@ class _ProfilePageState extends State<ProfilePage> {
             style: TextStyle(
               fontSize: Responsive.sp(context, 11),
               fontWeight: FontWeight.w600,
-              color: active ? const Color(0xff0f2e4a) : const Color(0xff5e7e99),
+              color: active ? const Color(0xFF5A6473) : const Color(0xFF7C8698),
             ),
           ),
           SizedBox(width: Responsive.pad(context, 8)),
@@ -1241,7 +1241,7 @@ class _ProfilePageState extends State<ProfilePage> {
             '→',
             style: TextStyle(
               fontSize: Responsive.sp(context, 11),
-              color: const Color(0xffc2d8ea),
+              color: const Color(0xFFC9D0DB),
             ),
           ),
           SizedBox(width: Responsive.pad(context, 8)),
@@ -1252,8 +1252,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 fontSize: Responsive.sp(context, 11),
                 fontWeight: active ? FontWeight.w600 : FontWeight.w400,
                 color: active
-                    ? const Color(0xff0f2e4a)
-                    : const Color(0xff5e7e99),
+                    ? const Color(0xFF5A6473)
+                    : const Color(0xFF7C8698),
               ),
             ),
           ),
@@ -1343,7 +1343,7 @@ class _ProfilePageState extends State<ProfilePage> {
         'Half-day',
         _fmtDays(halfDay),
         TablerIcons.sun,
-        const Color(0xff174a7c),
+        const Color(0xFF7E22CE),
       ),
       _summaryTile(
         'Late Deduction Days',
@@ -1355,21 +1355,21 @@ class _ProfilePageState extends State<ProfilePage> {
         'Sunday Deducted',
         _fmtDays(sundayDeducted),
         TablerIcons.calendar_off,
-        const Color(0xff174a7c),
+        const Color(0xFFB45309),
       ),
       if (_joinedThisMonth || trainingDeduction > 0)
         _summaryTile(
           'Training Deduction',
           _fmtDays(trainingDeduction),
           TablerIcons.school,
-          const Color(0xff2f7fb5),
+          const Color(0xFF6C7686),
         ),
       if (netPaidDays != null)
         _summaryTile(
           'Net Paid Days',
           _fmtDays(netPaidDays),
           TablerIcons.wallet,
-          const Color(0xFF0f766e),
+          AppPalette.success,
         ),
     ];
 
@@ -1392,7 +1392,7 @@ class _ProfilePageState extends State<ProfilePage> {
               style: GoogleFonts.hankenGrotesk(
                 fontSize: Responsive.sp(context, 11),
                 fontWeight: FontWeight.w600,
-                color: const Color(0xff5e7e99),
+                color: const Color(0xFF7C8698),
               ),
             ),
           ],
@@ -1513,7 +1513,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   fontSize: Responsive.sp(context, 12),
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.05,
-                  color: const Color(0xff3f6487),
+                  color: const Color(0xFF6C7686),
                 ),
               ),
               Text(
@@ -1618,9 +1618,9 @@ class _ProfilePageState extends State<ProfilePage> {
             spacing: 16,
             runSpacing: 8,
             children: [
-              _legendDot('Present', const Color(0xffbcf7e5)),
+              _legendDot('Present', const Color(0xFFBBE3CC)),
               _legendDot('Absent', const Color(0xFFffdad6)),
-              _legendDot('Leave', const Color(0xffd6eaf7)),
+              _legendDot('Leave', const Color(0xFFE4EBFB)),
               _legendDot('Late', const Color(0xFFffddb8)),
               _legendDot('Half-day', const Color(0xFFF3E8FF)),
             ],
@@ -1915,7 +1915,7 @@ class _DayDetailSheet extends StatelessWidget {
   (Color, String, IconData) _statusMeta(String status) {
     switch (status) {
       case 'present':
-        return (AppPalette.aquaDeep, 'Present', TablerIcons.circle_check);
+        return (AppPalette.success, 'Present', TablerIcons.circle_check);
       case 'absent':
         return (const Color(0xFFB42318), 'Absent', TablerIcons.circle_x);
       case 'late':

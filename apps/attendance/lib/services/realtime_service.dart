@@ -51,7 +51,7 @@ class RealtimeService extends ChangeNotifier {
 
     final token = await ApiService.getToken();
     final socket = socket_io.io(
-      Config.socketUrl,
+      _normalizedSocketUrl(Config.socketUrl),
       socket_io.OptionBuilder().setTransports(['websocket']).setAuth({
         'token': token,
       }).build(),
@@ -88,6 +88,30 @@ class RealtimeService extends ChangeNotifier {
     socket.on('connect_error', (data) {
       debugPrint('[realtime] connect_error: $data');
     });
+  }
+
+  // Some builds/remote configs have produced a Socket.IO URL with an explicit
+  // ":0" port (Uri.port == 0 when a port was not specified on older client
+  // versions). Hand the client a clean origin (and no /api suffix) so the
+  // handshake goes to https://host/socket.io/ instead of https://host:0/.
+  String _normalizedSocketUrl(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return value;
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.host.isEmpty) return value;
+    var path = uri.path;
+    if (path.endsWith('/api')) {
+      path = path.substring(0, path.length - 4);
+    }
+    final port = uri.hasPort && uri.port != 0 ? uri.port : null;
+    return Uri(
+      scheme: uri.scheme,
+      userInfo: uri.userInfo,
+      host: uri.host,
+      port: port,
+      path: path,
+      query: uri.query,
+    ).toString();
   }
 
   void reset() {

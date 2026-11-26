@@ -157,7 +157,7 @@ const pendingStartAt = (slab) => {
 }
 
 const LI_CSS = `
-.li-grid, .li-col, .li-panel, .li-table-scroll { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; box-sizing: border-box; color: ${C.dark}; }
+.li-grid, .li-col, .li-panel, .li-table-scroll { font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif); box-sizing: border-box; color: ${C.dark}; }
 .li-col *, .li-panel *, .li-table-scroll *, .li-col *:before, .li-panel *:before, .li-col *:after, .li-panel *:after { box-sizing: border-box; }
 .li-col img, .li-panel img { max-width: 100%; }
 .li-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.9fr); gap: 16px; align-items: start; max-width: 100%; }

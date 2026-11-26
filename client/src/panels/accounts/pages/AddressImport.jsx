@@ -276,13 +276,6 @@ export default function AddressImport() {
     </div>
   )
 
-  const editableCell = (r, key, display, tdStyle) => {
-    const active = cellEdit && cellEdit.id === r.id && cellEdit.key === key
-    return (
-      <td
-        style={{ ...tdStyle, cursor: isEditableKey(key) ? 'text' : 'default', ...(active ? { boxShadow: 'inset 0 0 0 2px var(--sage)', background: '#fff' } : null) }}
-        title={isEditableKey(key) ? 'Double-click to edit' : undefined}
-        onDoubleClick={e => { if (!active) { e.preventDefault(); beginCellEdit(r, key) } }}
   const openEdit = (r, field) => {
     setEditField(field || '')
     setEditReceipt(r)

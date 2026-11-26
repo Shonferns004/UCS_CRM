@@ -38,6 +38,10 @@ const INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_fdl_lead_done_fro_created
      ON public.fro_donor_logs (created_at DESC)
      WHERE action = 'disposition' AND disposition_detail = 'lead_done' AND fro_worker_id IS NOT NULL`,
+  // Notification bell + the 3-month retention sweep: the table had no index on
+  // sent_at, so the daily DELETE seq-scanned the whole log.
+  `CREATE INDEX IF NOT EXISTS idx_notification_log_sent_at
+     ON public.notification_log (sent_at)`,
 ];
 
 // The donor-master lookup (address/PAN per mobile number, see

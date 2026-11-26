@@ -286,11 +286,7 @@ class _GlassIconButton extends StatelessWidget {
             child: SizedBox(
               width: 44,
               height: 44,
-              child: Icon(
-                icon,
-                size: 21,
-                color: active ? AppPalette.ink : Colors.white,
-              ),
+              child: Icon(icon, size: 21, color: Colors.white),
             ),
           ),
         ),

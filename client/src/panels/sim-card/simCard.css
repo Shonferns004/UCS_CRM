@@ -31,7 +31,7 @@
 .sim-shell { display: flex; min-height: 100vh; }
 
 .sim-sidebar {
-  width: 232px;
+  width: 224px;
   flex-shrink: 0;
   background: var(--sim-white);
   border-right: 1px solid var(--sim-line);
@@ -73,11 +73,13 @@
   border: 1px solid transparent;
   transition: all .12s ease;
 }
-.sim-nav a:hover { background: var(--sim-blue-soft); color: var(--sim-blue-dark); }
+.sim-nav a:hover { background: color-mix(in srgb, var(--sim-blue) 8%, var(--sim-white)); color: var(--sim-ink); }
 .sim-nav a.active {
-  background: var(--sim-blue); color: #fff;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, .3);
+  background: color-mix(in srgb, var(--sim-blue) 15%, var(--sim-white));
+  color: var(--sim-blue-dark);
+  font-weight: 600;
 }
+.sim-nav a.active svg { color: var(--sim-blue-dark); }
 
 .sim-sidebar-footer { margin-top: auto; padding: 14px 16px; border-top: 1px solid var(--sim-line); font-size: 11px; color: var(--sim-ink-soft); }
 .sim-sidebar-footer .u { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }

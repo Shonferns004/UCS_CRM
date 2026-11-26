@@ -121,9 +121,9 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
       case 'late':
         return const Color(0xFFB06A00);
       case 'out':
-        return const Color(0xFF2355D4);
+        return const Color(0xFF4A78E0);
       default:
-        return const Color(0xff5e7e99);
+        return const Color(0xFF7C8698);
     }
   }
 
@@ -163,7 +163,7 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(fontSize: 11, color: Color(0xff5e7e99)),
+          style: const TextStyle(fontSize: 11, color: Color(0xFF7C8698)),
         ),
       ],
     );
@@ -236,7 +236,7 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
                     _resultSub,
                     style: const TextStyle(
                       fontSize: 14,
-                      color: Color(0xff5e7e99),
+                      color: Color(0xFF7C8698),
                     ),
                   ),
                 ],
@@ -267,14 +267,14 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
                         Icon(
                           Icons.qr_code_scanner,
                           size: 16,
-                          color: const Color(0xff5e7e99),
+                          color: const Color(0xFF7C8698),
                         ),
                         const SizedBox(width: 8),
                         Text(
                           'Point the camera at the office QR code to punch in/out',
                           style: const TextStyle(
                             fontSize: 13,
-                            color: Color(0xff5e7e99),
+                            color: Color(0xFF7C8698),
                           ),
                         ),
                       ],
@@ -328,7 +328,7 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: const Color(0xff5e7e99),
+                    color: const Color(0xFF7C8698),
                     letterSpacing: 0.6,
                   ),
                 ),
@@ -436,14 +436,14 @@ class _ClockHeaderState extends State<_ClockHeader> {
           style: const TextStyle(
             fontSize: 48,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF2355D4),
+            color: Color(0xFF4A78E0),
             letterSpacing: -2,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           '$ampm — $dayStr',
-          style: const TextStyle(fontSize: 13, color: Color(0xff5e7e99)),
+          style: const TextStyle(fontSize: 13, color: Color(0xFF7C8698)),
         ),
       ],
     );

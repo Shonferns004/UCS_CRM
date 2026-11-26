@@ -883,7 +883,7 @@ function Ga4Panel({ ga4 }) {
                   </PieChart>
                 </ResponsiveContainer>
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-                  <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 18, fontWeight: 800 }}>{compact(totals.sessions)}</span>
+                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 18, fontWeight: 800 }}>{compact(totals.sessions)}</span>
                   <span className="gads-meta-label">Sessions</span>
                 </div>
               </div>

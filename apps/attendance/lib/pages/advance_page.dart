@@ -16,9 +16,10 @@ class AdvancePage extends StatefulWidget {
   State<AdvancePage> createState() => _AdvancePageState();
 }
 
-class _AdvancePageState extends State<AdvancePage> {
+class _AdvancePageState extends State<AdvancePage> with WidgetsBindingObserver {
   final _amountCtrl = TextEditingController();
   final _reasonCtrl = TextEditingController();
+  final _ownScroll = ScrollController();
   bool _submitting = false;
   bool _showSuccess = false;
   String _selectedType = 'advance';
@@ -26,11 +27,44 @@ class _AdvancePageState extends State<AdvancePage> {
     'advance',
   );
 
+  ScrollController get _scroll => widget.scrollController ?? _ownScroll;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeMetrics() {
+    final keyboard = WidgetsBinding
+        .instance
+        .platformDispatcher
+        .views
+        .first
+        .viewInsets
+        .bottom;
+    if (keyboard <= 0) return;
+    // The submit button lives below the reason field, so keep it (and the
+    // field just above it) in view when the IME opens instead of leaving the
+    // button half-hidden at the sheet edge.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      _scroll.animateTo(
+        _scroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _amountCtrl.dispose();
     _reasonCtrl.dispose();
     _typeNotifier.dispose();
+    _ownScroll.dispose();
     super.dispose();
   }
 
@@ -92,8 +126,10 @@ class _AdvancePageState extends State<AdvancePage> {
             ),
             Expanded(
               child: ListView(
-                controller: widget.scrollController,
+                controller: _scroll,
                 physics: const AlwaysScrollableScrollPhysics(),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: EdgeInsets.fromLTRB(
                   Responsive.pad(context, 16),
                   Responsive.pad(context, 8),
@@ -165,13 +201,17 @@ class _AdvancePageState extends State<AdvancePage> {
         SizedBox(height: Responsive.pad(context, 24)),
         SizedBox(
           width: double.infinity,
-          height: Responsive.pad(context, 44),
           child: ElevatedButton(
             onPressed: _submitting ? null : _submit,
             style: ElevatedButton.styleFrom(
               backgroundColor: scheme.primary,
               foregroundColor: Colors.white,
               elevation: 1,
+              minimumSize: const Size.fromHeight(48),
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 16),
+                vertical: Responsive.pad(context, 12),
+              ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
               ),
@@ -180,6 +220,7 @@ class _AdvancePageState extends State<AdvancePage> {
                 ? const ButtonSkeleton()
                 : Text(
                     'Submit Request',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: Responsive.sp(context, 14),
                       fontWeight: FontWeight.w600,
@@ -346,7 +387,7 @@ class _AdvancePageState extends State<AdvancePage> {
       ),
       child: TextField(
         controller: _reasonCtrl,
-        maxLines: 4,
+        maxLines: 3,
         decoration: InputDecoration(
           hintText:
               'Explain why you need ${_selectedType == 'loan' ? 'a loan' : 'an advance'}',

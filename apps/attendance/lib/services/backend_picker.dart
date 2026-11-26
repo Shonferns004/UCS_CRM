@@ -275,7 +275,7 @@ class _BackendTile extends StatelessWidget {
                 child: Icon(
                   icon,
                   size: 20,
-                  color: selected ? AppPalette.ink : AppPalette.ocean,
+                  color: selected ? AppPalette.white : AppPalette.ocean,
                 ),
               ),
               const SizedBox(width: 12),

@@ -13,6 +13,7 @@ import ChatNavBadge from '../../components/chat/ChatNavBadge';
 
 
 import { ToastProvider } from './components/Toast';
+import SidebarFooter from '../../components/admin-sidebar/SidebarFooter';
 
 const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'));
 const SuperAdminTicketSection = lazy(() => import('../../components/SuperAdminTicketSection'));
@@ -40,7 +41,7 @@ const ICONS = {
 
 export default function DevPanel() {
   const location = useLocation();
-  const { user, logout } = useUcs();
+  const { user } = useUcs();
   const [collapsed, setCollapsed] = useState(false);
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -48,56 +49,38 @@ export default function DevPanel() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
-      <aside style={{
+      <aside className={`panel-side-aside${collapsed ? ' is-collapsed' : ''}`} style={{
         ...(isSuperAdmin ? { display: 'none' } : {
-          width: collapsed ? 56 : 220, flexShrink: 0, background: 'var(--card-bg)', borderRight: '1px solid var(--line)',
+          width: collapsed ? 68 : 224, flexShrink: 0, background: 'var(--card-bg)', borderRight: '1px solid var(--line)',
           display: 'flex', flexDirection: 'column', transition: 'width .2s', overflow: 'hidden',
         }),
       }}>
         <div style={{ padding: collapsed ? '16px 12px' : '16px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 800, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 9, background: '#5B6B4E', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
             DP
           </div>
           {!collapsed && <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>Developer Panel</div>
-            <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>CRM Issue Tracker</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>Developer Panel</div>
+            <div style={{ fontSize: 10, letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>CRM Issue Tracker</div>
           </div>}
         </div>
 
         <nav style={{ flex: 1, padding: '8px 0', overflowY: 'auto' }}>
           {NAV.map(item => (
-            <NavLink key={item.id} to={item.path} end={item.path === '/dev-panel'} style={({ isActive }) => ({
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: collapsed ? '10px 16px' : '10px 18px',
-              fontSize: 12,
-              fontWeight: isActive ? 600 : 500,
-              color: isActive ? 'var(--ink)' : 'var(--ink-soft)',
-              textDecoration: 'none',
-              transition: 'all .12s',
-              borderLeft: `3px solid ${isActive ? '#6366f1' : 'transparent'}`,
-              background: isActive ? 'color-mix(in srgb, var(--ink) 7%, var(--card-bg))' : 'transparent',
-            })}>
+            <NavLink key={item.id} to={item.path} end={item.path === '/dev-panel'}
+              className={({ isActive }) => `panel-side-link${isActive ? ' active' : ''}`}>
               <span style={{ flexShrink: 0, display: 'flex' }}>{ICONS[item.icon]}</span>
-              {!collapsed && <span>{item.label}</span>}
+              {!collapsed && <span className="panel-side-label">{item.label}</span>}
               {item.id === 'chat' && <ChatNavBadge quiet />}
             </NavLink>
           ))}
         </nav>
 
-        <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line)' }}>
-          {!collapsed && (
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user?.name || user?.login_id}
-            </div>
-          )}
-          <button onClick={logout} style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', fontSize: 11, fontWeight: 500, cursor: 'pointer', color: 'var(--ink-soft)', fontFamily: 'inherit' }}>
-            {collapsed ? '...' : 'Sign out'}
-          </button>
-        </div>
+        <SidebarFooter helpTo="/dev-panel/my-tickets" />
       </aside>
 
       <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <header style={{ padding: '10px 20px', borderBottom: '1px solid var(--line)', background: 'var(--card-bg)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        <header className="panel-dev-topbar" style={{ padding: '10px 20px', borderBottom: '1px solid var(--line)', background: 'var(--card-bg)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <button onClick={() => setCollapsed(c => !c)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--ink-soft)', display: 'flex', padding: 4 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </button>

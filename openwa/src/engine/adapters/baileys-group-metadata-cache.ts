@@ -4,9 +4,32 @@ import { MAX_TIMER_MS, resolveNonNegativeIntEnv } from '../../config/configurati
 /** How long a group's participant list is reused before Baileys reads it again; 0 switches the cache off. */
 const DEFAULT_GROUP_METADATA_CACHE_TTL_MS = 5 * 60_000;
 
+/**
+ * `BAILEYS_MEMORY_PROFILE=low`: reuse a group list for a minute instead of five, and keep 32 groups per
+ * session instead of 256. A stale list costs a retry, not a lost message, so the shorter TTL is safe.
+ */
+const LOW_MEMORY_GROUP_METADATA_CACHE_TTL_MS = 60_000;
+const LOW_MEMORY_GROUP_METADATA_MAX_ENTRIES = 32;
+const DEFAULT_GROUP_METADATA_MAX_ENTRIES = 256;
+
 /** BAILEYS_GROUP_METADATA_CACHE_TTL_MS, read per session so a restart picks up a change. */
-export function groupMetadataCacheTtlMs(): number {
-  return resolveNonNegativeIntEnv(process.env.BAILEYS_GROUP_METADATA_CACHE_TTL_MS, DEFAULT_GROUP_METADATA_CACHE_TTL_MS);
+export function groupMetadataCacheTtlMs(env: NodeJS.ProcessEnv = process.env): number {
+  return resolveNonNegativeIntEnv(
+    env.BAILEYS_GROUP_METADATA_CACHE_TTL_MS,
+    env.BAILEYS_MEMORY_PROFILE === 'low'
+      ? LOW_MEMORY_GROUP_METADATA_CACHE_TTL_MS
+      : DEFAULT_GROUP_METADATA_CACHE_TTL_MS,
+  );
+}
+
+/** BAILEYS_GROUP_METADATA_CACHE_MAX, with the low-memory profile's smaller default. */
+export function groupMetadataCacheMaxEntries(env: NodeJS.ProcessEnv = process.env): number {
+  return resolveNonNegativeIntEnv(
+    env.BAILEYS_GROUP_METADATA_CACHE_MAX,
+    env.BAILEYS_MEMORY_PROFILE === 'low'
+      ? LOW_MEMORY_GROUP_METADATA_MAX_ENTRIES
+      : DEFAULT_GROUP_METADATA_MAX_ENTRIES,
+  );
 }
 
 /** The cached copy of one group's metadata and when it was read. */
@@ -40,7 +63,7 @@ export class GroupMetadataCache {
 
   constructor(
     private readonly ttlMs: number,
-    private readonly maxEntries = 256,
+    private readonly maxEntries = groupMetadataCacheMaxEntries(),
     private readonly now: () => number = Date.now,
   ) {}
 

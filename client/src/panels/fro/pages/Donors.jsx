@@ -53,6 +53,7 @@ const DONATION_TONES = {
   inactive: ['#fee2e2', '#b91c1c'],
   age: ['#e0e7ff', '#4338ca'],
   freq: ['#ccfbf1', '#0f766e'],
+  bsct: ['#dbeafe', '#1d4ed8'],
   neutral: ['#f1f5f9', '#475569'],
 };
 const donationLabelChip = (text, tone = 'neutral') => {
@@ -69,6 +70,21 @@ const donationCategoryTone = (label) => (
       : label === 'Medium Donors' ? 'medium'
         : label === 'Low Value Donors' ? 'low' : 'below'
 );
+// Range shown beside a category chip, e.g. "Premium (₹5,000+)".
+const donationCategoryRange = (label) => {
+  const l = String(label || '').toLowerCase();
+  if (l.includes('below')) return '₹0–250';
+  if (l.includes('premium')) return '₹5,000+';
+  if (l.includes('high')) return '₹2,000–4,999';
+  if (l.includes('medium')) return '₹500–1,999';
+  if (l.includes('low')) return '₹251–499';
+  return '';
+};
+const donationCategoryWithRange = (label) => {
+  const clean = String(label || '').replace(' Donors', '');
+  const range = donationCategoryRange(clean);
+  return range ? `${clean} (${range})` : clean;
+};
 
 const formatDonationDate = (value) => {
   if (!value) return null;
@@ -412,7 +428,7 @@ export default function Donors() {
                     </div>
                     {(d.donation_category || d.donation_status_label || d.last_donation_age_label || d.donation_frequency_label) && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
-                        {d.donation_category && donationLabelChip(d.donation_category, donationCategoryTone(d.donation_category))}
+                        {d.donation_category && donationLabelChip(donationCategoryWithRange(d.donation_category), donationCategoryTone(d.donation_category))}
                         {d.donation_frequency_label && donationLabelChip(d.donation_frequency_label, 'freq')}
                         {d.donation_status_label && donationLabelChip(d.donation_status_label, d.donation_status_label === 'Active' ? 'active' : 'inactive')}
                         {d.last_donation_age_label && donationLabelChip(
@@ -421,6 +437,7 @@ export default function Donors() {
                             : `Last Donation: ${d.last_donation_age_label} ago`,
                           'age',
                         )}
+                        {d.bsct_donation_category && donationLabelChip(`BSCT: ${donationCategoryWithRange(d.bsct_donation_category)}`, 'bsct')}
                       </div>
                     )}
                   </div>

@@ -34,7 +34,7 @@
   min-height: 0;
   color: var(--text-primary);
   background: var(--bg-light);
-  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif);
   line-height: 1.6;
 }
 

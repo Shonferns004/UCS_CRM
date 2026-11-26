@@ -225,8 +225,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
                   : _error != null
                   ? _buildError(scheme, tt)
                   : LiquidPullToRefresh(
-                      color: const Color(0xff174a7c),
-                      backgroundColor: const Color(0xffe6f0fa),
+                      color: const Color(0xFF4A78E0),
+                      backgroundColor: const Color(0xFFF4F6FA),
                       showChildOpacityTransition: false,
                       springAnimationDurationInMilliseconds: 700,
                       onRefresh: () => _load(),
@@ -466,7 +466,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
             tt,
             label: 'Leave',
             value: _leaveCount,
-            color: const Color(0xff174a7c),
+            color: const Color(0xFF4A78E0),
             icon: TablerIcons.calendar_event,
           ),
           const SizedBox(width: 8),
@@ -712,12 +712,12 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
         statusLabel = 'Late';
         break;
       case 'half-day':
-        statusColor = const Color(0xff174a7c);
+        statusColor = const Color(0xFF4A78E0);
         statusIcon = TablerIcons.clock;
         statusLabel = 'Half Day';
         break;
       case 'leave':
-        statusColor = const Color(0xff174a7c);
+        statusColor = const Color(0xFF4A78E0);
         statusIcon = TablerIcons.calendar_event;
         statusLabel = 'Leave';
         break;
@@ -970,7 +970,7 @@ class _DayListSkeleton extends StatelessWidget {
           margin: EdgeInsets.only(bottom: Responsive.pad(context, 10)),
           padding: EdgeInsets.all(Responsive.pad(context, 14)),
           decoration: BoxDecoration(
-            color: const Color(0xffe6f0fa),
+            color: const Color(0xFFF4F6FA),
             borderRadius: BorderRadius.circular(14),
           ),
           child: const Row(
@@ -1226,11 +1226,15 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
           SizedBox(height: Responsive.pad(context, 20)),
           SizedBox(
             width: double.infinity,
-            height: Responsive.pad(context, 46),
             child: ElevatedButton(
               onPressed: _saving ? null : _save,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xff174a7c),
+                backgroundColor: const Color(0xFF4A78E0),
+                minimumSize: const Size.fromHeight(48),
+                padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.pad(context, 16),
+                  vertical: Responsive.pad(context, 12),
+                ),
               ),
               child: _saving ? const ButtonSkeleton() : const Text('Save'),
             ),
@@ -1340,7 +1344,7 @@ class _AdminProofsSheetState extends State<_AdminProofsSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: const Color(0xffdceaf6),
+                  color: const Color(0xFFDDE3EC),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -1412,7 +1416,7 @@ class _AdminProofsSheetState extends State<_AdminProofsSheet> {
                         return Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: const Color(0xfff2f8fd),
+                            color: const Color(0xFFEDF0F6),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Column(

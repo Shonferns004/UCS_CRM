@@ -50,10 +50,10 @@ class _PrintFormPageState extends State<PrintFormPage> {
     final family = profile['family'] as List<dynamic>? ?? [];
     final references = profile['references'] as List<dynamic>? ?? [];
 
-    final darkBlue = PdfColor.fromInt(0xff174a7c);
-    final gray = PdfColor.fromInt(0xff5e7e99);
+    final darkBlue = PdfColor.fromInt(0xFF4A78E0);
+    final gray = PdfColor.fromInt(0xFF7C8698);
     final borderGray = PdfColor.fromInt(0xFFcccccc);
-    final headerBg = PdfColor.fromInt(0xfff2f8fd);
+    final headerBg = PdfColor.fromInt(0xFFEDF0F6);
 
     final doc = pw.Document();
 
@@ -262,7 +262,7 @@ class _PrintFormPageState extends State<PrintFormPage> {
           padding: const pw.EdgeInsets.only(bottom: 4),
           decoration: pw.BoxDecoration(
             border: pw.Border(
-              bottom: pw.BorderSide(color: PdfColor.fromInt(0xffe2edf7)),
+              bottom: pw.BorderSide(color: PdfColor.fromInt(0xFF4A78E0)),
             ),
           ),
           child: pw.Text(
@@ -345,9 +345,9 @@ class _PrintFormPageState extends State<PrintFormPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xffe6f0fa),
+      backgroundColor: const Color(0xFFF4F6FA),
       appBar: AppBar(
-        backgroundColor: const Color(0xff174a7c),
+        backgroundColor: const Color(0xFF4A78E0),
         foregroundColor: Colors.white,
         title: Text(
           'Print Form',
@@ -365,7 +365,7 @@ class _PrintFormPageState extends State<PrintFormPage> {
     if (_loading) {
       return SkeletonLoader(
         child: Scaffold(
-          backgroundColor: const Color(0xffe6f0fa),
+          backgroundColor: const Color(0xFFF4F6FA),
           body: SafeArea(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
@@ -407,7 +407,7 @@ class _PrintFormPageState extends State<PrintFormPage> {
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: const Color(0xff5e7e99)),
+                style: TextStyle(fontSize: 14, color: const Color(0xFF7C8698)),
               ),
               const SizedBox(height: 24),
               ElevatedButton(
@@ -416,7 +416,7 @@ class _PrintFormPageState extends State<PrintFormPage> {
                   _loadData();
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xff174a7c),
+                  backgroundColor: const Color(0xFF4A78E0),
                   foregroundColor: Colors.white,
                 ),
                 child: const Text('Retry'),

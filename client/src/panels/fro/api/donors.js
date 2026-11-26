@@ -31,7 +31,7 @@ export async function getMyDonors(status, statusGroup, options = {}) {
 
 // Backend-authoritative "current donor" for the controlled queue. Returns a
 // SINGLE donor (the next one the backend chose) plus durable progress, never a
-// list — so the front-end cannot pick or skip the next donor itself.
+// list ΓÇö so the front-end cannot pick or skip the next donor itself.
 export async function getQueueCurrent(options = {}) {
   const params = new URLSearchParams();
   if (options.newOnly) params.set('new_only', 'true');
@@ -84,17 +84,21 @@ export async function uploadPaymentScreenshot(fileBase64, mimeType, opts = {}) {
 // The panel holds a full-screen skeleton on this call, so it uses a much shorter
 // timeout than the 120s default. A queued-out dashboard should surface as a
 // failed load the FRO can retry, not two minutes of an ambiguous shimmer.
-// window ('1' | '2' | '3' | '6' | '8' | '12' — last N months) scopes the
-// active/inactive donor split; omitted means the backend default (1 month).
-export async function getMyDashboard(activeWindow) {
-  const qs = activeWindow ? `?activeWindow=${encodeURIComponent(activeWindow)}` : ''
+// window ('1' | '2' | '3' | '6' | '8' | '12' - last N months) scopes the
+// active/inactive donor split; omitted means the backend default (12 months).
+// ngo_id narrows the donor counts to one allotted NGO.
+export async function getMyDashboard(activeWindow, ngoId) {
+  const params = new URLSearchParams()
+  if (activeWindow) params.set('activeWindow', activeWindow)
+  if (ngoId) params.set('ngo_id', ngoId)
+  const qs = params.toString() ? `?${params}` : ''
   return api(`/fro/dashboard${qs}`, { _prefix: 'ucs', timeout: 20000 })
 }
 
 // Roster behind a dashboard count: status = 'active' | 'inactive' | 'total'
 // (FY lifetime donors); window is the last-N-months split (ignored for total).
 export async function getFroDonorList(status, windowN) {
-  const params = new URLSearchParams({ status, window: String(windowN || 1) })
+  const params = new URLSearchParams({ status, window: String(windowN || 12) })
   return api(`/fro/dashboard/donors?${params}`, { _prefix: 'ucs', timeout: 20000 })
 }
 

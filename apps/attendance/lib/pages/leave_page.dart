@@ -624,13 +624,17 @@ class _LeavePageState extends State<LeavePage> {
         SizedBox(height: Responsive.pad(context, 24)),
         SizedBox(
           width: double.infinity,
-          height: Responsive.pad(context, 52),
           child: ElevatedButton(
             onPressed: _submitting ? null : _submitLeave,
             style: ElevatedButton.styleFrom(
               backgroundColor: scheme.primary,
               foregroundColor: scheme.onPrimary,
               disabledBackgroundColor: scheme.primary.withValues(alpha: 0.5),
+              minimumSize: const Size.fromHeight(52),
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 18),
+                vertical: Responsive.pad(context, 12),
+              ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
               ),
@@ -641,6 +645,7 @@ class _LeavePageState extends State<LeavePage> {
                 ? const ButtonSkeleton()
                 : Text(
                     'Submit Application',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: Responsive.sp(context, 15),
                       fontWeight: FontWeight.w700,

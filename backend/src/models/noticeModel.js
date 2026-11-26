@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { getAllWorkers } from './workerModel.js';
 
 const VALID_ROLES = ['all', 'super_admin', 'admin', 'hr', 'accounts', 'recruiter', 'leads', 'telecaller', 'team_lead', 'worker', 'fro', 'ngo', 'event_head'];
 
@@ -47,6 +48,36 @@ function noticeMatchesRole(n, role, dept, panel) {
   if (panel && panel !== 'all' && panel !== 'super_admin' && raw.includes(panel)) return true;
   return false;
 }
+
+export const noticeMatchesWorker = (notice, worker) => {
+  if (noticeMatchesRole(notice, sanitizeRole(worker?.role), worker?.department)) return true;
+  // The mobile app's field staff are FROs but some rows carry the generic
+  // 'worker' role. Treat the two as the same audience so a targeted notice is
+  // not silently lost.
+  const raw = Array.isArray(notice?.target_roles) && notice.target_roles.length
+    ? notice.target_roles
+    : (notice?.target_role && !LEGACY_ALL_ROLES.has(String(notice.target_role).toLowerCase())
+        ? [notice.target_role]
+        : ['all']);
+  if (raw.includes('all')) return true;
+  const role = sanitizeRole(worker?.role);
+  const pid = deptPanel(worker?.department);
+  const isFieldStaff = role === 'fro' || role === 'worker' || pid === 'fro';
+  return isFieldStaff && (raw.includes('fro') || raw.includes('worker'));
+};
+
+// Workers that should receive a notice: active people in the notice's NGO
+// whose role/department panel matches target_roles (or the legacy target_role).
+// A super-admin notice with no ngo_id is global.
+export const getNoticeRecipients = async (notice) => {
+  const workers = await getAllWorkers(notice?.ngo_id || null);
+  return (workers || []).filter((w) => {
+    if (w.is_active === false) return false;
+    const status = String(w.employment_status || '').toLowerCase();
+    if (status && !['active', 'probation'].includes(status)) return false;
+    return noticeMatchesWorker(notice, w);
+  });
+};
 
 export const createNotice = async (data) => {
   const { data: result, error } = await db

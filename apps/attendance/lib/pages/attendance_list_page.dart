@@ -217,7 +217,7 @@ class _AttendanceListPageState extends State<AttendanceListPage>
                       onPressed: () =>
                           Navigator.pop(ctx, (tempMonth, tempYear)),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xff174a7c),
+                        backgroundColor: const Color(0xFF4A78E0),
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(18),
@@ -292,7 +292,7 @@ class _AttendanceListPageState extends State<AttendanceListPage>
                             TablerIcons.history,
                             size: Responsive.sp(context, 48),
                             color: const Color(
-                              0xff5e7e99,
+                              0xFF7C8698,
                             ).withValues(alpha: 0.3),
                           ),
                           SizedBox(height: Responsive.pad(context, 12)),
@@ -301,7 +301,7 @@ class _AttendanceListPageState extends State<AttendanceListPage>
                             style: TextStyle(
                               fontSize: Responsive.sp(context, 14),
                               color: const Color(
-                                0xff5e7e99,
+                                0xFF7C8698,
                               ).withValues(alpha: 0.6),
                             ),
                           ),
@@ -309,8 +309,8 @@ class _AttendanceListPageState extends State<AttendanceListPage>
                       ),
                     )
                   : LiquidPullToRefresh(
-                      color: const Color(0xff174a7c),
-                      backgroundColor: const Color(0xffe6f0fa),
+                      color: const Color(0xFF4A78E0),
+                      backgroundColor: const Color(0xFFF4F6FA),
                       showChildOpacityTransition: false,
                       springAnimationDurationInMilliseconds: 700,
                       onRefresh: _load,
@@ -383,7 +383,7 @@ class _AttendanceListPageState extends State<AttendanceListPage>
                                   Container(
                                     width: 1,
                                     height: Responsive.pad(context, 40),
-                                    color: const Color(0xffe6f0fa),
+                                    color: const Color(0xFFF4F6FA),
                                   ),
                                   SizedBox(width: Responsive.pad(context, 16)),
                                   Expanded(
@@ -611,7 +611,7 @@ class _AttendanceSkeletonItem extends StatelessWidget {
               Container(
                 width: 1,
                 height: Responsive.pad(context, 40),
-                color: const Color(0xffe6f0fa),
+                color: const Color(0xFFF4F6FA),
               ),
               SizedBox(width: Responsive.pad(context, 16)),
               Expanded(

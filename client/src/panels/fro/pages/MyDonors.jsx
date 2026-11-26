@@ -290,6 +290,13 @@ function useTomorrowStr() {
 
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
+// Display names in title case: "prabhav shroff" -> "Prabhav Shroff". Bank/upload
+// data often arrives all-lowercase or all-caps, so normalise at render time and
+// leave the stored value untouched.
+const titleCaseName = (name) => String(name || '')
+  .toLowerCase()
+  .replace(/(^|[\s'.-])([a-z])/g, (_, sep, ch) => sep + ch.toUpperCase());
+
 // Lead Queues (WhatsApp / Meta / Email / Google) have their own card list and do
 // not go through the donor queue search. Match the search box the same way the
 // placeholder promises: a bare number hits the mobile digits, anything else hits
@@ -346,7 +353,7 @@ const dispositionPill = (value, fallback) => {
   return { label, color: '#1d4ed8', background: '#e7efff' };
 };
 
-export default function MyDonors({ embedded = false, portalEl = null, onDetailStateChange }) {
+export default function MyDonors({ embedded = false, portalEl = null, onDetailStateChange, unclaimedOnly = false, onToggleUnclaimed }) {
   const isMobile = useIsMobile()
   const isCompact = useIsMobile(480)
   const navigate = useNavigate()
@@ -467,7 +474,6 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
 
   // Filter icon next to the search box: hides the New/Old/SS + NGO/station row
   // until the FRO asks for it, so the header stays one clean line.
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [waLeads, setWaLeads] = useState([]);
   const [showWaLeads, setShowWaLeads] = useState(false);
   const [waSource, setWaSource] = useState('whatsapp');
@@ -2015,8 +2021,8 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     const label = status ? status.replace(/_/g, ' ') : 'unknown';
     return (
       <span
-        className={`pill ${STATUS_PILL_MAP[status] || 'pill-gray'}`}
-        style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.3px', textTransform: 'uppercase', padding: '2px 8px', whiteSpace: 'nowrap', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}
+        className={`pill fro-status-pill ${STATUS_PILL_MAP[status] || 'pill-gray'}`}
+        style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.3px', textTransform: 'uppercase', padding: '3px 9px', whiteSpace: 'nowrap', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}
       >
         {label}
       </span>
@@ -2034,11 +2040,12 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       inactive: ['#fee2e2', '#b91c1c'],
       age: ['#e0e7ff', '#4338ca'],
       freq: ['#ccfbf1', '#0f766e'],
+      bsct: ['#dbeafe', '#1d4ed8'],
       neutral: ['#f1f5f9', '#475569'],
     };
     const [bg, fg] = tones[tone] || tones.neutral;
     return (
-      <span style={{ padding: '1px 6px', borderRadius: 999, fontSize: 8.5, fontWeight: 800, whiteSpace: 'nowrap', background: bg, color: fg }}>
+      <span className={`fro-chip fro-chip-${tone}`} style={{ background: bg, color: fg }}>
         {text}
       </span>
     );
@@ -2051,15 +2058,21 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
           : label === 'Low Value Donors' ? 'low' : 'below'
   );
 
-  const froTabStyle = (active) => ({
-    padding: '5px 10px', borderRadius: 8, border: 'none', fontFamily: 'inherit',
-    fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'inline-flex',
-    alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
-    background: active ? 'var(--sage)' : 'transparent',
-    color: active ? '#fff' : 'var(--ink-soft)',
-    boxShadow: active ? '0 1px 4px rgba(0,0,0,.18)' : 'none',
-    transition: 'all .15s',
-  });
+  // Range shown beside the category chip, e.g. "Premium (₹5,000+)".
+  const categoryRange = (label) => {
+    const l = String(label || '').toLowerCase();
+    if (l.includes('below')) return '₹0–250';
+    if (l.includes('premium')) return '₹5,000+';
+    if (l.includes('high')) return '₹2,000–4,999';
+    if (l.includes('medium')) return '₹500–1,999';
+    if (l.includes('low')) return '₹251–499';
+    return '';
+  };
+  const categoryLabelWithRange = (label) => {
+    const clean = String(label || '').replace(' Donors', '');
+    const range = categoryRange(clean);
+    return range ? `${clean} (${range})` : clean;
+  };
 
   // ─────────────────────────── MY LEADS — LIST VIEW ─────────────────────────
   // Shown by default. Every lead row is fully visible (name/mobile) and
@@ -2285,109 +2298,128 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       setDonationCategoryFilter('all');
     };
 
+    const viewFilterValue = isOverdueTab ? 'overdue' : listView;
+    const dataFilterValue = showWaLeads ? 'ss' : dataTab;
+    const viewFilterOptions = [
+      { value: 'leads', label: 'Leads', badge: leadsBadgeCount },
+      { value: 'followups', label: 'Follow Ups', badge: followUpActive.length },
+      { value: 'overdue', label: 'Overdue', badge: overdueList.length, tone: 'danger' },
+      { value: 'history', label: 'History', badge: historyScoped.length },
+    ];
+    const dataFilterOptions = [
+      // Legacy saved progress can still point at the high-tier queue; surface
+      // it only while it is the active queue so the trigger never reads blank.
+      ...(dataTab === 'high_tier' ? [{ value: 'high_tier', label: 'High Tier' }] : []),
+      { value: 'new', label: 'New' },
+      { value: 'old', label: 'Old' },
+      { value: 'ss', label: 'SS Leads', badge: waLeads.length },
+    ];
+    const filterBadge = (badge, tone) => (badge ? (
+      <span className={`fro-dd-badge${tone === 'danger' ? ' is-danger' : ''}`}>{badge}</span>
+    ) : null);
+    const renderFilterOption = (opt) => (
+      <span className="fro-dd-opt">
+        <span className="fro-dd-opt-label">{opt.label}</span>
+        {filterBadge(opt.badge, opt.tone)}
+      </span>
+    );
+    const renderFilterValue = (opt) => (opt ? (
+      <span className="fro-dd-opt">
+        <span className="fro-dd-opt-label">{opt.label}</span>
+        {filterBadge(opt.badge, opt.tone)}
+      </span>
+    ) : null);
+
     return (
       <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(embedded ? { border: 'none' } : {}) }}>
-        {/* Filter bar */}
+        {/* Filter bar — search, view, data set and every narrowing filter share
+            one line. The old segmented pills are now premium dropdowns. */}
         <div style={{ position: 'relative', padding: isCompact ? '10px 10px 6px' : '14px 18px 8px', flexShrink: 0 }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-              <span className="material-symbols-outlined" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--ink-soft)' }}>search</span>
+          <div className="fro-filter-bar" aria-label="Lead filters">
+            <div className="fro-filter-search">
+              <span className="material-symbols-outlined" aria-hidden="true">search</span>
               <input
                 type="text"
                 value={searchQuery}
                 onChange={e => handleSearch(e.target.value)}
                 placeholder="Search name or mobile..."
-                style={{ width: '100%', padding: '8px 32px 8px 32px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card-bg)', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' }}
+                aria-label="Search leads by name or mobile"
               />
               {searchQuery && (
-                <span className="material-symbols-outlined" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: 'var(--ink-soft)', cursor: 'pointer' }} onClick={() => { setSearchQuery(''); setDisposedResults([]); }}>close</span>
+                <button
+                  type="button"
+                  className="fro-filter-search-clear"
+                  aria-label="Clear search"
+                  onClick={() => { setSearchQuery(''); setDisposedResults([]); }}
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
               )}
             </div>
-            <div className="hr-filter-anchor">
-              <button
-                type="button"
-                onClick={() => setFiltersOpen(o => !o)}
-                title={filtersOpen ? 'Hide filters' : 'Show filters'}
-                aria-label="Filters"
-                aria-expanded={filtersOpen}
-                className={`btn btn-sm btn-outline hr-filter-btn${filtersOpen || activeFilterCount ? ' is-on' : ''}`}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
-                </svg>
-                {activeFilterCount > 0 && <span className="hr-filter-badge">{activeFilterCount}</span>}
-              </button>
-            </div>
-          </div>
 
-          {/* View/Data tabs stay visible as compact pills. The funnel popover
-              holds only the four narrowing filters, matching the HR page. */}
-          <div className="fro-list-toolbar">
-            <div className="fro-filter-tabs">
-              <button type="button" style={froTabStyle(listView === 'leads')} onClick={() => setListView('leads')}>
-                Leads{leadsBadgeCount ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'leads' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'leads' ? '#fff' : 'var(--ink-soft)' }}>{leadsBadgeCount}</span> : null}
-              </button>
-              <button type="button" style={froTabStyle(listView === 'followups')} onClick={() => setListView('followups')}>
-                Follow Ups{followUpActive.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'followups' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'followups' ? '#fff' : 'var(--ink-soft)' }}>{followUpActive.length}</span> : null}
-              </button>
-              <button type="button" style={froTabStyle(isOverdueTab)} onClick={() => setListView('overdue')}>
-                Overdue{overdueList.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: isOverdueTab ? 'rgba(255,255,255,.22)' : '#fee2e2', color: isOverdueTab ? '#fff' : '#b91c1c' }}>{overdueList.length}</span> : null}
-              </button>
-              <button type="button" style={froTabStyle(listView === 'history')} onClick={() => setListView('history')}>
-                History{historyScoped.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'history' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'history' ? '#fff' : 'var(--ink-soft)' }}>{historyScoped.length}</span> : null}
-              </button>
-            </div>
-            <div className="fro-filter-tabs">
-              <button type="button" style={froTabStyle(dataTab === 'new' && !showWaLeads)} onClick={() => { setShowWaLeads(false); switchTab('new'); }}>New</button>
-              <button type="button" style={froTabStyle(dataTab === 'old' && !showWaLeads)} onClick={() => { setShowWaLeads(false); switchTab('old'); }}>Old</button>
-              <button type="button" style={froTabStyle(showWaLeads)} onClick={() => { setShowWaLeads(true); api('/fro/whatsapp-leads', { _prefix: 'ucs' }).then((d) => setWaLeads(Array.isArray(d) ? d : (d?.data || []))).catch(() => {}); }}>
-                SS Leads{waLeads.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: showWaLeads ? 'rgba(255,255,255,.22)' : 'var(--line)', color: showWaLeads ? '#fff' : 'var(--ink-soft)' }}>{waLeads.length}</span> : null}
-              </button>
-            </div>
+            <Dropdown
+              className="fro-dd-filter fro-dd-view"
+              value={viewFilterValue}
+              onChange={({ target }) => setListView(target.value)}
+              options={viewFilterOptions}
+              renderOption={renderFilterOption}
+              renderValue={renderFilterValue}
+            />
+            <Dropdown
+              className="fro-dd-filter fro-dd-data"
+              value={dataFilterValue}
+              onChange={({ target }) => {
+                const next = target.value;
+                if (next === 'ss') {
+                  setShowWaLeads(true);
+                  api('/fro/whatsapp-leads', { _prefix: 'ucs' })
+                    .then((d) => setWaLeads(Array.isArray(d) ? d : (d?.data || [])))
+                    .catch(() => {});
+                } else {
+                  setShowWaLeads(false);
+                  switchTab(next);
+                }
+              }}
+              options={dataFilterOptions}
+              renderOption={renderFilterOption}
+              renderValue={renderFilterValue}
+            />
+
+            <Dropdown className="fro-dd-filter" value={selectedNgo || ''} onChange={e => { setSelectedNgo(e.target.value || null); setSelectedStation('all'); }} options={[{ value: '', label: 'All NGOs' }, ...ngoList.map(n => ({ value: n.ngo_id, label: n.ngo_name }))]} />
+            <Dropdown className="fro-dd-filter" value={selectedStation || 'all'} onChange={e => setSelectedStation(e.target.value || 'all')} options={[{ value: 'all', label: 'All stations' }, ...stationList.map(s => ({ value: s, label: s }))]} />
+            <Dropdown className="fro-dd-filter" value={donationStatusFilter} onChange={e => setDonationStatusFilter(e.target.value)} options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} />
+            <Dropdown className="fro-dd-filter fro-dd-end" value={donationCategoryFilter} onChange={e => setDonationCategoryFilter(e.target.value)} options={[{ value: 'all', label: 'All categories' }, { value: 'premium', label: 'Premium' }, { value: 'high', label: 'High Value' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low Value' }, { value: 'below', label: 'Below Low' }]} />
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={unclaimedOnly}
+              aria-label="Show only unclaimed receipts in Suspense"
+              onClick={onToggleUnclaimed}
+              className={`fro-suspense-toggle${unclaimedOnly ? ' is-on' : ''}`}
+              title={unclaimedOnly ? 'Suspense is showing unclaimed receipts' : 'Show only unclaimed receipts in Suspense'}
+            >
+              <span className="fro-suspense-toggle-track">
+                <span className="fro-suspense-toggle-knob" />
+              </span>
+            </button>
+
             {listView === 'leads' && suppressedCount > 0 && (
-              <button onClick={() => setListShowSuppressed(v => !v)}
-                title={listShowSuppressed ? 'Hide held-back leads' : `Show the ${suppressedCount} leads held back`}
-                style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 10.5, fontWeight: 600, cursor: 'pointer', background: listShowSuppressed ? 'var(--sage)' : 'var(--bg)', color: listShowSuppressed ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
+              <button type="button" className={`fro-filter-action${listShowSuppressed ? ' is-on' : ''}`} onClick={() => setListShowSuppressed(v => !v)}
+                title={listShowSuppressed ? 'Hide held-back leads' : `Show the ${suppressedCount} leads held back`}>
                 {listShowSuppressed ? 'Showing all leads' : `Hidden: ${suppressedCount}`}
               </button>
             )}
             {listView === 'history' && (
-              <button onClick={() => setHistoryAllTime(v => !v)}
-                title={historyAllTime ? "Show only this month's disposed leads" : 'Show disposed leads from all months'}
-                style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 10.5, fontWeight: 600, cursor: 'pointer', background: historyAllTime ? 'var(--sage)' : 'var(--bg)', color: historyAllTime ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
+              <button type="button" className={`fro-filter-action${historyAllTime ? ' is-on' : ''}`} onClick={() => setHistoryAllTime(v => !v)}
+                title={historyAllTime ? "Show only this month's disposed leads" : 'Show disposed leads from all months'}>
                 {historyAllTime ? 'All months' : 'This month'}
               </button>
             )}
+            {activeFilterCount > 0 && (
+              <button type="button" className="fro-filter-action" onClick={resetFilters}>Reset</button>
+            )}
           </div>
-
-          {filtersOpen && (
-            <div className="hr-filter-popover" role="dialog" aria-label="Lead filters">
-              <div className="hr-filter-popover-head">
-                <strong>Filters</strong>
-                {activeFilterCount > 0 && (
-                  <button type="button" className="hr-filter-reset" onClick={resetFilters}>Reset</button>
-                )}
-              </div>
-              <div className="hr-filter-row">
-                <div className="hr-filter-field">
-                  <span className="hr-filter-lbl">NGO</span>
-                  <Dropdown className="filter-dd" value={selectedNgo || ''} onChange={e => { setSelectedNgo(e.target.value || null); setSelectedStation('all'); }} options={[{ value: '', label: 'All NGOs' }, ...ngoList.map(n => ({ value: n.ngo_id, label: n.ngo_name }))]} />
-                </div>
-                <div className="hr-filter-field">
-                  <span className="hr-filter-lbl">Station</span>
-                  <Dropdown className="filter-dd" value={selectedStation || 'all'} onChange={e => setSelectedStation(e.target.value || 'all')} options={[{ value: 'all', label: 'All stations' }, ...stationList.map(s => ({ value: s, label: s }))]} />
-                </div>
-                <div className="hr-filter-field">
-                  <span className="hr-filter-lbl">Status</span>
-                  <Dropdown className="filter-dd" value={donationStatusFilter} onChange={e => setDonationStatusFilter(e.target.value)} options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} />
-                </div>
-                <div className="hr-filter-field">
-                  <span className="hr-filter-lbl">Category</span>
-                  <Dropdown className="filter-dd" value={donationCategoryFilter} onChange={e => setDonationCategoryFilter(e.target.value)} options={[{ value: 'all', label: 'All categories' }, { value: 'premium', label: 'Premium' }, { value: 'high', label: 'High Value' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low Value' }, { value: 'below', label: 'Below Low' }]} />
-                </div>
-              </div>
-            </div>
-          )}
 
 
            {/* The admin hid the old stations' donors. Say so, otherwise an FRO
@@ -2436,7 +2468,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         )}
 
         {/* List */}
-        <div ref={listScrollRef} onScroll={handleListScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: isCompact ? '8px 8px' : '10px 12px' }}>
+        <div ref={listScrollRef} onScroll={handleListScroll} className="fro-lead-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: isCompact ? '8px 8px' : '10px 12px' }}>
           {isFollowUps && !followUpsLoading && (
             <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', lineHeight: 1.5, padding: '6px 10px', marginBottom: 8, borderRadius: 8, background: 'var(--bg)', border: '1px dashed var(--line)', fontStyle: 'italic' }}>
               Fresh follow-ups you tagged. When a follow-up's given time passes, it moves to Overdue, where you'll see it until re-logged.
@@ -2531,7 +2563,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                           {String(l.name || '?').charAt(0).toUpperCase()}
                         </div>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)' }}>{l.name || '—'}</div>
+                          <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)' }}>{titleCaseName(l.name) || '—'}</div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-soft)' }}>
                             <a href={`tel:${phone}`} style={{ color: 'var(--ink-soft)', textDecoration: 'none' }}>{formatWaPhone(l.phone)}</a>
                             {acctName && (
@@ -2687,37 +2719,33 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               </div>
             )
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="fro-lead-list" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {renderedItems.map((d) => {
                 return (
                   <div key={`${d.id || d.donor_id}-${d.ngo_id || ''}`}
+                    className="fro-lead-card"
                     onClick={() => openLead(d)}
-                    onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--sage)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                    onMouseOut={e => { e.currentTarget.style.borderColor = 'var(--line)'; e.currentTarget.style.boxShadow = 'var(--shadow)'; e.currentTarget.style.transform = 'none'; }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: isCompact ? 10 : 14,
-                      padding: isCompact ? '11px 11px' : '13px 16px',
-                      background: '#fff', border: '1px solid var(--line)', borderRadius: 12,
-                      boxShadow: '0 1px 2px rgba(16,24,40,.04)', cursor: 'pointer',
-                      transition: 'transform .12s, box-shadow .12s, border-color .12s',
+                      padding: isCompact ? '11px 11px' : '14px 16px',
                     }}>
-                    <div style={{ width: isCompact ? 36 : 42, height: isCompact ? 36 : 42, borderRadius: '50%', background: d.is_disposed ? '#eef2f7' : 'linear-gradient(135deg, #60a5fa, #2563eb)', color: d.is_disposed ? '#64748b' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isCompact ? 12 : 14, fontWeight: 700, flexShrink: 0, boxShadow: d.is_disposed ? 'none' : '0 2px 6px rgba(37,99,235,.28)' }}>
+                    <div className={`fro-lead-avatar${d.is_disposed ? ' is-disposed' : ''}`} style={{ width: isCompact ? 36 : 42, height: isCompact ? 36 : 42, borderRadius: '50%', color: d.is_disposed ? '#64748b' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isCompact ? 12 : 14, fontWeight: 700, flexShrink: 0 }}>
                       {initials(d.donor_name || '')}
                     </div>
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: isCompact ? 6 : 8 }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                          <span style={{ fontSize: isCompact ? 13 : 14, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.donor_name || 'Unknown'}</span>
+                          <span className="fro-lead-name" style={{ fontSize: isCompact ? 13 : 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titleCaseName(d.donor_name) || 'Unknown'}</span>
                           {d.is_new && dataTab !== 'high_tier' && (
                             <span style={{ flexShrink: 0, padding: '1px 6px', borderRadius: 999, background: '#16a34a', color: '#fff', fontSize: isCompact ? 8 : 9, fontWeight: 700 }}>NEW</span>
                           )}
-                          <span style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 600, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
-                            {d.ngo_name || '—'} <span style={{ color: 'var(--line)' }}>|</span> {d.station || '—'}
+                          <span className="fro-lead-station" style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+                            {d.ngo_name || '—'} <span style={{ color: '#cfd8e5' }}>|</span> {d.station || '—'}
                           </span>
                         </div>
                         {(d.donation_category || d.donation_status_label || d.last_donation_age_label || d.donation_frequency_label) && (
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-                            {d.donation_category && donationChip(d.donation_category, categoryTone(d.donation_category))}
+                          <div className="fro-lead-chips" style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 5 }}>
+                            {d.donation_category && donationChip(categoryLabelWithRange(d.donation_category), categoryTone(d.donation_category))}
                             {d.donation_frequency_label && donationChip(d.donation_frequency_label, 'freq')}
                             {d.donation_status_label && donationChip(d.donation_status_label, d.donation_status_label === 'Active' ? 'active' : 'inactive')}
                             {d.last_donation_age_label && donationChip(
@@ -2726,12 +2754,13 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                                 : `Last Donation: ${d.last_donation_age_label} ago`,
                               'age',
                             )}
+                            {d.bsct_donation_category && donationChip(`BSCT: ${categoryLabelWithRange(d.bsct_donation_category)}`, 'bsct')}
                           </div>
                         )}
                       </div>
-                      <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, minWidth: isCompact ? 96 : 116 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{d.donor_mobile || '—'}</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <div className="fro-lead-status" style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, minWidth: isCompact ? 96 : 116 }}>
+                        <span className="fro-lead-phone" style={{ whiteSpace: 'nowrap' }}>{d.donor_mobile || '—'}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                         {d.type ? (
                           <>
                             <span style={{ padding: `1px 7px`, borderRadius: 999, fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap', background: d.type === 'promise' ? '#ede9fe' : d.type === 'callback' ? '#dbeafe' : '#dcfce7', color: d.type === 'promise' ? '#7e22ce' : d.type === 'callback' ? '#1d4ed8' : '#166534' }}>
@@ -2786,7 +2815,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                         )}
                       </div>
                     </div>
-                    <span style={{ width: isCompact ? 24 : 28, height: isCompact ? 24 : 28, borderRadius: '50%', background: 'var(--bg)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--sage)', flexShrink: 0 }}>
+                    <span className="fro-lead-chevron" style={{ width: isCompact ? 24 : 28, height: isCompact ? 24 : 28 }}>
                       <span className="material-symbols-outlined" style={{ fontSize: isCompact ? 15 : 17 }}>chevron_right</span>
                     </span>
                   </div>
@@ -2868,7 +2897,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
             {/* Profile header */}
             <div style={{ textAlign: 'center', paddingTop: 12, paddingBottom: 10, borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
               <div className="detail-avatar">{initials(donor.donor_name)}</div>
-              <div className="detail-name">{donor.donor_name}</div>
+              <div className="detail-name">{titleCaseName(donor.donor_name)}</div>
               <div className="fro-donor-position">
                 {/^SS-/i.test(String(donor.station || '')) ? 'SS lead' : `#${index + 1} of ${total || donors.length}`}
               </div>
@@ -2897,7 +2926,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               </div>
               {(donor.donation_category || donor.donation_status_label || donor.last_donation_age_label || donor.donation_frequency_label) && (
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center', marginTop: 6 }}>
-                  {donor.donation_category && donationChip(donor.donation_category, categoryTone(donor.donation_category))}
+                    {donor.donation_category && donationChip(categoryLabelWithRange(donor.donation_category), categoryTone(donor.donation_category))}
                   {donor.donation_frequency_label && donationChip(donor.donation_frequency_label, 'freq')}
                   {donor.donation_status_label && donationChip(donor.donation_status_label, donor.donation_status_label === 'Active' ? 'active' : 'inactive')}
                   {donor.last_donation_age_label && donationChip(
@@ -2906,6 +2935,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                       : `Last Donation: ${donor.last_donation_age_label} ago`,
                     'age',
                   )}
+                  {donor.bsct_donation_category && donationChip(`BSCT: ${categoryLabelWithRange(donor.bsct_donation_category)}`, 'bsct')}
                 </div>
               )}
             </div>

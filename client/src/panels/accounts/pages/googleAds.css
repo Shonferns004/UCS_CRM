@@ -31,7 +31,7 @@
   min-width: 0;
   padding-bottom: 28px;
   color: var(--gads-ink);
-  font-family: 'Inter', 'Poppins', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif);
   font-size: 13px;
 }
 
@@ -43,7 +43,7 @@
 .gads-page h2,
 .gads-page h3,
 .gads-page h4 {
-  font-family: 'Plus Jakarta Sans', 'Inter', 'Poppins', sans-serif;
+  font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif);
   color: var(--gads-ink);
   margin: 0;
   line-height: 1.25;
@@ -403,7 +403,7 @@
   gap: 8px;
 }
 .gads-kpi-value {
-  font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+  font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif);
   font-size: 23px;
   font-weight: 800;
   letter-spacing: -.02em;

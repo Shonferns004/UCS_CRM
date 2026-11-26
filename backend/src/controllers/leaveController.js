@@ -7,6 +7,10 @@ import {
   getLeaveById,
 } from '../models/leaveModel.js';
 import { notifyNgoAdmins } from '../services/adminNotifyService.js';
+import { deliverWorkerNotification } from '../services/workerNotifyService.js';
+import { getWorkerById } from '../models/workerModel.js';
+import { resolveLateGrace } from '../utils/latePolicy.js';
+import { expandLeaveDatesForDetection } from '../utils/absenceRules.js';
 import redis from '../config/redis.cjs';
 import { cacheGet, cacheSet, cacheDel } from '../utils/ttlCache.js';
 
@@ -28,6 +32,31 @@ function daysBetween(a, b) {
   const bDate = new Date(istDateStr(b) + 'T00:00:00+05:30');
   const diff = bDate.getTime() - aDate.getTime();
   return Math.round(diff / (1000 * 60 * 60 * 24));
+}
+
+// A rejected (or cancelled) leave is the moment a planned day becomes an
+// unauthorized absence. Warn the worker right away so the notification bell
+// carries it, instead of waiting for the payroll grace forfeiture.
+async function warnRejectedLeave(leave, remark) {
+  try {
+    if (!leave?.worker_id) return;
+    const dates = expandLeaveDatesForDetection(leave);
+    if (!dates.length) return;
+    const label = dates.length === 1
+      ? dates[0]
+      : `${dates[0]} – ${dates[dates.length - 1]}`;
+    const worker = await getWorkerById(leave.worker_id).catch(() => null);
+    const grace = resolveLateGrace(worker);
+    await deliverWorkerNotification({
+      workerId: leave.worker_id,
+      title: '⚠️ Leave rejected — unauthorized absence',
+      body: `Your leave for ${label} was rejected${remark ? ` (${remark})` : ''}. If you were absent, it counts as an unauthorized absence and ${grace} min of this month's late grace is charged. Upload a proof from Alerts.`,
+      type: 'leave_rejected',
+      referenceId: leave.id,
+    });
+  } catch (e) {
+    console.warn('[leave] rejection warning failed:', e?.message || String(e));
+  }
 }
 
 export const apply = async (req, res) => {
@@ -200,6 +229,7 @@ export const updateStatus = async (req, res) => {
       const result = await updateLeaveStatus(id, 'rejected', 'Cancelled');
       redis.del('hr:leaves:all', 'hr:leaves:pending').catch(() => { });
     cacheDel('leaves:all', 'leaves:pending');
+      await warnRejectedLeave(result || existing, 'Cancelled by HR');
       return res.json({ message: 'Leave cancelled', leave: result });
     }
 
@@ -210,6 +240,9 @@ export const updateStatus = async (req, res) => {
     const result = await updateLeaveStatus(id, status, admin_remark || null);
     redis.del('hr:leaves:all', 'hr:leaves:pending').catch(() => { });
     cacheDel('leaves:all', 'leaves:pending');
+    if (status === 'rejected') {
+      await warnRejectedLeave(result || existing, admin_remark);
+    }
     return res.json({ message: `Leave ${status}`, leave: result });
   } catch (error) {
     return res.status(500).json({ message: error.message });

@@ -551,6 +551,7 @@ export default function AccountsPanel() {
         isActive={navIsActive}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onOpenSettings={() => { setSidebarOpen(false); setShowSettings(true) }}
       />
       <div className="main">
         <header className="topbar">
@@ -586,21 +587,21 @@ export default function AccountsPanel() {
             )}
           </div>
           </div>
-          <NotificationDrawer topOffset={56}
-            open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
-            sections={drawerSections}
-            onItemClick={() => setDrawerOpen(false)}
-          />
-          <SettingsDrawer
-            open={showSettings}
-            onClose={() => setShowSettings(false)}
-            themes={themes}
-            themeName={themeName}
-            onThemeChange={(key) => setThemeName(key)}
-            views={settingsViews}
-          />
         </header>
+        <NotificationDrawer topOffset={56}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          sections={drawerSections}
+          onItemClick={() => setDrawerOpen(false)}
+        />
+        <SettingsDrawer
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          themes={themes}
+          themeName={themeName}
+          onThemeChange={(key) => setThemeName(key)}
+          views={settingsViews}
+        />
         <div className={`content-body${location.pathname.endsWith('/tickets') ? ' content-body-tickets' : ''}`} style={{ marginRight: drawerOpen ? rightDrawerWidth : 0, transition: 'margin-right .25s ease' }}>
           <Routes>
             <Route index element={<Navigate to="leads" replace />} />

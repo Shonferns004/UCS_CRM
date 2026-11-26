@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { Grid, Cal, FileTxt, Bell, Plane, Eye } from './icons'
+import SidebarFooter from '../../components/admin-sidebar/SidebarFooter'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import { fetchDeadlineNotifs } from './store'
@@ -59,7 +60,7 @@ const SECTIONS = [
   { id:'Community', label:'UCS Chat' },
 ]
 
-function Sidebar({ open, onClose, collapsed, onToggleCollapse }) {
+function Sidebar({ open, onClose, collapsed, onToggleCollapse, onOpenSettings }) {
   const location = useLocation()
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
   /* The collapse rail is a Calendar / Monthly Planner feature: the toggle and its
@@ -71,27 +72,25 @@ function Sidebar({ open, onClose, collapsed, onToggleCollapse }) {
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
       <aside className={`sidebar${open ? ' open' : ''}`}>
-        <div className="sidebar-brand">
-          <div className="brand-mark">E</div>
-          <div className="sidebar-brand-text"><h1>UFS</h1><span>Event Manager</span></div>
+        <div className="sb-header">
+          <div className="sb-mark">EV</div>
+          <div className="sb-brand"><h1>UFS</h1><span>Event Manager</span></div>
         </div>
-        <nav className="sidebar-nav">
-          {SECTIONS.map(s => (
-            <div key={s.id}>
-              <div className="user-menu-label" style={{padding:'16px 12px 4px',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'var(--ink-soft)',fontWeight:600}}>{s.label}</div>
-              {NAV.filter(n => n.section === s.id).map(n => { const Icon = n.icon
-                const active = isActive(n.path)
-                return (
-                  <NavLink key={n.id} to={n.path} onClick={onClose} title={n.label}
-                    className={`snav-item ${active ? 'active' : ''}`}>
-                    <span className="ico"><Icon size={18} /></span>
-                    <span className="snav-label">{n.label}</span>
-                    {n.id === 'chat' && <ChatNavBadge quiet />}
-                  </NavLink>
-                )
-              })}
-            </div>
-          ))}
+        <nav className="sidebar-nav" aria-label="Event Manager navigation">
+          {NAV.map(n => {
+            const Icon = n.icon
+            const active = isActive(n.path)
+            return (
+              <NavLink key={n.id} to={n.path} onClick={onClose} title={n.label}
+                className={`snav-item${active ? ' active' : ''}`}>
+                <span className="ico"><Icon size={18} /></span>
+                <span className="sb-item-body">
+                  <span className="sb-item-label">{n.label}</span>
+                  {n.id === 'chat' && <ChatNavBadge quiet />}
+                </span>
+              </NavLink>
+            )
+          })}
         </nav>
         {isCalendarRoute && (
           <button type="button" className="sidebar-collapse-btn"
@@ -102,6 +101,7 @@ function Sidebar({ open, onClose, collapsed, onToggleCollapse }) {
             {!collapsed && <span style={{ fontSize: 10.5, fontWeight: 600 }}>Collapse</span>}
           </button>
         )}
+        <SidebarFooter onSettings={onOpenSettings} onNavigate={onClose} />
       </aside>
     </>
   )
@@ -228,7 +228,13 @@ export default function EventHeadPanel() {
   return (
     <div className={`app${sidebarCollapsed && isCalendarRoute ? ' sidebar-collapsed' : ''}`}>
       <NoticePopup />
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebarCollapse} />
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapse}
+        onOpenSettings={() => { setSidebarOpen(false); setShowSettings(true) }}
+      />
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -301,14 +307,14 @@ export default function EventHeadPanel() {
             )}
           </div>
           </div>
-          <SettingsDrawer
-            open={showSettings}
-            onClose={() => setShowSettings(false)}
-            themes={themes}
-            themeName={themeName}
-            onThemeChange={(key) => setThemeName(key)}
-          />
         </header>
+        <SettingsDrawer
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          themes={themes}
+          themeName={themeName}
+          onThemeChange={(key) => setThemeName(key)}
+        />
         {toast && (
           <div style={{
             margin: '12px 16px 0', padding: '13px 16px', borderRadius: 14,

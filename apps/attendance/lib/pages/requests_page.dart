@@ -308,8 +308,8 @@ class _RequestsPageState extends State<RequestsPage> {
                         (_segment == 'leave' ? _leaves.isEmpty : _loans.isEmpty)
                   ? _buildError(scheme, tt)
                   : LiquidPullToRefresh(
-                      color: const Color(0xff174a7c),
-                      backgroundColor: const Color(0xffe6f0fa),
+                      color: const Color(0xFF4A78E0),
+                      backgroundColor: const Color(0xFFF4F6FA),
                       showChildOpacityTransition: false,
                       springAnimationDurationInMilliseconds: 700,
                       onRefresh: _refresh,

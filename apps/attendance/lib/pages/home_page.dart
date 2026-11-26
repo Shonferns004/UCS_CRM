@@ -12,6 +12,7 @@ import 'package:liquid_pull_to_refresh/liquid_pull_to_refresh.dart';
 import '../services/api_exception.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/notification_service.dart';
 import '../services/offline_punch_queue.dart';
 import '../services/realtime_service.dart';
 import '../services/remote_config_service.dart';
@@ -70,6 +71,8 @@ class _HomePageState extends State<HomePage>
   String _officeEndTime = '19:00';
   List<Map<String, dynamic>> _notifications = [];
   int _unreadCount = 0;
+  final Set<String> _knownNotificationIds = {};
+  bool _notificationBaselineDone = false;
   List<dynamic> _pendingLoans = [];
   bool _isAdmin = false;
   List<dynamic> _absenceDays = [];
@@ -83,6 +86,8 @@ class _HomePageState extends State<HomePage>
   int _monthHalfDay = 0;
   int _monthLateMinutes = 0;
   double _monthLateDeductionDays = 0;
+  bool _graceForfeited = false;
+  int _lateGraceMinutes = 180;
   Map<String, String> _monthStatusByDate = {};
   Map<String, Map<String, dynamic>> _monthHistoryByDate = {};
   Map<String, dynamic>? _lateThresholds;
@@ -121,12 +126,14 @@ class _HomePageState extends State<HomePage>
       _fetchStatus();
       _syncPendingPunches();
       _probeBackend();
+      _refreshNotifications();
     });
     _fetchStatus();
     _fetchMonthlySummary();
     _updatePendingBadge();
     _syncPendingPunches();
     _probeBackend();
+    NotificationService().addListener(_onPushNotification);
   }
 
   @override
@@ -134,6 +141,7 @@ class _HomePageState extends State<HomePage>
     if (state == AppLifecycleState.resumed) {
       _fetchStatus();
       _syncPendingPunches();
+      _refreshNotifications();
     }
   }
 
@@ -151,6 +159,7 @@ class _HomePageState extends State<HomePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     RealtimeService.instance.removeListener(_onRealtimeChange);
+    NotificationService().removeListener(_onPushNotification);
     _dismissBackendToast();
     _refreshTimer?.cancel();
     _scrollController.dispose();
@@ -207,11 +216,11 @@ class _HomePageState extends State<HomePage>
       } catch (_) {}
 
       try {
-        if (_workerId.isNotEmpty) {
+        if (_workerId.isNotEmpty && _notifications.isEmpty) {
           final cachedNotifs = await ApiService.getCachedNotifications(
             _workerId,
           );
-          if (cachedNotifs != null) {
+          if (cachedNotifs != null && cachedNotifs.isNotEmpty) {
             setState(() {
               _notifications = cachedNotifs.cast<Map<String, dynamic>>();
               _unreadCount = _notifications
@@ -221,6 +230,10 @@ class _HomePageState extends State<HomePage>
           }
         }
       } catch (_) {}
+
+      if (_notifications.isEmpty) {
+        await _refreshNotifications();
+      }
 
       try {
         await _loadAbsenceProofs();
@@ -429,6 +442,9 @@ class _HomePageState extends State<HomePage>
           _monthHalfDay = halfDay;
           _monthLateMinutes = lateMinutes;
           _monthLateDeductionDays = lateDeductionDays;
+          _graceForfeited = breakdown?['graceForfeited'] == true;
+          _lateGraceMinutes =
+              (breakdown?['lateGraceMinutes'] as num?)?.toInt() ?? 180;
           _monthStatusByDate = statusMap;
           _monthHistoryByDate = detailMap;
           _lateThresholds = breakdown?['lateThresholds'] is Map
@@ -821,16 +837,67 @@ class _HomePageState extends State<HomePage>
     if (event == null) return;
     switch (event) {
       case RealtimeEvent.attendance:
-      case RealtimeEvent.notifications:
       case RealtimeEvent.corrections:
       case RealtimeEvent.loans:
         _fetchStatus();
         _fetchMonthlySummary();
+      case RealtimeEvent.notifications:
+        _refreshNotifications();
       case RealtimeEvent.absenceProofs:
         _loadAbsenceProofs();
+        _fetchMonthlySummary();
       default:
         break;
     }
+  }
+
+  void _onPushNotification() {
+    _refreshNotifications();
+  }
+
+  Future<void> _refreshNotifications() async {
+    if (_workerId.isEmpty) return;
+    try {
+      final notifs = await ApiService.getNotifications(_workerId);
+      if (!mounted) return;
+      final incoming = notifs.cast<Map<String, dynamic>>();
+
+      // Fallback when FCM is not configured in this build: comparing the polled
+      // rows still gives the worker an OS notification + in-app banner for a
+      // notice/warning that arrived while the app was running. With FCM active
+      // this is skipped, because the push already did it.
+      if (_notificationBaselineDone && !NotificationService().pushReady) {
+        final fresh = incoming.where((n) {
+          final id = n['id']?.toString() ?? '';
+          return n['read_at'] == null &&
+              id.isNotEmpty &&
+              !_knownNotificationIds.contains(id);
+        }).toList();
+        if (fresh.isNotEmpty) {
+          final n = fresh.first;
+          final title = (n['title'] ?? 'New notification').toString();
+          final body = (n['body'] ?? '').toString();
+          NotificationService().showLocalNotification(
+            title,
+            body,
+            payload: '${n['type'] ?? ''}|${n['reference_id'] ?? ''}',
+          );
+          AppToast.info(title, description: body.isEmpty ? null : body);
+        }
+      }
+
+      _knownNotificationIds.addAll(
+        incoming
+            .map((n) => n['id']?.toString() ?? '')
+            .where((id) => id.isNotEmpty),
+      );
+      _notificationBaselineDone = true;
+
+      setState(() {
+        _notifications = incoming;
+        _unreadCount = _notifications.where((n) => n['read_at'] == null).length;
+      });
+    } catch (_) {}
   }
 
   String _absenceKeyOf(dynamic day) =>
@@ -885,13 +952,13 @@ class _HomePageState extends State<HomePage>
               width: Responsive.sp(context, 48),
               height: Responsive.sp(context, 48),
               decoration: BoxDecoration(
-                color: const Color(0xffd6eaf7),
+                color: const Color(0xFFE4EBFB),
                 borderRadius: BorderRadius.circular(22),
               ),
               child: Icon(
                 TablerIcons.file_search,
                 size: Responsive.sp(context, 22),
-                color: const Color(0xff174a7c),
+                color: const Color(0xFF4A78E0),
               ),
             ),
             SizedBox(width: Responsive.pad(context, 16)),
@@ -935,7 +1002,10 @@ class _HomePageState extends State<HomePage>
       builder: (_) => _ProofUploadSheet(
         date: day['date']?.toString() ?? '',
         leaveId: day['leaveId']?.toString(),
-        onUploaded: _loadAbsenceProofs,
+        onUploaded: () async {
+          await _loadAbsenceProofs();
+          await _fetchMonthlySummary();
+        },
       ),
     );
   }
@@ -992,7 +1062,7 @@ class _HomePageState extends State<HomePage>
   }) {
     final radius = BorderRadius.circular(22);
     return Container(
-      height: Responsive.pad(context, 90),
+      constraints: BoxConstraints(minHeight: Responsive.pad(context, 90)),
       decoration: BoxDecoration(
         color: AppPalette.white,
         borderRadius: radius,
@@ -1010,6 +1080,7 @@ class _HomePageState extends State<HomePage>
               children: [
                 Expanded(
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1025,12 +1096,18 @@ class _HomePageState extends State<HomePage>
                         ),
                       ),
                       SizedBox(height: Responsive.pad(context, 4)),
-                      Text(
-                        value,
-                        style: GoogleFonts.hankenGrotesk(
-                          fontSize: Responsive.sp(context, 21),
-                          fontWeight: FontWeight.w800,
-                          color: color,
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          value,
+                          maxLines: 1,
+                          softWrap: false,
+                          style: GoogleFonts.hankenGrotesk(
+                            fontSize: Responsive.sp(context, 21),
+                            fontWeight: FontWeight.w800,
+                            color: color,
+                          ),
                         ),
                       ),
                       if (subtitle != null) ...[
@@ -1145,7 +1222,9 @@ class _HomePageState extends State<HomePage>
     showSpringSheet(context: context, builder: (_) => const _HelpSheet());
   }
 
-  void _openNotificationSheet() {
+  Future<void> _openNotificationSheet() async {
+    await _refreshNotifications();
+    if (!mounted) return;
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
@@ -1302,7 +1381,7 @@ class _HomePageState extends State<HomePage>
                                   fontSize: Responsive.sp(context, 12),
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: 0.05,
-                                  color: const Color(0xff174a7c),
+                                  color: const Color(0xFF4A78E0),
                                 ),
                               ),
                               SizedBox(height: Responsive.pad(context, 2)),
@@ -1526,7 +1605,7 @@ class _HomePageState extends State<HomePage>
                               Icon(
                                 TablerIcons.circle_check,
                                 size: Responsive.sp(context, 72),
-                                color: const Color(0xff174a7c),
+                                color: const Color(0xFF4A78E0),
                               ),
                               SizedBox(height: Responsive.pad(context, 12)),
                               Text(
@@ -1638,9 +1717,7 @@ class _HomePageState extends State<HomePage>
                                                             .circle_check)
                                                 : TablerIcons.scan,
                                             size: Responsive.sp(context, 48),
-                                            color: _isPunchedIn
-                                                ? AppPalette.ink
-                                                : Colors.white,
+                                            color: Colors.white,
                                           ),
                                           SizedBox(
                                             height: Responsive.pad(context, 8),
@@ -1658,9 +1735,7 @@ class _HomePageState extends State<HomePage>
                                               ),
                                               fontWeight: FontWeight.w700,
                                               letterSpacing: 1.5,
-                                              color: _isPunchedIn
-                                                  ? AppPalette.ink
-                                                  : Colors.white,
+                                              color: Colors.white,
                                             ),
                                           ),
                                           if (_isPunchedIn &&
@@ -1682,8 +1757,9 @@ class _HomePageState extends State<HomePage>
                                                 ),
                                                 fontWeight: FontWeight.w500,
                                                 letterSpacing: 0.3,
-                                                color: AppPalette.ink
-                                                    .withValues(alpha: 0.7),
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.7,
+                                                ),
                                               ),
                                             ),
                                           ],
@@ -1776,33 +1852,36 @@ class _HomePageState extends State<HomePage>
                           ],
                         ),
                         SizedBox(height: Responsive.pad(context, 16)),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _homeStatCard(
-                                icon: TablerIcons.clock,
-                                title: 'Late Deduction',
-                                value: '$_monthLateMinutes min',
-                                subtitle:
-                                    '${_fmtDays(_monthLateDeductionDays)} day deducted',
-                                color: const Color(0xFFB45309),
-                                onTap: _openLateDeductionRules,
+                        IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: _homeStatCard(
+                                  icon: TablerIcons.clock,
+                                  title: 'Late Deduction',
+                                  value: '$_monthLateMinutes min',
+                                  subtitle:
+                                      '${_fmtDays(_monthLateDeductionDays)} day deducted',
+                                  color: const Color(0xFFB45309),
+                                  onTap: _openLateDeductionRules,
+                                ),
                               ),
-                            ),
-                            SizedBox(width: Responsive.pad(context, 12)),
-                            Expanded(
-                              child: _homeStatCard(
-                                icon: TablerIcons.calendar_check,
-                                title: 'Attendance',
-                                value: '$_attendancePercent%',
-                                subtitle: _monthLate == 1
-                                    ? '1 late day'
-                                    : '$_monthLate late days',
-                                color: AppPalette.aquaDeep,
-                                onTap: _openAttendanceSheet,
+                              SizedBox(width: Responsive.pad(context, 12)),
+                              Expanded(
+                                child: _homeStatCard(
+                                  icon: TablerIcons.calendar_check,
+                                  title: 'Attendance',
+                                  value: '$_attendancePercent%',
+                                  subtitle: _monthLate == 1
+                                      ? '1 late day'
+                                      : '$_monthLate late days',
+                                  color: AppPalette.aquaDeep,
+                                  onTap: _openAttendanceSheet,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -1929,7 +2008,13 @@ class _HomePageState extends State<HomePage>
                         Responsive.pad(context, 12),
                       ),
                       child: SizedBox(
-                        height: Responsive.pad(context, 128),
+                        height: MediaQuery.textScalerOf(context)
+                            .scale(Responsive.pad(context, 128))
+                            .clamp(
+                              Responsive.pad(context, 128),
+                              Responsive.pad(context, 190),
+                            )
+                            .toDouble(),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -1952,9 +2037,9 @@ class _HomePageState extends State<HomePage>
                                       icon: TablerIcons.wallet,
                                       label: 'Advance',
                                       background: AppPalette.aqua,
-                                      foreground: AppPalette.ink,
+                                      foreground: AppPalette.white,
                                       iconBackground: AppPalette.white
-                                          .withValues(alpha: 0.55),
+                                          .withValues(alpha: 0.2),
                                       onTap: () => _openRequestSheet(1),
                                     ),
                                   ),
@@ -1964,6 +2049,75 @@ class _HomePageState extends State<HomePage>
                             SizedBox(width: Responsive.pad(context, 12)),
                             Expanded(
                               child: _HelpActionButton(onTap: _openHelpSheet),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (_graceForfeited)
+                SliverToBoxAdapter(
+                  child: StaggeredReveal(
+                    index: 6,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        Responsive.pad(context, 16),
+                        Responsive.pad(context, 16),
+                        Responsive.pad(context, 16),
+                        0,
+                      ),
+                      child: Container(
+                        padding: EdgeInsets.all(Responsive.pad(context, 14)),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFDEAEA),
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: Responsive.sp(context, 34),
+                              height: Responsive.sp(context, 34),
+                              decoration: BoxDecoration(
+                                color: const Color(
+                                  0xFFB42318,
+                                ).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                TablerIcons.alert_triangle,
+                                size: Responsive.sp(context, 18),
+                                color: const Color(0xFFB42318),
+                              ),
+                            ),
+                            SizedBox(width: Responsive.pad(context, 10)),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '$_lateGraceMinutes min grace deducted',
+                                    style: TextStyle(
+                                      fontSize: Responsive.sp(context, 13),
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFF8E1F16),
+                                    ),
+                                  ),
+                                  SizedBox(height: Responsive.pad(context, 2)),
+                                  Text(
+                                    'Unauthorized absence this month. Upload a proof from Alerts to request a review.',
+                                    style: TextStyle(
+                                      fontSize: Responsive.sp(context, 11.5),
+                                      height: 1.35,
+                                      fontWeight: FontWeight.w500,
+                                      color: const Color(
+                                        0xFF8E1F16,
+                                      ).withValues(alpha: 0.82),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
@@ -2116,7 +2270,7 @@ class _HelpSheetState extends State<_HelpSheet> {
                 hintText: 'Search employees...',
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
-                fillColor: const Color(0xffe6f0fa),
+                fillColor: const Color(0xFFF4F6FA),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(18),
                   borderSide: BorderSide.none,
@@ -2181,7 +2335,7 @@ class _HelpSheetState extends State<_HelpSheet> {
                           margin: const EdgeInsets.only(bottom: 10),
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: const Color(0xffe6f0fa),
+                            color: const Color(0xFFF4F6FA),
                             borderRadius: BorderRadius.circular(22),
                           ),
                           child: Row(
@@ -2211,7 +2365,7 @@ class _HelpSheetState extends State<_HelpSheet> {
                                         w['department'].toString(),
                                         style: const TextStyle(
                                           fontSize: 12,
-                                          color: Color(0xff5e7e99),
+                                          color: Color(0xFF7C8698),
                                         ),
                                       ),
                                   ],
@@ -2379,7 +2533,7 @@ class _HelpActionButton extends StatelessWidget {
                   children: [
                     Text(
                       'Help an Employee',
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.hankenGrotesk(
                         fontSize: Responsive.sp(context, 15),
@@ -2390,7 +2544,7 @@ class _HelpActionButton extends StatelessWidget {
                     SizedBox(height: Responsive.pad(context, 2)),
                     Text(
                       'Punch in/out for others',
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: Responsive.sp(context, 11),
@@ -2417,8 +2571,7 @@ class _RequestSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final sc = Theme.of(context).colorScheme;
     return SizedBox(
-      height:
-          MediaQuery.of(context).size.height * (initialTab == 1 ? 0.78 : 0.92),
+      height: MediaQuery.of(context).size.height * 0.92,
       child: Material(
         type: MaterialType.transparency,
         child: Container(
@@ -2427,24 +2580,34 @@ class _RequestSheet extends StatelessWidget {
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
           ),
           clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              SizedBox(height: Responsive.pad(context, 12)),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: sc.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            // showModalBottomSheet does not lift itself for the keyboard; without
+            // this inset the last field/footer sits behind the IME and only its
+            // top half is visible.
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: Column(
+              children: [
+                SizedBox(height: Responsive.pad(context, 12)),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: sc.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              SizedBox(height: Responsive.pad(context, 4)),
-              Expanded(
-                child: initialTab == 1
-                    ? const AdvancePage()
-                    : const LeavePage(),
-              ),
-            ],
+                SizedBox(height: Responsive.pad(context, 4)),
+                Expanded(
+                  child: initialTab == 1
+                      ? const AdvancePage()
+                      : const LeavePage(),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2462,6 +2625,9 @@ IconData _notifIcon(String? type) {
       return TablerIcons.speakerphone;
     case 'achievement':
       return TablerIcons.trophy;
+    case 'absence_warning':
+    case 'leave_rejected':
+      return TablerIcons.alert_triangle;
     default:
       return TablerIcons.bell;
   }
@@ -2472,11 +2638,14 @@ Color _notifColor(String? type, ColorScheme sc) {
     case 'birthday':
       return const Color(0xFFf43f5e);
     case 'event':
-      return const Color(0xff174a7c);
+      return const Color(0xFF4A78E0);
     case 'notice':
-      return const Color(0xff174a7c);
+      return const Color(0xFF4A78E0);
     case 'achievement':
       return const Color(0xFFf59e0b);
+    case 'absence_warning':
+    case 'leave_rejected':
+      return const Color(0xFFB42318);
     default:
       return sc.onSurfaceVariant;
   }
@@ -2563,7 +2732,7 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                 height: 4,
                 margin: EdgeInsets.only(bottom: Responsive.pad(context, 24)),
                 decoration: BoxDecoration(
-                  color: const Color(0xffdceaf6),
+                  color: const Color(0xFFDDE3EC),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -2574,12 +2743,12 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                   width: Responsive.sp(context, 44),
                   height: Responsive.sp(context, 44),
                   decoration: BoxDecoration(
-                    color: const Color(0xffd6eaf7),
+                    color: const Color(0xFFE4EBFB),
                     borderRadius: BorderRadius.circular(22),
                   ),
                   child: Icon(
                     TablerIcons.bell_ringing,
-                    color: Color(0xff174a7c),
+                    color: Color(0xFF4A78E0),
                     size: Responsive.sp(context, 22),
                   ),
                 ),
@@ -2648,7 +2817,7 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                         left: Responsive.pad(context, 16),
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xff174a7c),
+                        color: const Color(0xFF4A78E0),
                         borderRadius: BorderRadius.circular(18),
                       ),
                       child: Row(
@@ -2777,7 +2946,7 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                           left: Responsive.pad(context, 16),
                         ),
                         decoration: BoxDecoration(
-                          color: const Color(0xff174a7c),
+                          color: const Color(0xFF4A78E0),
                           borderRadius: BorderRadius.circular(22),
                         ),
                         child: Row(
@@ -3223,7 +3392,7 @@ class _AccountSheet extends StatelessWidget {
                       const Icon(
                         TablerIcons.id_badge,
                         size: 18,
-                        color: AppPalette.aqua,
+                        color: AppPalette.accentOnDark,
                       ),
                     ],
                   ),
@@ -3256,7 +3425,9 @@ class _AccountSheet extends StatelessWidget {
                           vertical: 3,
                         ),
                         decoration: BoxDecoration(
-                          color: AppPalette.aqua.withValues(alpha: 0.2),
+                          color: AppPalette.accentOnDark.withValues(
+                            alpha: 0.16,
+                          ),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: const Text(
@@ -3265,7 +3436,7 @@ class _AccountSheet extends StatelessWidget {
                             fontSize: 9,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.6,
-                            color: AppPalette.aqua,
+                            color: AppPalette.accentOnDark,
                           ),
                         ),
                       ),
@@ -3651,7 +3822,7 @@ class _AttendanceSheetState extends State<_AttendanceSheet> {
   (Color, String) _statusMeta(String? status) {
     switch (status) {
       case 'present':
-        return (AppPalette.aquaDeep, 'Present');
+        return (AppPalette.success, 'Present');
       case 'absent':
         return (const Color(0xFFB42318), 'Absent');
       case 'late':
@@ -3869,7 +4040,7 @@ class _AttendanceSheetState extends State<_AttendanceSheet> {
                     child: _statTile(
                       'Present',
                       '$_present',
-                      AppPalette.aquaDeep,
+                      AppPalette.success,
                     ),
                   ),
                   SizedBox(width: Responsive.pad(context, 8)),
@@ -4181,7 +4352,7 @@ class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
             const SizedBox(height: 4),
             Text(
               name,
-              style: const TextStyle(fontSize: 14, color: Color(0xff5e7e99)),
+              style: const TextStyle(fontSize: 14, color: Color(0xFF7C8698)),
             ),
             const SizedBox(height: 16),
             if (_selfie != null)
@@ -4196,14 +4367,14 @@ class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
               Container(
                 height: 200,
                 decoration: BoxDecoration(
-                  color: const Color(0xffeef6fc),
+                  color: const Color(0xFFEDF0F6),
                   borderRadius: BorderRadius.circular(22),
                 ),
                 child: const Center(
                   child: Icon(
                     Icons.camera_alt_outlined,
                     size: 40,
-                    color: Color(0xff8ba7bd),
+                    color: Color(0xFFA7AFBC),
                   ),
                 ),
               ),
@@ -4235,7 +4406,7 @@ class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
                         : 'Location unavailable',
                     style: const TextStyle(
                       fontSize: 12,
-                      color: Color(0xff5e7e99),
+                      color: Color(0xFF7C8698),
                     ),
                   ),
                 ),
@@ -4250,7 +4421,7 @@ class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
               onPressed: _submitting ? null : _submit,
               style: FilledButton.styleFrom(
                 backgroundColor: isPunchIn
-                    ? const Color(0xff174a7c)
+                    ? const Color(0xFF4A78E0)
                     : const Color(0xff17a97f),
                 minimumSize: const Size.fromHeight(52),
                 shape: RoundedRectangleBorder(
@@ -4350,7 +4521,7 @@ class _ProofUploadSheetState extends State<_ProofUploadSheet> {
             const SizedBox(height: 4),
             Text(
               'For $displayDate · HR will review this proof for your unauthorized absence.',
-              style: const TextStyle(fontSize: 13, color: Color(0xff5e7e99)),
+              style: const TextStyle(fontSize: 13, color: Color(0xFF7C8698)),
             ),
             const SizedBox(height: 16),
             if (_image != null)
@@ -4365,14 +4536,14 @@ class _ProofUploadSheetState extends State<_ProofUploadSheet> {
               Container(
                 height: 180,
                 decoration: BoxDecoration(
-                  color: const Color(0xffeef6fc),
+                  color: const Color(0xFFEDF0F6),
                   borderRadius: BorderRadius.circular(22),
                 ),
                 child: const Center(
                   child: Icon(
                     Icons.photo_outlined,
                     size: 40,
-                    color: Color(0xff8ba7bd),
+                    color: Color(0xFFA7AFBC),
                   ),
                 ),
               ),
@@ -4518,7 +4689,7 @@ class _ProofReviewSheetState extends State<_ProofReviewSheet> {
             const SizedBox(height: 4),
             Text(
               '${_items.length} awaiting review \u00B7 approving keeps the worker\u2019s late grace',
-              style: const TextStyle(fontSize: 13, color: Color(0xff5e7e99)),
+              style: const TextStyle(fontSize: 13, color: Color(0xFF7C8698)),
             ),
             const SizedBox(height: 16),
             Expanded(
@@ -4528,7 +4699,7 @@ class _ProofReviewSheetState extends State<_ProofReviewSheet> {
                         'All caught up',
                         style: TextStyle(
                           fontSize: 14,
-                          color: Color(0xff8ba7bd),
+                          color: Color(0xFFA7AFBC),
                         ),
                       ),
                     )
@@ -4575,7 +4746,7 @@ class _ProofReviewSheetState extends State<_ProofReviewSheet> {
                                 [dateStr, ?loginId].join(' \u00B7 '),
                                 style: const TextStyle(
                                   fontSize: 12,
-                                  color: Color(0xff5e7e99),
+                                  color: Color(0xFF7C8698),
                                 ),
                               ),
                               const SizedBox(height: 10),
@@ -4597,14 +4768,14 @@ class _ProofReviewSheetState extends State<_ProofReviewSheet> {
                                   height: 80,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
-                                    color: const Color(0xffeef6fc),
+                                    color: const Color(0xFFEDF0F6),
                                     borderRadius: BorderRadius.circular(22),
                                   ),
                                   child: const Text(
                                     'Proof image unavailable',
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Color(0xff8ba7bd),
+                                      color: Color(0xFFA7AFBC),
                                     ),
                                   ),
                                 ),

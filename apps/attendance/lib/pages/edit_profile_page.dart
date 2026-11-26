@@ -227,13 +227,15 @@ class _EditProfilePageState extends State<EditProfilePage> {
                           vertical: Responsive.pad(context, 10),
                         ),
                         child: _busy
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 16,
                                 height: 16,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                   valueColor: AlwaysStoppedAnimation<Color>(
-                                    AppPalette.ink,
+                                    hasChanges
+                                        ? AppPalette.white
+                                        : AppPalette.muted,
                                   ),
                                 ),
                               )
@@ -243,7 +245,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                                   fontSize: Responsive.sp(context, 13),
                                   fontWeight: FontWeight.w700,
                                   color: hasChanges
-                                      ? AppPalette.ink
+                                      ? AppPalette.white
                                       : AppPalette.muted,
                                 ),
                               ),

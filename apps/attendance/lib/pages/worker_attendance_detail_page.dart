@@ -217,7 +217,7 @@ class _WorkerAttendanceDetailPageState
                       onPressed: () =>
                           Navigator.pop(ctx, (tempMonth, tempYear)),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xff174a7c),
+                        backgroundColor: const Color(0xFF4A78E0),
                       ),
                       child: const Text('OK'),
                     ),
@@ -258,8 +258,8 @@ class _WorkerAttendanceDetailPageState
                   : _error != null
                   ? _buildError(scheme, tt)
                   : LiquidPullToRefresh(
-                      color: const Color(0xff174a7c),
-                      backgroundColor: const Color(0xffe6f0fa),
+                      color: const Color(0xFF4A78E0),
+                      backgroundColor: const Color(0xFFF4F6FA),
                       showChildOpacityTransition: false,
                       springAnimationDurationInMilliseconds: 700,
                       onRefresh: () => _load(),
@@ -473,11 +473,11 @@ class _WorkerAttendanceDetailPageState
         statusLabel = 'Late';
         break;
       case 'half-day':
-        statusColor = const Color(0xff174a7c);
+        statusColor = const Color(0xFF4A78E0);
         statusLabel = 'Half Day';
         break;
       case 'leave':
-        statusColor = const Color(0xff174a7c);
+        statusColor = const Color(0xFF4A78E0);
         statusLabel = 'Leave';
         break;
       default:
@@ -851,7 +851,7 @@ class _RecordsSkeleton extends StatelessWidget {
           margin: EdgeInsets.only(bottom: Responsive.pad(context, 10)),
           padding: EdgeInsets.all(Responsive.pad(context, 14)),
           decoration: BoxDecoration(
-            color: const Color(0xffe6f0fa),
+            color: const Color(0xFFF4F6FA),
             borderRadius: BorderRadius.circular(14),
           ),
           child: const Column(
@@ -1047,11 +1047,15 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
           SizedBox(height: Responsive.pad(context, 20)),
           SizedBox(
             width: double.infinity,
-            height: Responsive.pad(context, 46),
             child: ElevatedButton(
               onPressed: _saving ? null : _save,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xff174a7c),
+                backgroundColor: const Color(0xFF4A78E0),
+                minimumSize: const Size.fromHeight(48),
+                padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.pad(context, 16),
+                  vertical: Responsive.pad(context, 12),
+                ),
               ),
               child: _saving ? const ButtonSkeleton() : const Text('Save'),
             ),
@@ -1320,11 +1324,15 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
           SizedBox(height: Responsive.pad(context, 20)),
           SizedBox(
             width: double.infinity,
-            height: Responsive.pad(context, 46),
             child: ElevatedButton(
               onPressed: _saving ? null : _save,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xff174a7c),
+                backgroundColor: const Color(0xFF4A78E0),
+                minimumSize: const Size.fromHeight(48),
+                padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.pad(context, 16),
+                  vertical: Responsive.pad(context, 12),
+                ),
               ),
               child: _saving ? const ButtonSkeleton() : const Text('Save'),
             ),

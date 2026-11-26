@@ -187,7 +187,7 @@ const prevDayKey = (key) => {
   return new Date(Date.UTC(y, m - 1, d) - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
-export default function RecentNotices({ limit = 5, title = 'Recent Notices', containerStyle, fill = false }) {
+export default function RecentNotices({ limit = 5, title = 'Recent Notices', containerStyle, fill = false, showAll = false }) {
   const [allNotices, setAllNotices] = useState([])
   // Fresh every day: the filter opens on today, so the window is today +
   // yesterday (the selected day always includes the day before it). Picking
@@ -225,14 +225,15 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
   // Rolling two-day view: the selected day AND the day before it — on the
   // 12th you see the 11th's and 12th's notices, on the 13th the 12th's and
   // 13th's. Newest first.
-  const notices = allNotices
-    .filter(n => {
-      if (!n.created_at) return false
-      const k = dayKey(n.created_at)
-      return k === dateFilter || k === prevDayKey(dateFilter)
-    })
+  const notices = (showAll
+    ? allNotices.filter(n => n.created_at)
+    : allNotices.filter(n => {
+        if (!n.created_at) return false
+        const k = dayKey(n.created_at)
+        return k === dateFilter || k === prevDayKey(dateFilter)
+      }))
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, limit)
+    .slice(0, showAll ? undefined : limit)
 
   const handleDelete = async (id) => {
     const token = getToken()
@@ -333,40 +334,27 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
   }
 
   // Row chrome lives in a style tag so hover can affect child buttons
-  // (delete-on-hover isn't expressible with inline styles). The green
-  // L-corners gently pulse and snap outward on hover. The list keeps
-  // wheel/touch scrolling but draws NO scrollbar at all (vertical included —
-  // the user found the slim bar ugly); overflow-x stays sealed shut.
+  // (delete-on-hover isn't expressible with inline styles). The list keeps
+  // wheel/touch scrolling but draws NO scrollbar at all.
   const CHROME_CSS = `
-    .rn-row { position: relative; transition: box-shadow .15s, border-color .15s; }
-    .rn-row:hover { border-color: #e2e8f0; box-shadow: 0 4px 14px rgba(15,23,42,.07); }
-    .rn-corner {
-      position: absolute; width: 12px; height: 12px; pointer-events: none;
-      border: 0 solid #16a34a; opacity: .5;
-      animation: rnPulse 2.8s ease-in-out infinite;
-      transition: opacity .18s, transform .18s;
-    }
-    .rn-corner.tl { top: 4px; left: 4px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 3px; }
-    .rn-corner.tr { top: 4px; right: 4px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 3px; }
-    .rn-corner.bl { bottom: 4px; left: 4px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 3px; }
-    .rn-corner.br { bottom: 4px; right: 4px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 3px; }
-    .rn-row:hover .rn-corner { animation: none; opacity: 1; }
-    .rn-row:hover .rn-corner.tl { transform: translate(-2px, -2px); }
-    .rn-row:hover .rn-corner.tr { transform: translate(2px, -2px); }
-    .rn-row:hover .rn-corner.bl { transform: translate(-2px, 2px); }
-    .rn-row:hover .rn-corner.br { transform: translate(2px, 2px); }
-    @keyframes rnPulse { 0%, 100% { opacity: .35; } 50% { opacity: .85; } }
+    .rn-card { container-type: inline-size; }
+    .rn-row { position: relative; transition: box-shadow .16s ease, border-color .16s ease, transform .16s ease; }
+    .rn-row:hover { border-color: #e2e8f0; box-shadow: 0 10px 24px -16px rgba(15,23,42,.30); transform: translateY(-1px); }
     .rn-row .rn-del { opacity: 0; transition: opacity .15s, color .15s, background .15s; }
     .rn-row:hover .rn-del, .rn-row .rn-del:focus-visible { opacity: 1; }
     @media (hover: none) { .rn-row .rn-del { opacity: .55; } }
     .rn-list { overflow-x: hidden !important; scrollbar-width: none; -ms-overflow-style: none; }
     .rn-list::-webkit-scrollbar { width: 0; height: 0; display: none; }
+    @container (max-width: 260px) {
+      .rn-row .rn-icon { width: 28px !important; height: 28px !important; }
+      .rn-role, .rn-by { display: none; }
+    }
   `
 
   // Shimmer skeleton instead of a blank gap while the fetch runs — same card
   // chrome and row shape as the loaded list so nothing jumps when data lands.
   if (loading) return (
-    <div style={cardStyle}>
+    <div className="rn-card" style={cardStyle}>
       <style>{CHROME_CSS}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <div className="sk" style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0 }} />
@@ -375,12 +363,8 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} style={{ position: 'relative', display: 'flex', gap: 10, padding: '10px 13px', borderRadius: 10, background: '#fff', border: '1px solid #f1f5f9', alignItems: 'center' }}>
-            <span className="rn-corner tl" style={{ animation: 'none', opacity: .35 }} />
-            <span className="rn-corner tr" style={{ animation: 'none', opacity: .35 }} />
-            <span className="rn-corner bl" style={{ animation: 'none', opacity: .35 }} />
-            <span className="rn-corner br" style={{ animation: 'none', opacity: .35 }} />
-            <div className="sk" style={{ width: 40, height: 40, borderRadius: 9, flexShrink: 0 }} />
+          <div key={i} style={{ position: 'relative', display: 'flex', gap: 10, padding: '11px 12px', borderRadius: 12, background: '#fff', border: '1px solid #eef2f7', alignItems: 'center' }}>
+            <div className="sk" style={{ width: 32, height: 32, borderRadius: 9, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="sk" style={{ height: 10, width: `${52 + (i % 3) * 14}%`, borderRadius: 5, marginBottom: 6 }} />
               <div className="sk" style={{ height: 8, width: `${68 - (i % 2) * 18}%`, borderRadius: 5, marginBottom: 5 }} />
@@ -393,13 +377,13 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
   )
 
   return (
-    <div style={cardStyle}>
+    <div className="rn-card" style={cardStyle}>
       <style>{CHROME_CSS}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{
             width: 30, height: 30, borderRadius: 9, flexShrink: 0,
-            background: 'linear-gradient(135deg, #16a34a 0%, #4ade80 100%)',
+            background: '#16a34a',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: '0 2px 6px rgba(22,163,74,0.25)',
           }}>
@@ -416,31 +400,35 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input
-            type="date"
-            aria-label="Show notices from this date and the day before"
-            value={dateFilter}
-            max={todayKey()}
-            onChange={e => setDateFilter(e.target.value || todayKey())}
-            style={{
-              fontSize: 11, fontWeight: 600, color: '#475569',
-              border: '1px solid #e2e8f0', borderRadius: 8,
-              padding: '4px 7px', background: '#fff', cursor: 'pointer',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          />
-          {dateFilter !== todayKey() && (
-            <button
-              onClick={() => setDateFilter(todayKey())}
-              title="Back to today's notices"
-              style={{
-                fontSize: 10, fontWeight: 700, color: '#15803d',
-                background: '#dcfce7', border: 'none', borderRadius: 99,
-                padding: '4px 9px', cursor: 'pointer',
-              }}
-            >
-              Today
-            </button>
+          {!showAll && (
+            <>
+              <input
+                type="date"
+                aria-label="Show notices from this date and the day before"
+                value={dateFilter}
+                max={todayKey()}
+                onChange={e => setDateFilter(e.target.value || todayKey())}
+                style={{
+                  fontSize: 11, fontWeight: 600, color: '#475569',
+                  border: '1px solid #e2e8f0', borderRadius: 8,
+                  padding: '4px 7px', background: '#fff', cursor: 'pointer',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              />
+              {dateFilter !== todayKey() && (
+                <button
+                  onClick={() => setDateFilter(todayKey())}
+                  title="Back to today's notices"
+                  style={{
+                    fontSize: 10, fontWeight: 700, color: '#15803d',
+                    background: '#dcfce7', border: 'none', borderRadius: 99,
+                    padding: '4px 9px', cursor: 'pointer',
+                  }}
+                >
+                  Today
+                </button>
+              )}
+            </>
           )}
           {isAdmin && notices.length > 0 && (
             <button
@@ -458,7 +446,11 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
         <div style={{ textAlign: 'center', padding: '22px 0 12px' }}>
           <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#e2e8f0' }}>campaign</span>
           <p style={{ color: '#94a3b8', fontSize: 12, margin: '6px 0 0' }}>
-            {dateFilter === todayKey() ? 'No notices today or yesterday' : 'No notices on this or the previous day'}
+            {showAll
+              ? 'No notices yet'
+              : dateFilter === todayKey()
+                ? 'No notices today or yesterday'
+                : 'No notices on this or the previous day'}
           </p>
         </div>
       ) : (
@@ -474,8 +466,9 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
             return (
             <div key={n.id || i} className={rowEditMode ? undefined : 'rn-row'} style={{
               position: 'relative',
-              display: 'flex', gap: 10, padding: '10px 13px',
-              borderRadius: 10, background: '#fff', border: '1px solid #f1f5f9',
+              display: 'flex', gap: 10, padding: '11px 12px',
+              borderRadius: 12, background: '#fff', border: '1px solid #eef2f7',
+              boxShadow: '0 1px 2px rgba(15,23,42,.03)',
               alignItems: 'center',
               // In edit mode the row holds real inputs and buttons, so a row-wide
               // click target would swallow their clicks. Keep it inert there.
@@ -493,12 +486,13 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(n) }
               }}
             >
-              {/* Green L-brackets on all four corners — idle: gentle pulse
-                  (staggered per row); hover: snap outward. */}
-              <span className="rn-corner tl" style={{ animationDelay: `${(i % 6) * 0.25}s` }} />
-              <span className="rn-corner tr" style={{ animationDelay: `${(i % 6) * 0.25}s` }} />
-              <span className="rn-corner bl" style={{ animationDelay: `${(i % 6) * 0.25}s` }} />
-              <span className="rn-corner br" style={{ animationDelay: `${(i % 6) * 0.25}s` }} />
+              <span className="rn-icon" style={{
+                width: 32, height: 32, borderRadius: 9, flexShrink: 0,
+                display: 'grid', placeItems: 'center',
+                background: `${accent}12`, color: accent,
+              }} aria-hidden="true">
+                <span className="material-symbols-outlined" style={{ fontSize: 17 }}>campaign</span>
+              </span>
               <div style={{ minWidth: 0, flex: 1 }}>
                 {rowEditMode ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -514,7 +508,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, lineHeight: 1.3, minWidth: 0 }}>
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{n.title}</span>
                       {TARGET_LABELS[n.target_role] && (
-                        <span style={{
+                        <span className="rn-role" style={{
                           fontSize: 8.5, fontWeight: 800, padding: '1px 5px', borderRadius: 4,
                           background: `${accent}12`, color: accent, border: `1px solid ${accent}26`,
                           whiteSpace: 'nowrap', flexShrink: 0, letterSpacing: '.2px',
@@ -531,8 +525,8 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                     <div style={{ fontSize: 9.5, color: '#94a3b8', fontWeight: 600, marginTop: 3, display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 11, lineHeight: 1 }}>schedule</span>
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {n.created_at ? new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''}
-                        {n.created_by_name ? ` · by ${n.created_by_name}` : ''}
+                        <span className="rn-date">{n.created_at ? new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''}</span>
+                        {n.created_by_name && <span className="rn-by"> · by {n.created_by_name}</span>}
                       </span>
                     </div>
                   </>
@@ -540,8 +534,8 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
               </div>
               {!rowEditMode && (
                 n.media_url && brokenMedia[n.id] ? (
-                  <span style={{ flexShrink: 0, fontSize: 9, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '3px 6px' }}>
-                    Failed
+                  <span title="Attachment unavailable" style={{ flexShrink: 0, width: 24, height: 24, display: 'grid', placeItems: 'center', color: '#b45309', background: '#fffbeb', borderRadius: 7 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>broken_image</span>
                   </span>
                 ) : isFileMedia(n.media_url, n.media_type) ? (
                   <button

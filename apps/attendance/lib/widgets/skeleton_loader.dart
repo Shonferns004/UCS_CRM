@@ -60,7 +60,7 @@ class SkeletonBlock extends StatelessWidget {
     this.width = double.infinity,
     required this.height,
     this.borderRadius = 8,
-    this.color = const Color(0xffdceaf6),
+    this.color = const Color(0xFFDDE3EC),
   });
 
   @override
@@ -130,7 +130,7 @@ class HomeSkeleton extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xff174a7c).withValues(alpha: 0.05),
+            color: const Color(0xFF4A78E0).withValues(alpha: 0.05),
             blurRadius: 24,
             offset: const Offset(0, 10),
           ),
@@ -144,7 +144,7 @@ class HomeSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SkeletonLoader(
       child: Scaffold(
-        backgroundColor: const Color(0xffe6f0fa),
+        backgroundColor: const Color(0xFFF4F6FA),
         body: SafeArea(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
@@ -264,7 +264,7 @@ class ListSkeleton extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xffe6f0fa),
+            color: const Color(0xFFF4F6FA),
             borderRadius: BorderRadius.circular(14),
           ),
           child: const Row(
@@ -298,7 +298,7 @@ class PageSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return const SkeletonLoader(
       child: Scaffold(
-        backgroundColor: Color(0xffe6f0fa),
+        backgroundColor: Color(0xFFF4F6FA),
         body: SafeArea(child: ListSkeleton()),
       ),
     );
@@ -349,7 +349,7 @@ class ProfileSkeleton extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xff174a7c).withValues(alpha: 0.05),
+            color: const Color(0xFF4A78E0).withValues(alpha: 0.05),
             blurRadius: 24,
             offset: const Offset(0, 10),
           ),
@@ -404,7 +404,7 @@ class ProfileSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SkeletonLoader(
       child: Scaffold(
-        backgroundColor: const Color(0xffe6f0fa),
+        backgroundColor: const Color(0xFFF4F6FA),
         body: SafeArea(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
@@ -416,11 +416,11 @@ class ProfileSkeleton extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: const Color(0xff174a7c),
+                  color: const Color(0xFF4A78E0),
                   borderRadius: BorderRadius.circular(28),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xff174a7c).withValues(alpha: 0.18),
+                      color: const Color(0xFF4A78E0).withValues(alpha: 0.18),
                       blurRadius: 28,
                       offset: const Offset(0, 12),
                     ),

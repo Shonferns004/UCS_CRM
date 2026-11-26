@@ -1256,7 +1256,7 @@ export default function AssetRegister() {
           --arx-ink: #101f19; --arx-ink2: #33453e; --arx-muted: #6c807a; --arx-soft: #93a6a0;
           --arx-mint: #2A6B45; --arx-mint2: #1E4D3D; --arx-mint-soft: #EAF7EE;
           --arx-line: #e2ebe7; --arx-card: #ffffff; --arx-track: #f0f5f3;
-          font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+          font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif);
           color: var(--arx-ink);
         }
         .arx-root * { box-sizing: border-box; }

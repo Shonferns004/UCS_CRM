@@ -652,6 +652,19 @@ export function validateEnv(config: EnvConfig): EnvConfig {
     errors.push(`BAILEYS_AUTH_STORE must be "file" or "database" (got ${JSON.stringify(authStore)})`);
   }
 
+  // BAILEYS_MEMORY_PROFILE selects the engine's cache sizing: 'low' shrinks every per-session LRU map,
+  // the group-metadata cache and the chat-state mirror. Anything else keeps the defaults, so a typo must
+  // be rejected rather than silently leaving a memory-constrained box on 5000-entry maps.
+  const memoryProfile = config['BAILEYS_MEMORY_PROFILE'];
+  if (
+    memoryProfile !== undefined &&
+    String(memoryProfile).trim() !== '' &&
+    memoryProfile !== 'low' &&
+    memoryProfile !== 'normal'
+  ) {
+    errors.push(`BAILEYS_MEMORY_PROFILE must be "low" or "normal" (got ${JSON.stringify(memoryProfile)})`);
+  }
+
   // Boolean feature flags read at module-eval time (app.module.ts) with a bare `=== 'true'` /
   // `!== 'false'` comparison: a typo (`True`, `1`, `yes`) or trailing whitespace/CR silently
   // (dis)ables the feature. Validate the RAW value — NOT a trimmed one — so `'true '` / `'true\r'`

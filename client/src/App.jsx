@@ -1,13 +1,15 @@
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { UcsProvider, useUcs } from './store'
 import { SalaryPrivacyProvider } from './context/SalaryPrivacyContext'
-import { lazy, Suspense, Component, useEffect } from 'react'
+import { lazy, Suspense, Component, useEffect, useLayoutEffect, useRef } from 'react'
+import gsap from 'gsap'
 import { getSocket } from './lib/socket'
 import Login from './pages/Login'
 import TempPage from './pages/TempPage'
 import NoticesBar from './components/NoticesBar'
 import MeetingGate from './components/MeetingGate'
 import { ChatUnreadProvider } from './components/chat/ChatUnreadProvider'
+import SidebarHoverIntent from './components/admin-sidebar/SidebarHoverIntent'
 import ChatFabHost from './components/chat/ChatFabHost'
 import NoticePopupHost from './components/chat/NoticePopupHost'
 import TicketPopupHost from './components/TicketPopupHost'
@@ -91,7 +93,48 @@ function PanelFallback() {
 
 function PanelWrapper({ roleKey }) {
   const location = useLocation()
+  const hostRef = useRef(null)
   const mapping = ROLE_PANELS[roleKey]
+
+  // A short, power-out entrance on every route change. The panel chunks are
+  // lazy, so a MutationObserver starts the first entrance when the main shell
+  // finally appears instead of animating the fallback card.
+  useLayoutEffect(() => {
+    const host = hostRef.current
+    if (!host || !mapping) return undefined
+
+    let observer = null
+    let ctx = null
+    let played = false
+
+    const play = () => {
+      if (played) return true
+      const el = host.querySelector('.sim-main, .main, main')
+      if (!el) return false
+      played = true
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true
+      ctx = gsap.context(() => {
+        gsap.fromTo(el,
+          { autoAlpha: 0, y: 10 },
+          { autoAlpha: 1, y: 0, duration: 0.45, ease: 'power3.out', overwrite: 'auto' },
+        )
+      }, el)
+      return true
+    }
+
+    if (!play()) {
+      observer = new MutationObserver(() => {
+        if (play()) observer?.disconnect()
+      })
+      observer.observe(host, { childList: true, subtree: true })
+    }
+
+    return () => {
+      observer?.disconnect()
+      ctx?.revert()
+    }
+  }, [location.pathname, mapping])
+
   if (!mapping) return <AccessDenied />
   const Panel = mapping.panel
   // Derived rather than stored on ROLE_PANELS so a changed base path can never
@@ -99,14 +142,17 @@ function PanelWrapper({ roleKey }) {
   const base = ROLE_PATHS[roleKey]
   const chatPath = base ? `${base}/chat` : null
   const onChatRoute = !!chatPath && location.pathname === chatPath
+  // FROs reach chat from the rail; the floating launcher just covered
+  // dashboard content on small screens.
+  const showChatFab = !!chatPath && mapping.cls !== 'panel-fro'
   return (
     <ChatUnreadProvider>
-      <div className={onChatRoute ? `${mapping.cls} is-chat-route` : mapping.cls}>
+      <div ref={hostRef} className={onChatRoute ? `${mapping.cls} is-chat-route` : mapping.cls}>
         <Suspense fallback={<PanelFallback />}>
           <Panel />
         </Suspense>
         <NoticesBar />
-        {chatPath && <ChatFabHost chatPath={chatPath} />}
+        {showChatFab && <ChatFabHost chatPath={chatPath} />}
         {/* Notices reach people wherever they are in the panel, not only on the
             chat route, so this one is mounted unconditionally. */}
         <NoticePopupHost />
@@ -114,6 +160,7 @@ function PanelWrapper({ roleKey }) {
             they are in the panel. Server keeps the seen set (ticket_popup_seen),
             so a reload or a second device never re-shows it. */}
         <TicketPopupHost />
+        <SidebarHoverIntent />
       </div>
     </ChatUnreadProvider>
   )

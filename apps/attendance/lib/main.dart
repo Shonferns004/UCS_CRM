@@ -189,37 +189,37 @@ class AppColors extends ThemeExtension<AppColors> {
   ) => this;
 
   static const light = AppColors(
-    primaryFixed: Color(0xFFD6EAF7),
-    primaryFixedDim: Color(0xFFB4D2E8),
-    onPrimaryFixed: Color(0xFF0B2A45),
-    onPrimaryFixedVariant: Color(0xFF2C5A85),
-    secondaryContainer: Color(0xFFD4F7EC),
-    onSecondaryContainer: Color(0xFF075E48),
-    secondaryFixed: Color(0xFFB9F0DE),
-    secondaryFixedDim: Color(0xFF8FE6CD),
-    onSecondaryFixed: Color(0xFF04352A),
-    onSecondaryFixedVariant: Color(0xFF0B5C46),
-    tertiary: Color(0xFF0F7A5A),
-    tertiaryContainer: Color(0xFFD4F7EC),
+    primaryFixed: Color(0xFFE4EBFB),
+    primaryFixedDim: Color(0xFFCBD8F7),
+    onPrimaryFixed: Color(0xFF5A6473),
+    onPrimaryFixedVariant: Color(0xFF3762C9),
+    secondaryContainer: Color(0xFFDDE3EC),
+    onSecondaryContainer: Color(0xFF5A6473),
+    secondaryFixed: Color(0xFFDDE3EC),
+    secondaryFixedDim: Color(0xFFC9D0DB),
+    onSecondaryFixed: Color(0xFF5A6473),
+    onSecondaryFixedVariant: Color(0xFF6C7686),
+    tertiary: Color(0xFF3762C9),
+    tertiaryContainer: Color(0xFFE4EBFB),
     onTertiary: Color(0xFFffffff),
-    onTertiaryContainer: Color(0xFF075E48),
-    tertiaryFixed: Color(0xFFD4F7EC),
-    tertiaryFixedDim: Color(0xFF2FD3A0),
-    onTertiaryFixed: Color(0xFF04352A),
-    onTertiaryFixedVariant: Color(0xFF0B5C46),
+    onTertiaryContainer: Color(0xFF2F55B8),
+    tertiaryFixed: Color(0xFFE4EBFB),
+    tertiaryFixedDim: Color(0xFF4A78E0),
+    onTertiaryFixed: Color(0xFF5A6473),
+    onTertiaryFixedVariant: Color(0xFF2F55B8),
     surfaceContainerLowest: Color(0xFFffffff),
-    surfaceContainerLow: Color(0xFFF2F8FD),
-    surfaceContainer: Color(0xFFECF4FB),
-    surfaceContainerHigh: Color(0xFFE7F1FA),
-    surfaceContainerHighest: Color(0xFFDCEAF6),
-    surfaceDim: Color(0xFFD3E5F2),
-    surfaceBright: Color(0xFFF8FCFF),
-    surfaceVariant: Color(0xFFDCEAF6),
-    outline: Color(0xFF7A97B0),
-    outlineVariant: Color(0xFFC2D8EA),
-    inverseSurface: Color(0xFF0E3457),
-    inverseOnSurface: Color(0xFFE6F0FA),
-    inversePrimary: Color(0xFF2FD3A0),
+    surfaceContainerLow: Color(0xFFF4F6FA),
+    surfaceContainer: Color(0xFFEDF0F6),
+    surfaceContainerHigh: Color(0xFFDDE3EC),
+    surfaceContainerHighest: Color(0xFFC9D0DB),
+    surfaceDim: Color(0xFFC9D0DB),
+    surfaceBright: Color(0xFFF4F6FA),
+    surfaceVariant: Color(0xFFDDE3EC),
+    outline: Color(0xFFA7AFBC),
+    outlineVariant: Color(0xFFC9D0DB),
+    inverseSurface: Color(0xFF5A6473),
+    inverseOnSurface: Color(0xFFF4F6FA),
+    inversePrimary: Color(0xFF4A78E0),
   );
 }
 
@@ -237,33 +237,33 @@ class UfsAttendApp extends StatelessWidget {
         useMaterial3: true,
         brightness: Brightness.light,
         colorScheme: const ColorScheme.light(
-          primary: AppPalette.ocean,
+          primary: AppPalette.aqua,
           onPrimary: Color(0xFFffffff),
-          primaryContainer: AppPalette.iceDeep,
-          onPrimaryContainer: AppPalette.oceanDeep,
-          secondary: AppPalette.aqua,
-          onSecondary: Color(0xFF04352A),
-          secondaryContainer: AppPalette.aquaSoft,
-          onSecondaryContainer: Color(0xFF075E48),
+          primaryContainer: AppPalette.aquaSoft,
+          onPrimaryContainer: AppPalette.aquaDeep,
+          secondary: AppPalette.ocean,
+          onSecondary: Color(0xFFffffff),
+          secondaryContainer: AppPalette.iceDeep,
+          onSecondaryContainer: AppPalette.ocean,
           tertiary: AppPalette.aquaDeep,
           onTertiary: Color(0xFFffffff),
           tertiaryContainer: AppPalette.aquaSoft,
-          onTertiaryContainer: Color(0xFF075E48),
+          onTertiaryContainer: AppPalette.aquaDeep,
           surface: AppPalette.white,
           onSurface: AppPalette.ink,
           onSurfaceVariant: AppPalette.muted,
-          surfaceContainerHighest: Color(0xFFDCEAF6),
-          outline: Color(0xFF7A97B0),
-          outlineVariant: Color(0xFFC2D8EA),
+          surfaceContainerHighest: Color(0xFFC9D0DB),
+          outline: Color(0xFFA7AFBC),
+          outlineVariant: Color(0xFFC9D0DB),
           error: AppPalette.error,
           onError: Color(0xFFffffff),
           errorContainer: Color(0xFFffdad6),
           onErrorContainer: Color(0xFF93000a),
-          inverseSurface: AppPalette.oceanDeep,
+          inverseSurface: AppPalette.graphite,
           onInverseSurface: AppPalette.iceBlue,
           inversePrimary: AppPalette.aqua,
-          shadow: AppPalette.ocean,
-          scrim: AppPalette.oceanDeep,
+          shadow: AppPalette.graphite,
+          scrim: AppPalette.graphiteDeep,
         ),
         extensions: const [AppColors.light],
         scaffoldBackgroundColor: AppPalette.iceBlue,
@@ -300,7 +300,7 @@ class UfsAttendApp extends StatelessWidget {
           backgroundColor: AppPalette.white,
           modalBackgroundColor: AppPalette.white,
           surfaceTintColor: Colors.transparent,
-          modalBarrierColor: Color(0x57123456),
+          modalBarrierColor: Color(0x575A6473),
           elevation: 0,
           modalElevation: 0,
           shape: RoundedRectangleBorder(
@@ -327,7 +327,7 @@ class UfsAttendApp extends StatelessWidget {
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            backgroundColor: AppPalette.ocean,
+            backgroundColor: AppPalette.aqua,
             foregroundColor: AppPalette.white,
             elevation: 0,
             padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
@@ -342,7 +342,7 @@ class UfsAttendApp extends StatelessWidget {
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: AppPalette.ocean,
+            backgroundColor: AppPalette.aqua,
             foregroundColor: AppPalette.white,
             elevation: 0,
             padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
@@ -371,7 +371,7 @@ class UfsAttendApp extends StatelessWidget {
         ),
         textButtonTheme: TextButtonThemeData(
           style: TextButton.styleFrom(
-            foregroundColor: AppPalette.ocean,
+            foregroundColor: AppPalette.aquaDeep,
             textStyle: GoogleFonts.manrope(
               fontSize: 14,
               fontWeight: FontWeight.w700,
@@ -391,7 +391,7 @@ class UfsAttendApp extends StatelessWidget {
           floatingLabelStyle: GoogleFonts.manrope(
             fontSize: 13,
             fontWeight: FontWeight.w600,
-            color: AppPalette.ocean,
+            color: AppPalette.aquaDeep,
           ),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 18,
@@ -431,7 +431,7 @@ class UfsAttendApp extends StatelessWidget {
           ),
         ),
         dividerTheme: const DividerThemeData(
-          color: Color(0xFFC2D8EA),
+          color: Color(0xFFC9D0DB),
           thickness: 1,
           space: 1,
         ),
@@ -540,7 +540,7 @@ class _AuthGateState extends State<AuthGate> {
           token = await ApiService.getToken();
         } catch (_) {}
       }
-      if (token != null && firebaseInitialized) {
+      if (token != null) {
         await NotificationService().init();
       }
       if (token != null && firebaseInitialized) {
@@ -582,9 +582,7 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   void _onLogin() async {
-    if (firebaseInitialized) {
-      NotificationService().init();
-    }
+    NotificationService().init();
     // Always query server; use local cache only as fallback
     final prefs = await SharedPreferences.getInstance();
     try {
@@ -715,7 +713,7 @@ class _AnnouncementBanner extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: const Color(0xff174a7c),
+      color: const Color(0xFF4A78E0),
       child: SafeArea(
         bottom: false,
         child: Row(
@@ -724,7 +722,7 @@ class _AnnouncementBanner extends StatelessWidget {
             const Icon(
               TablerIcons.speakerphone,
               size: 20,
-              color: Color(0xff8fc8e8),
+              color: Color(0xFFCBD8F7),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -746,7 +744,7 @@ class _AnnouncementBanner extends StatelessWidget {
                       style: GoogleFonts.manrope(
                         fontSize: 13,
                         fontWeight: FontWeight.w400,
-                        color: const Color(0xFFd7dee8),
+                        color: const Color(0xFFDDE3EC),
                       ),
                     ),
                   ],
@@ -761,7 +759,7 @@ class _AnnouncementBanner extends StatelessWidget {
                   child: Icon(
                     TablerIcons.x,
                     size: 18,
-                    color: Color(0xFFd7dee8),
+                    color: Color(0xFFDDE3EC),
                   ),
                 ),
               ),
@@ -782,7 +780,7 @@ class ForceUpdatePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final cfg = RemoteConfigService.instance;
     return Scaffold(
-      backgroundColor: const Color(0xffe6f0fa),
+      backgroundColor: const Color(0xFFF4F6FA),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -793,7 +791,7 @@ class ForceUpdatePage extends StatelessWidget {
                 Icon(
                   TablerIcons.package_export,
                   size: 72,
-                  color: const Color(0xff174a7c),
+                  color: const Color(0xFF4A78E0),
                 ),
                 const SizedBox(height: 24),
                 Text(
@@ -802,7 +800,7 @@ class ForceUpdatePage extends StatelessWidget {
                   style: GoogleFonts.hankenGrotesk(
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xff174a7c),
+                    color: const Color(0xFF4A78E0),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -812,7 +810,7 @@ class ForceUpdatePage extends StatelessWidget {
                   style: GoogleFonts.manrope(
                     fontSize: 14,
                     fontWeight: FontWeight.w400,
-                    color: const Color(0xff3f6487),
+                    color: const Color(0xFF6C7686),
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -821,7 +819,7 @@ class ForceUpdatePage extends StatelessWidget {
                   child: FilledButton(
                     onPressed: _openStore,
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xff174a7c),
+                      backgroundColor: const Color(0xFF4A78E0),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
                     child: const Text('Update Now'),

@@ -12,6 +12,8 @@ import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { CHAT_NOTIFICATION_TYPE } from '../../components/chat/chatNotificationTypes'
 import { useRealtime } from '../../hooks/useRealtime'
+import SidebarFooter from '../../components/admin-sidebar/SidebarFooter'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { GridFour, Users, Database } from '@phosphor-icons/react'
 import Dashboard from './pages/Dashboard'
 import Workers from './pages/Workers'
@@ -46,59 +48,74 @@ const NAV = [
 const navMap = {}
 NAV.forEach(n => { navMap[n.id] = n })
 
-// Flat sidebar order under Dashboard (no group headers).
-// Any NAV id can be placed here; ids omitted are not shown.
-const SIDEBAR_ORDER = [
+// Flat sidebar order. Any NAV id can be placed here; ids omitted are not shown.
+const SIDEBAR_ITEMS = [
+  'dashboard',
   'employees',
   'data-management',
   'incentives',
-  'chat',
   'daily-reports',
+  'chat',
   'developers',
 ]
 
-function Sidebar({ mobileOpen }) {
+function Sidebar({ mobileOpen, collapsed, onToggleCollapse, onOpenSettings }) {
   const location = useLocation()
 
   // Segment-aware, so /sa/fro-idle does not light up /sa/fro.
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
 
-  // Flat sidebar entry: a single link straight to the page — or, for an
-  // embedded panel, straight to that panel's dashboard.
+  // A single link straight to the page — or, for an embedded panel, straight
+  // to that panel's dashboard.
   const renderItem = (id) => {
     const n = navMap[id]
     if (!n) return null
     const Icon = n.icon
     const embed = EMBED_PANELS[id]
     const to = embed ? `${n.path}/${embed.home || embed.items[0].path}` : n.path
-    // Light up for the dashboard link AND for deep links into the panel
-    // (isActive is segment-aware, so /sa/fro-idle never lights /sa/fro).
+    // Light up for the dashboard link AND for deep links into the panel.
     const active = isActive(to) || (embed && isActive(n.path))
     return (
-      <NavLink key={n.id} to={to} className={`sa-nav-item${active ? ' active' : ''}`}>
-        <Icon className="sa-nav-icon" size={16} />
-        <span className="sa-nav-label">{n.label}</span>
+      <NavLink
+        key={n.id}
+        to={to}
+        end={n.id === 'dashboard'}
+        className={`snav-item sa-nav-item${active ? ' active' : ''}`}
+        title={collapsed ? n.label : undefined}
+        aria-label={collapsed ? n.label : undefined}
+      >
+        <span className="ico sa-nav-icon"><Icon size={18} /></span>
+        <span className="sb-item-body">
+          <span className="sb-item-label sa-nav-label">{n.label}</span>
+        </span>
         {n.id === 'chat' && <ChatNavBadge />}
       </NavLink>
     )
   }
 
-  const dash = navMap['dashboard']
-  const DashIcon = dash.icon
-
   return (
     <aside className={`sa-sidebar${mobileOpen ? ' open' : ''}`}>
-      <div className="sa-sidebar-header">
-        <div className="sa-logo">SA</div>
-        <div><div className="sa-logo-text">UFS</div><div style={{ fontSize: 11, color: 'var(--text-muted)', letterSpacing: .5, textTransform: 'uppercase' }}>Super Admin</div></div>
+      <div className="sb-header">
+        <div className="sb-mark" aria-hidden="true">SA</div>
+        <div className="sb-brand">
+          <h1>UFS</h1>
+          <span>Super Admin</span>
+        </div>
+        <button
+          type="button"
+          className="sb-collapse"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+        </button>
       </div>
-      <nav className="sa-nav">
-        <NavLink to={dash.path} end className={`sa-nav-item${isActive(dash.path) ? ' active' : ''}`}>
-          <DashIcon className="sa-nav-icon" size={16} />
-          <span className="sa-nav-label">{dash.label}</span>
-        </NavLink>
-        {SIDEBAR_ORDER.map(renderItem)}
+      <nav className="sa-nav sidebar-nav" aria-label="Super admin navigation">
+        {SIDEBAR_ITEMS.map(renderItem)}
       </nav>
+      <SidebarFooter onSettings={onOpenSettings} />
     </aside>
   )
 }
@@ -111,6 +128,9 @@ function PageShell({ children }) {
   const [showSettings, setShowSettings] = useState(false)
   const [allNotifs, setAllNotifs] = useState([])
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [navCollapsed, setNavCollapsed] = useState(() => {
+    try { return localStorage.getItem('sa_nav_collapsed') === '1' } catch { return false }
+  })
   const [themeName, setThemeName] = useState(() => {
     try { return localStorage.getItem('sa_theme') || 'sky' } catch { return 'sky' }
   })
@@ -121,6 +141,10 @@ function PageShell({ children }) {
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('sa_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs))
   const location = useLocation()
+
+  useEffect(() => {
+    try { localStorage.setItem('sa_nav_collapsed', navCollapsed ? '1' : '0') } catch { /* storage unavailable */ }
+  }, [navCollapsed])
 
   useEffect(() => {
     if (themes[themeName]) {
@@ -207,13 +231,18 @@ function PageShell({ children }) {
   ];
 
   return (
-    <div className="app">
+    <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
       <ToastContainer />
       <SpecialIncentive />
       <LeadChampionCelebration />
       <NoticePopup />
       <div className={`sa-sidebar-overlay${mobileSidebar ? ' open' : ''}`} onClick={() => setMobileSidebar(false)} />
-      <Sidebar mobileOpen={mobileSidebar} />
+      <Sidebar
+        mobileOpen={mobileSidebar}
+        collapsed={navCollapsed}
+        onToggleCollapse={() => setNavCollapsed(c => !c)}
+        onOpenSettings={() => { setMobileSidebar(false); setShowSettings(true) }}
+      />
       <div className="main">
         <header className={`topbar${isWorkersRoute ? ' topbar-workers' : ''}`}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -256,25 +285,25 @@ function PageShell({ children }) {
               )}
             </div>
           </div>
-          <NotificationDrawer topOffset={48}
-            open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
-            sections={drawerSections}
-            onItemClick={(item) => {
-              setDrawerOpen(false)
-              // A chat notification points at a room, so make it actionable:
-              // clicking it should land on Community rather than just closing.
-              if (item?.type === CHAT_NOTIFICATION_TYPE) navigate('/sa/chat')
-            }}
-          />
-          <SettingsDrawer
-            open={showSettings}
-            onClose={() => setShowSettings(false)}
-            themes={themes}
-            themeName={themeName}
-            onThemeChange={(key) => setThemeName(key)}
-          />
         </header>
+        <NotificationDrawer topOffset={48}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          sections={drawerSections}
+          onItemClick={(item) => {
+            setDrawerOpen(false)
+            // A chat notification points at a room, so make it actionable:
+            // clicking it should land on Community rather than just closing.
+            if (item?.type === CHAT_NOTIFICATION_TYPE) navigate('/sa/chat')
+          }}
+        />
+        <SettingsDrawer
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          themes={themes}
+          themeName={themeName}
+          onThemeChange={(key) => setThemeName(key)}
+        />
         <div
           className={`content-body${isChatRoute ? ' content-body-chat' : ''}${isProfileRoute ? ' content-body-profile' : ''}`}
           style={{

@@ -102,8 +102,8 @@ class _CodesPageState extends State<CodesPage> {
                   : _error != null && _codes.isEmpty
                   ? _buildError(scheme, tt)
                   : LiquidPullToRefresh(
-                      color: const Color(0xff174a7c),
-                      backgroundColor: const Color(0xffe6f0fa),
+                      color: const Color(0xFF4A78E0),
+                      backgroundColor: const Color(0xFFF4F6FA),
                       showChildOpacityTransition: false,
                       springAnimationDurationInMilliseconds: 700,
                       onRefresh: _fetchCodes,
@@ -212,7 +212,7 @@ class _CodeCard extends StatelessWidget {
     final active = !used && !expired;
 
     final statusColor = used
-        ? const Color(0xff5e7e99)
+        ? const Color(0xFF7C8698)
         : expired
         ? const Color(0xFFba1a1a)
         : const Color(0xff0f7a5a);
@@ -254,7 +254,7 @@ class _CodeCard extends StatelessWidget {
               color: statusColor,
               icon: used ? TablerIcons.check : TablerIcons.hourglass_off,
               iconColor: statusColor,
-              backgroundColor: const Color(0xffecf4fb),
+              backgroundColor: const Color(0xFFEDF0F6),
             ),
           const SizedBox(width: 16),
           Expanded(

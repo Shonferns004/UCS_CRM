@@ -1387,7 +1387,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             child: TextButton.icon(
               onPressed: _photoUploading ? null : _pickPhoto,
               icon: _photoUploading
-                  ? const ButtonSkeleton(size: 16, color: Color(0xFF64748b))
+                  ? const ButtonSkeleton(size: 16, color: Color(0xFF7C8698))
                   : Icon(TablerIcons.camera, color: sc.onSurfaceVariant),
               label: Text(
                 _photoUploading
@@ -1547,12 +1547,12 @@ class _OnboardingPageState extends State<OnboardingPage> {
             decoration: BoxDecoration(
               color: colors.surfaceContainerLow,
               shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xff2fd3a0), width: 3),
+              border: Border.all(color: const Color(0xFF4A78E0), width: 3),
             ),
             child: const Icon(
               TablerIcons.circle_check,
               size: 60,
-              color: Color(0xff2fd3a0),
+              color: Color(0xFF4A78E0),
             ),
           ),
           const SizedBox(height: 28),
@@ -1591,7 +1591,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           child: ElevatedButton(
             onPressed: widget.onComplete,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xff2fd3a0),
+              backgroundColor: const Color(0xFF4A78E0),
               foregroundColor: Colors.white,
               elevation: 0,
               shape: RoundedRectangleBorder(

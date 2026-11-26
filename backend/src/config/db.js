@@ -141,6 +141,10 @@ const REALTIME_TABLES = new Set([
   'support_tickets', 'ticket_replies', 'developer_tickets',
   // QA bug board: a raised/fixed bug must move on every open board live.
   'bugs',
+  // Worker bell: maps to RealtimeEvent.notifications in the mobile apps, which
+  // filter by worker_id, so an admin/HR notice or absence warning appears on
+  // the bell without waiting for the next poll.
+  'notification_log',
 ]);
 
 // High-volume tables whose rows are written in bulk (imports, scrapes, donor

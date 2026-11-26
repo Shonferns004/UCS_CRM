@@ -62,15 +62,12 @@ const recencyMs = (r) => {
   return 0;
 };
 
-export default function FroSuspense() {
+export default function FroSuspense({ unclaimedOnly = false }) {
   const isMobile = useIsMobile()
   const isCompact = useIsMobile(480)
   const [month, setMonth] = useState('');
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [ngoFilter, setNgoFilter] = useState('');
-  // Filter icon toggles the NGO/Unclaimed pill row beside the search box.
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [claimReceipt, setClaimReceipt] = useState(null);
@@ -315,12 +312,10 @@ export default function FroSuspense() {
     }
   };
 
-  const ngos = [...new Set((receipts || []).map(r => r.project_id).filter(Boolean))];
-
   const list = useMemo(() => {
     let base = [...(receipts || [])];
-    if (ngoFilter === '__unclaimed') base = base.filter(r => r.pool === 'unclaimed');
-    else base = base.filter(r => r.pool !== 'unclaimed' && (!ngoFilter || r.project_id === ngoFilter));
+    if (unclaimedOnly) base = base.filter(r => r.pool === 'unclaimed');
+    else base = base.filter(r => r.pool !== 'unclaimed');
     const q = query.trim().toLowerCase();
     if (q) base = base.filter(r =>
       (r.donor_name || '').toLowerCase().includes(q) ||
@@ -329,7 +324,7 @@ export default function FroSuspense() {
       (r.payment_id || '').toLowerCase().includes(q)
     );
     return base.sort((a, b) => recencyMs(b) - recencyMs(a));
-  }, [receipts, ngoFilter, query]);
+  }, [receipts, unclaimedOnly, query]);
 
   const totalAmount = list.reduce((s, r) => s + Number(r.amount || 0), 0);
 
@@ -338,10 +333,6 @@ export default function FroSuspense() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <style>{`
-        @keyframes froPulse {
-          0%, 100% { transform: scale(1); box-shadow: 0 2px 8px rgba(91,107,78,.22); }
-          50% { transform: scale(1.045); box-shadow: 0 4px 16px rgba(91,107,78,.4); }
-        }
         @keyframes froWaveWipe {
           from { clip-path: inset(0 100% 0 0); }
           to { clip-path: inset(0 0 0 0); }
@@ -367,153 +358,79 @@ export default function FroSuspense() {
           .fro-wave-bg.is-waving { animation: none; clip-path: inset(0 0 0 0); }
         }
       `}</style>
-      {/* Toolbar: search bar first, filters open below it behind the funnel icon */}
-      <div style={{ padding: isCompact ? '10px 12px 6px' : '14px 18px 8px', flexShrink: 0, minWidth: 0 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-            <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-soft)' }} />
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search name or mobile…"
-              style={{
-                width: '100%', padding: '8px 12px 8px 32px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card-bg)',
-                fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box',
-              }}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => setFiltersOpen(o => !o)}
-            title={filtersOpen ? 'Hide filters' : 'Show filters'}
-            aria-label="Filters"
-            aria-expanded={filtersOpen}
-            style={{
-              position: 'relative', flexShrink: 0, width: 34, height: 34, borderRadius: 10,
-              border: `1px solid ${filtersOpen ? 'var(--sage)' : 'var(--line)'}`,
-              background: filtersOpen ? 'var(--sage)' : 'var(--card-bg)',
-              color: filtersOpen ? '#fff' : 'var(--ink-soft)',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>tune</span>
-            {ngoFilter && (
-              <span style={{ position: 'absolute', top: -5, right: -5, width: 15, height: 15, borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>1</span>
-            )}
-          </button>
-        </div>
-
-        {filtersOpen && (
-          <div style={{ marginTop: 10, padding: 10, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--line)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', flex: 1, minWidth: 0, background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: 3, overflowX: 'auto' }}>
-                {[['', 'All'], ['__unclaimed', 'Unclaimed']].concat(ngos.map(p => [p, NGO_SHORT[p] || p.toUpperCase()])).map(([v, l]) => {
-                  const count = v === '__unclaimed'
-                    ? receipts.filter(r => r.pool === 'unclaimed').length
-                    : receipts.filter(r => r.pool !== 'unclaimed' && (!v || r.project_id === v)).length;
-                  const active = ngoFilter === v;
-                  return (
-                    <button key={v || 'all'} onClick={() => setNgoFilter(v)}
-                      style={{
-                        flex: isCompact ? '0 0 auto' : 1, padding: '5px 10px', borderRadius: 999, border: 'none', fontFamily: 'inherit',
-                        fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, whiteSpace: 'nowrap',
-                        background: active ? 'var(--sage)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)',
-                        boxShadow: active ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s', flexShrink: 0,
-                      }}>
-                      {l}
-                      <span style={{
-                        minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700,
-                        background: active ? 'rgba(255,255,255,.22)' : 'var(--line)', color: active ? '#fff' : 'var(--ink-soft)',
-                      }}>{count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* List */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: isCompact ? '2px 10px 10px' : '2px 18px 18px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: isCompact ? '10px 10px 10px' : '12px 18px 18px' }}>
         {list.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 220, gap: 10, color: 'var(--ink-soft)' }}>
             <span style={{ width: 54, height: 54, borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Inbox size={24} />
             </span>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{query ? 'No matching receipts' : 'No suspense receipts'}{ngoFilter === '__unclaimed' ? ' in the unclaimed pool' : ngoFilter ? ' for this NGO' : ''}</div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{query ? 'No matching receipts' : 'No suspense receipts'}{unclaimedOnly ? ' in the unclaimed pool' : ''}</div>
             <div style={{ fontSize: 11 }}>{query ? 'Try a different name or mobile number.' : 'New suspense receipts will appear here.'}</div>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {list.map(r => {
-              const badge = r.pool === 'unclaimed'
-                ? { text: 'Unclaimed', color: '#92400e', bg: '#fef3c7' }
-                : r.waiting_receipt_no ? { text: 'Waiting for receipt number', color: '#6b7280', bg: '#f3f4f6' } : r.kind === 'receipt_sent' ? CLAIM_BADGES.receipt_sent : r.my_claim_status ? CLAIM_BADGES[r.my_claim_status] : null;
+              const isUnclaimed = r.pool === 'unclaimed';
+              const badge = r.waiting_receipt_no ? { text: 'Waiting for receipt number', color: '#6b7280', bg: '#f3f4f6' } : r.kind === 'receipt_sent' ? CLAIM_BADGES.receipt_sent : r.my_claim_status ? CLAIM_BADGES[r.my_claim_status] : null;
               const claimable = !r.waiting_receipt_no && (!r.my_claim_status || r.kind === 'receipt_sent');
               const amtStr = currency(r.amount);
-              const amtW = isCompact ? 78 : 96;
-              const amtFont = amtStr.length >= 12 ? (isCompact ? 8 : 10) : amtStr.length >= 10 ? (isCompact ? 9 : 11) : amtStr.length >= 8 ? (isCompact ? 10 : 12.5) : amtStr.length >= 6 ? (isCompact ? 11.5 : 13.5) : (isCompact ? 13 : 15);
               const isNew = newIds.has(suspenseKey(r));
-              const pill = NGO_PILL[r.project_id] || { bg: 'var(--card-bg)' };
-              const isUnclaimed = r.pool === 'unclaimed';
+              const pill = NGO_PILL[r.project_id] || { bg: 'var(--card-bg)', color: '#B5603A' };
               return (
                 <div key={r.id} onClick={() => claimable && openClaimModal(r)}
-                  onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--sage)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                  onMouseOut={e => { e.currentTarget.style.borderColor = 'var(--line)'; e.currentTarget.style.boxShadow = 'var(--shadow)'; e.currentTarget.style.transform = 'none'; }}
+                  className={`fro-suspense-card${claimable ? ' is-clickable' : ''}`}
                   style={{
-                    position: 'relative', overflow: 'hidden',
-                    display: 'flex', alignItems: 'center', gap: isCompact ? 8 : 12, padding: isCompact ? '10px 10px' : '12px 14px',
-                    background: isUnclaimed ? pill.bg : (isNew ? 'var(--card-bg)' : pill.bg), border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)',
-                    boxShadow: 'var(--shadow)', cursor: claimable ? 'pointer' : 'default', transition: 'transform .12s, box-shadow .12s, border-color .12s',
+                    '--sus-bg': `color-mix(in srgb, ${pill.bg} 16%, #fff)`,
+                    position: 'relative', overflow: 'visible',
+                    display: 'flex', alignItems: 'center', gap: isCompact ? 8 : 12, padding: isCompact ? '11px 12px' : '13px 15px',
+                    cursor: claimable ? 'pointer' : 'default',
                   }}>
                   {isNew && (
                     <LeadWave animate bg={pill.bg} square={pill.color || '#1e40af'} seed={suspenseKey(r)} cls="fro" onDone={() => dropNew(suspenseKey(r))} />
                   )}
+                  {isUnclaimed && (
+                    <span className="fro-suspense-stamp" title="Unclaimed" aria-label="Unclaimed">
+                      <span className="material-symbols-outlined">approval</span>
+                    </span>
+                  )}
                   <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', gap: isCompact ? 8 : 12, flex: 1, minWidth: 0 }}>
-                    <div style={{ width: isCompact ? 34 : 40, height: isCompact ? 34 : 40, borderRadius: '50%', background: '#B5603A1A', color: '#B5603A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isCompact ? 12 : 14, fontWeight: 700, flexShrink: 0 }}>
+                    <div style={{ width: isCompact ? 36 : 42, height: isCompact ? 36 : 42, borderRadius: '50%', background: `color-mix(in srgb, ${pill.color} 15%, #fff)`, color: pill.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isCompact ? 12 : 13.5, fontWeight: 800, flexShrink: 0, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${pill.color} 18%, #fff)` }}>
                       {initials(r.donor_name)}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.donor_name || 'Unknown donor'}</span>
-                        <span style={{
-                          padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, flexShrink: 0,
-                          background: (NGO_PILL[r.project_id] || { bg: '#f3f4f6', color: '#6b7280' }).bg,
-                          color: (NGO_PILL[r.project_id] || { bg: '#f3f4f6', color: '#6b7280' }).color,
-                        }}>{NGO_SHORT[r.project_id] || NGO_LABELS[r.project_id] || r.project_id}</span>
+                        <span style={{ fontSize: 14, fontWeight: 400, letterSpacing: '-.012em', color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.donor_name || 'Unknown donor'}</span>
                         {badge && (
-                          <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: badge.bg, color: badge.color }}>
+                          <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 999, fontSize: 9.5, fontWeight: 800, background: badge.bg, color: badge.color, boxShadow: 'inset 0 0 0 1px rgba(15,23,42,.05)' }}>
                             {badge.text}
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>
-                        {r.receipt_date || '\u2014'}{r.receipt_time ? ` | ${fmtTime12(r.receipt_time)}` : ''}
+                      <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 5, letterSpacing: '.01em' }}>
+                        {r.receipt_date || '\u2014'}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}
                       </div>
                       {r.payment_id && (
-                        <div style={{ fontSize: 11, marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ color: 'var(--ink-soft)' }}>UPI:</span>
-                          <span style={{ color: 'var(--ink)', fontWeight: 700 }}>{r.payment_id}</span>
+                        <div style={{ fontSize: 10.5, marginTop: 2, color: 'var(--ink)', fontWeight: 500, letterSpacing: '.01em' }}>
+                          {r.payment_id}
                         </div>
                       )}
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                      {claimable ? (
-                        <button
-                          onClick={e => { e.stopPropagation(); openClaimModal(r); }}
-                          style={{ width: amtW, maxWidth: '100%', fontSize: amtFont, fontWeight: 700, color: '#fff', background: 'var(--sage)', padding: isCompact ? '5px 8px' : '6px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', animation: 'froPulse 1.6s ease-in-out infinite', transition: 'transform .15s, box-shadow .15s' }}
-                          onMouseOver={e => { e.currentTarget.style.transform = 'scale(1.06)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(91,107,78,.45)'; }}
-                          onMouseOut={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}>
-                          {amtStr}
-                        </button>
-                      ) : (
-                        <div style={{ width: amtW, textAlign: 'right', fontSize: amtFont, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{amtStr}</div>
-                      )}
+                      <div style={{ fontSize: 15.5, fontWeight: 800, letterSpacing: '-.02em', color: claimable ? '#0f172a' : '#94a3b8', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{amtStr}</div>
+                      <span style={{
+                        padding: '1px 5px', borderRadius: 4, fontSize: 8, fontWeight: 800, letterSpacing: '.03em', lineHeight: 1.5,
+                        background: pill.bg, color: pill.color,
+                      }}>{NGO_SHORT[r.project_id] || NGO_LABELS[r.project_id] || r.project_id || '\u2014'}</span>
                       {r.claim_count > 1 && !claimable && (
-                        <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{r.claim_count} claims</div>
+                        <div style={{ fontSize: 9.5, color: 'var(--ink-soft)' }}>{r.claim_count} claims</div>
                       )}
-                    </div>{claimable && <ChevronRight size={isCompact ? 14 : 16} style={{ color: 'var(--ink-soft)', flexShrink: 0 }} />}
+                    </div>
+                    {claimable && (
+                      <span className="fro-suspense-chevron">
+                        <ChevronRight size={isCompact ? 14 : 15} />
+                      </span>
+                    )}
                   </div>
                 </div>
               );

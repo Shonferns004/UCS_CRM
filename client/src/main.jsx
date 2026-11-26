@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App.jsx'
 import './index.css'
+import './components/admin-sidebar/adminSidebar.css'
 import './lib/networkDetail'
 
 // Stale-chunk recovery: each deploy emits new hashed asset filenames. A tab

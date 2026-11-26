@@ -23,10 +23,10 @@ class AppToast {
         message: message,
         fallbackTitle: title ?? 'Success',
         description: description,
-        fill: AppPalette.aquaSoft,
+        fill: AppPalette.successSoft,
         titleColor: AppPalette.ink,
-        descriptionColor: AppPalette.oceanSoft,
-        badgeColor: AppPalette.aquaDeep,
+        descriptionColor: AppPalette.success,
+        badgeColor: AppPalette.success,
         duration: duration,
       ),
     );

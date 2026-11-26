@@ -97,8 +97,8 @@ class MiniCalendar extends StatelessWidget {
               if (effectiveStatus != null) {
                 switch (effectiveStatus) {
                   case 'present':
-                    bg = AppPalette.aquaSoft;
-                    fg = AppPalette.aquaDeep;
+                    bg = AppPalette.successSoft;
+                    fg = AppPalette.success;
                     filled = true;
                     break;
                   case 'absent':
@@ -112,8 +112,8 @@ class MiniCalendar extends StatelessWidget {
                     filled = true;
                     break;
                   case 'leave':
-                    bg = AppPalette.iceDeep;
-                    fg = AppPalette.ocean;
+                    bg = AppPalette.aquaSoft;
+                    fg = AppPalette.aquaDeep;
                     filled = true;
                     break;
                   case 'half-day':

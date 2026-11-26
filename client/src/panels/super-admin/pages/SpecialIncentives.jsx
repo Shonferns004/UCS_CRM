@@ -33,7 +33,7 @@ const RANK_META = [
 
 const SI_CSS = `
 .si-scope, .si-scope *, .si-scope *:before, .si-scope *:after { box-sizing: border-box; }
-.si-scope { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: ${C.text}; max-width: 100%; }
+.si-scope { font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif); color: ${C.text}; max-width: 100%; }
 .si-scope img { max-width: 100%; }
 .si-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; max-width: 100%; }
 .si-col { min-width: 0; max-width: 100%; }

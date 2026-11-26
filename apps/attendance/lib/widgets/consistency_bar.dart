@@ -38,7 +38,7 @@ class ConsistencyBar extends StatelessWidget {
             if (leaveFraction > 0)
               Flexible(
                 flex: (leaveFraction * 1000).round(),
-                child: Container(color: const Color(0xffd6eaf7)),
+                child: Container(color: const Color(0xFFE4EBFB)),
               ),
             if (lateFraction > 0)
               Flexible(

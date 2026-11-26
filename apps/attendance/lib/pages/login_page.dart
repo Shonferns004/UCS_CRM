@@ -238,7 +238,7 @@ class _LoginPageState extends State<LoginPage>
                               labelText: 'Login ID',
                               hintText: 'name.lastname@ufs',
                               hintStyle: GoogleFonts.manrope(
-                                color: const Color(0xff8ba7bd),
+                                color: const Color(0xFFA7AFBC),
                               ),
                               labelStyle: GoogleFonts.manrope(
                                 color: AppPalette.muted,
@@ -309,14 +309,18 @@ class _LoginPageState extends State<LoginPage>
                           const SizedBox(height: 24),
                           SizedBox(
                             width: double.infinity,
-                            height: 52,
                             child: ElevatedButton(
                               onPressed: _loading ? null : _login,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppPalette.aqua,
-                                foregroundColor: AppPalette.ink,
+                                foregroundColor: AppPalette.white,
                                 disabledBackgroundColor: AppPalette.aqua
                                     .withValues(alpha: 0.5),
+                                minimumSize: const Size.fromHeight(52),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                  vertical: 14,
+                                ),
                                 elevation: 0,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
@@ -332,12 +336,12 @@ class _LoginPageState extends State<LoginPage>
                                           style: TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w700,
-                                            color: AppPalette.ink,
+                                            color: AppPalette.white,
                                           ),
                                         ),
                                         SizedBox(width: 5),
                                         _AnimatedDots(
-                                          color: AppPalette.ink,
+                                          color: AppPalette.white,
                                           size: 4,
                                         ),
                                       ],
