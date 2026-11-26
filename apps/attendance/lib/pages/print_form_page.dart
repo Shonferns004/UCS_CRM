@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -50,10 +50,10 @@ class _PrintFormPageState extends State<PrintFormPage> {
     final family = profile['family'] as List<dynamic>? ?? [];
     final references = profile['references'] as List<dynamic>? ?? [];
 
-    final darkBlue = PdfColor.fromInt(0xFF00152a);
-    final gray = PdfColor.fromInt(0xFF74777e);
+    final darkBlue = PdfColor.fromInt(0xFF4A78E0);
+    final gray = PdfColor.fromInt(0xFF7C8698);
     final borderGray = PdfColor.fromInt(0xFFcccccc);
-    final headerBg = PdfColor.fromInt(0xFFf0f4f8);
+    final headerBg = PdfColor.fromInt(0xFFEDF0F6);
 
     final doc = pw.Document();
 
@@ -63,15 +63,25 @@ class _PrintFormPageState extends State<PrintFormPage> {
         margin: const pw.EdgeInsets.all(40),
         header: (context) => pw.Column(
           children: [
-            pw.Text('Employee Onboarding Form',
-              style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: darkBlue)),
+            pw.Text(
+              'Employee Onboarding Form',
+              style: pw.TextStyle(
+                fontSize: 22,
+                fontWeight: pw.FontWeight.bold,
+                color: darkBlue,
+              ),
+            ),
             if (profile['name'] != null)
-              pw.Text('${profile['name']}${profile['login_id'] != null ? ' · ${profile['login_id']}' : ''}',
-                style: pw.TextStyle(fontSize: 12, color: gray)),
+              pw.Text(
+                '${profile['name']}${profile['login_id'] != null ? ' · ${profile['login_id']}' : ''}',
+                style: pw.TextStyle(fontSize: 12, color: gray),
+              ),
           ],
         ),
-        footer: (context) => pw.Text('Generated on ${DateTime.now().toLocal().toString().split('.')[0]}',
-          style: pw.TextStyle(fontSize: 9, color: gray)),
+        footer: (context) => pw.Text(
+          'Generated on ${DateTime.now().toLocal().toString().split('.')[0]}',
+          style: pw.TextStyle(fontSize: 9, color: gray),
+        ),
         build: (context) => [
           _section('1. Personal Details', darkBlue),
           _infoRow('Full Name', profile['name'] ?? '', gray),
@@ -89,7 +99,14 @@ class _PrintFormPageState extends State<PrintFormPage> {
             pw.Table(
               border: pw.TableBorder.all(color: borderGray),
               children: [
-                _tableHeader(['#', 'Degree', 'Institution', 'University', 'Year', '% / Grade'], headerBg),
+                _tableHeader([
+                  '#',
+                  'Degree',
+                  'Institution',
+                  'University',
+                  'Year',
+                  '% / Grade',
+                ], headerBg),
                 ...education.asMap().entries.map((e) {
                   final ed = e.value as Map<String, dynamic>;
                   return _tableRow([
@@ -110,7 +127,14 @@ class _PrintFormPageState extends State<PrintFormPage> {
             pw.Table(
               border: pw.TableBorder.all(color: borderGray),
               children: [
-                _tableHeader(['#', 'Name', 'Relationship', 'Occupation', 'Phone', 'DOB'], headerBg),
+                _tableHeader([
+                  '#',
+                  'Name',
+                  'Relationship',
+                  'Occupation',
+                  'Phone',
+                  'DOB',
+                ], headerBg),
                 ...family.asMap().entries.map((e) {
                   final f = e.value as Map<String, dynamic>;
                   return _tableRow([
@@ -131,7 +155,13 @@ class _PrintFormPageState extends State<PrintFormPage> {
             pw.Table(
               border: pw.TableBorder.all(color: borderGray),
               children: [
-                _tableHeader(['#', 'Name', 'Designation', 'Organization', 'Phone'], headerBg),
+                _tableHeader([
+                  '#',
+                  'Name',
+                  'Designation',
+                  'Organization',
+                  'Phone',
+                ], headerBg),
                 ...references.asMap().entries.map((e) {
                   final r = e.value as Map<String, dynamic>;
                   return _tableRow([
@@ -147,23 +177,50 @@ class _PrintFormPageState extends State<PrintFormPage> {
           else
             _empty('No references provided.', gray),
           _section('5. Documents & Bank', darkBlue),
-          _infoRow('Aadhaar Front', profile['aadhar_front_url'] != null ? 'Uploaded' : 'Not uploaded', gray),
-          _infoRow('Aadhaar Back', profile['aadhar_back_url'] != null ? 'Uploaded' : 'Not uploaded', gray),
-          _infoRow('PAN Card', profile['pan_card_url'] != null ? 'Uploaded' : 'Not uploaded', gray),
-          _infoRow('Bank Proof', profile['bank_proof_url'] != null ? 'Uploaded' : 'Not uploaded', gray),
-          _infoRow('Light Bill', profile['light_bill_url'] != null ? 'Uploaded' : 'Not uploaded', gray),
+          _infoRow(
+            'Aadhaar Front',
+            profile['aadhar_front_url'] != null ? 'Uploaded' : 'Not uploaded',
+            gray,
+          ),
+          _infoRow(
+            'Aadhaar Back',
+            profile['aadhar_back_url'] != null ? 'Uploaded' : 'Not uploaded',
+            gray,
+          ),
+          _infoRow(
+            'PAN Card',
+            profile['pan_card_url'] != null ? 'Uploaded' : 'Not uploaded',
+            gray,
+          ),
+          _infoRow(
+            'Bank Proof',
+            profile['bank_proof_url'] != null ? 'Uploaded' : 'Not uploaded',
+            gray,
+          ),
+          _infoRow(
+            'Light Bill',
+            profile['light_bill_url'] != null ? 'Uploaded' : 'Not uploaded',
+            gray,
+          ),
           _infoRow('Bank Name', profile['bank_name'] ?? '-', gray),
           _infoRow('Bank Account', profile['account_holder_name'] ?? '-', gray),
           _infoRow('IFSC', profile['ifsc_code'] ?? '-', gray),
           _infoRow('Account No', profile['account_number'] ?? '-', gray),
           _section('6. Declaration', darkBlue),
           pw.SizedBox(height: 8),
-          pw.Text('Contact No: ${profile['phone'] ?? '________'}',
-            style: pw.TextStyle(fontSize: 11, color: darkBlue)),
+          pw.Text(
+            'Contact No: ${profile['phone'] ?? '________'}',
+            style: pw.TextStyle(fontSize: 11, color: darkBlue),
+          ),
           pw.SizedBox(height: 8),
           pw.Text(
             'I hereby declare that the above statements made in my application form are true, complete and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.',
-            style: pw.TextStyle(fontSize: 10, lineSpacing: 1.6, color: darkBlue)),
+            style: pw.TextStyle(
+              fontSize: 10,
+              lineSpacing: 1.6,
+              color: darkBlue,
+            ),
+          ),
           pw.SizedBox(height: 8),
           _infoRow('Date', profile['declaration_date'] ?? '-', gray),
           _infoRow('Place', profile['declaration_place'] ?? '-', gray),
@@ -174,11 +231,19 @@ class _PrintFormPageState extends State<PrintFormPage> {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.SizedBox(height: 12),
-                pw.Text('${e.key + 1}. ${p['title'] ?? ''}',
-                  style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: darkBlue)),
+                pw.Text(
+                  '${e.key + 1}. ${p['title'] ?? ''}',
+                  style: pw.TextStyle(
+                    fontSize: 13,
+                    fontWeight: pw.FontWeight.bold,
+                    color: darkBlue,
+                  ),
+                ),
                 pw.SizedBox(height: 4),
-                pw.Text(p['content'] ?? '',
-                  style: pw.TextStyle(fontSize: 10, lineSpacing: 1.5)),
+                pw.Text(
+                  p['content'] ?? '',
+                  style: pw.TextStyle(fontSize: 10, lineSpacing: 1.5),
+                ),
               ],
             );
           }),
@@ -196,10 +261,18 @@ class _PrintFormPageState extends State<PrintFormPage> {
         pw.Container(
           padding: const pw.EdgeInsets.only(bottom: 4),
           decoration: pw.BoxDecoration(
-            border: pw.Border(bottom: pw.BorderSide(color: PdfColor.fromInt(0xFFdddddd))),
+            border: pw.Border(
+              bottom: pw.BorderSide(color: PdfColor.fromInt(0xFF4A78E0)),
+            ),
           ),
-          child: pw.Text(title,
-            style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold, color: color)),
+          child: pw.Text(
+            title,
+            style: pw.TextStyle(
+              fontSize: 15,
+              fontWeight: pw.FontWeight.bold,
+              color: color,
+            ),
+          ),
         ),
         pw.SizedBox(height: 8),
       ],
@@ -213,11 +286,19 @@ class _PrintFormPageState extends State<PrintFormPage> {
         children: [
           pw.SizedBox(
             width: 120,
-            child: pw.Text(label,
-              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: labelColor)),
+            child: pw.Text(
+              label,
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: labelColor,
+              ),
+            ),
           ),
-          pw.Text(value.isEmpty ? '-' : value,
-            style: pw.TextStyle(fontSize: 10)),
+          pw.Text(
+            value.isEmpty ? '-' : value,
+            style: pw.TextStyle(fontSize: 10),
+          ),
         ],
       ),
     );
@@ -231,35 +312,50 @@ class _PrintFormPageState extends State<PrintFormPage> {
   }
 
   pw.TableRow _tableRow(List<String> cells) {
-    return pw.TableRow(
-      children: cells.map((c) => _cell(c)).toList(),
-    );
+    return pw.TableRow(children: cells.map((c) => _cell(c)).toList());
   }
 
   pw.Widget _cell(String text, {bool bold = false}) {
     return pw.Padding(
       padding: const pw.EdgeInsets.all(6),
-      child: pw.Text(text,
-        style: pw.TextStyle(fontSize: 9, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontSize: 9,
+          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+        ),
+      ),
     );
   }
 
   pw.Widget _empty(String msg, PdfColor gray) {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(vertical: 8),
-      child: pw.Text(msg,
-        style: pw.TextStyle(fontSize: 10, color: gray, fontStyle: pw.FontStyle.italic)),
+      child: pw.Text(
+        msg,
+        style: pw.TextStyle(
+          fontSize: 10,
+          color: gray,
+          fontStyle: pw.FontStyle.italic,
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFf6fafe),
+      backgroundColor: const Color(0xFFF4F6FA),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF00152a),
+        backgroundColor: const Color(0xFF4A78E0),
         foregroundColor: Colors.white,
-        title: Text('Print Form', style: GoogleFonts.hankenGrotesk(fontSize: 18, fontWeight: FontWeight.w700)),
+        title: Text(
+          'Print Form',
+          style: GoogleFonts.hankenGrotesk(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
       body: _buildBody(),
     );
@@ -269,7 +365,7 @@ class _PrintFormPageState extends State<PrintFormPage> {
     if (_loading) {
       return SkeletonLoader(
         child: Scaffold(
-          backgroundColor: const Color(0xFFf6fafe),
+          backgroundColor: const Color(0xFFF4F6FA),
           body: SafeArea(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
@@ -294,15 +390,35 @@ class _PrintFormPageState extends State<PrintFormPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(LucideIcons.circleAlert, size: 48, color: Colors.red.shade300),
+              Icon(
+                TablerIcons.alert_circle,
+                size: 48,
+                color: Colors.red.shade300,
+              ),
               const SizedBox(height: 16),
-              Text('Failed to load data', style: GoogleFonts.hankenGrotesk(fontSize: 18, fontWeight: FontWeight.w600)),
+              Text(
+                'Failed to load data',
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(height: 8),
-              Text(_error!, textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: const Color(0xFF74777e))),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: const Color(0xFF7C8698)),
+              ),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: () { setState(() => _loading = true); _loadData(); },
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00152a), foregroundColor: Colors.white),
+                onPressed: () {
+                  setState(() => _loading = true);
+                  _loadData();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4A78E0),
+                  foregroundColor: Colors.white,
+                ),
                 child: const Text('Retry'),
               ),
             ],
@@ -313,7 +429,8 @@ class _PrintFormPageState extends State<PrintFormPage> {
 
     return PdfPreview(
       build: (format) => _buildPdf(format),
-      pdfFileName: 'onboarding_form_${_data!['profile']?['name'] ?? 'employee'}',
+      pdfFileName:
+          'onboarding_form_${_data!['profile']?['name'] ?? 'employee'}',
       loadingWidget: const SkeletonLoader(
         child: Center(
           child: SkeletonBlock(width: 260, height: 200, borderRadius: 12),

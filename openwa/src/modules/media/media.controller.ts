@@ -69,6 +69,18 @@ export class MediaController {
     return this.mediaConversion.convertToVoice(sessionId, dto);
   }
 
+  @Post('convert/audio')
+  @HttpCode(HttpStatus.OK)
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Convert audio into an MP3 audio message (plays on every client, incl. Android)' })
+  @ApiResponse({ status: 200, description: 'MP3 bytes, ready to post to send-audio with ptt omitted.', type: ConvertedMediaResponseDto })
+  @ApiResponse({ status: 400, description: 'Neither url nor base64 given, or ffmpeg refused the input.' })
+  @ApiResponse({ status: 413, description: 'The supplied media is above the media size cap.' })
+  @ApiResponse({ status: 503, description: 'Conversion is disabled, the ffmpeg binary is not runnable, or the queue is saturated.' })
+  async convertAudio(@Param('sessionId') sessionId: string, @Body() dto: ConvertMediaDto) {
+    return this.mediaConversion.convertToAudioFile(sessionId, dto);
+  }
+
   @Post('convert/video')
   @HttpCode(HttpStatus.OK)
   @RequireRole(ApiKeyRole.OPERATOR)

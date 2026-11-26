@@ -1809,6 +1809,24 @@ export const verifyLeadDone = async (req, res) => {
 
 // ---- Station Management ----
 
+const VALUE_CATEGORY_PRIORITY = ['premium', 'high', 'medium', 'low', 'below'];
+
+// Majority donation-value category for one (station, NGO) bucket. Ties resolve
+// to the higher-value category (premium first), which is the useful label for
+// the station row.
+const dominantValueCategory = (counts) => {
+  let best = null;
+  let bestCount = -1;
+  for (const key of VALUE_CATEGORY_PRIORITY) {
+    const n = Number(counts?.[key]) || 0;
+    if (n > bestCount) {
+      best = key;
+      bestCount = n;
+    }
+  }
+  return bestCount > 0 ? best : null;
+};
+
 export const getStations = async (req, res) => {
   try {
     const { ngo_id } = req.query;
@@ -1860,6 +1878,9 @@ export const getStations = async (req, res) => {
     const totalDonorCount = {}; // { station: { ngo_id: count } } (excludes high_tier)
     const highTierDonorCount = {}; // { station: { ngo_id: count } }
     const froDonorCount = {};
+    // { station: { ngo_id: { premium, high, medium, low, below } } } — the
+    // value split shown as a tag on the station row (dominant category first).
+    const stationCategoryCounts = {};
 
     // Donor amount range per station (distinct donors, across all NGOs). Sourced
     // from ACTUAL COLLECTED receipts (receipts.amount joined via fro_donor_logs
@@ -1942,6 +1963,72 @@ export const getStations = async (req, res) => {
       }
     } catch (e) {
       console.warn('[getStations] count aggregation failed:', e?.message || String(e));
+    }
+
+    // Donation-value split per (station, NGO), so the station row can show a
+    // Premium/High/Medium/Low/Below tag for the donors sitting in that station.
+    // Same ranges as the Excel reports; based on this NGO's receipts only.
+    try {
+      const { rows: ngoCodeRows } = await db._pool.query(
+        `SELECT id, lower(code) AS code FROM ngos WHERE id = ANY($1::uuid[])`,
+        [targetNgoIds],
+      );
+      const codeByNgo = new Map(
+        (ngoCodeRows || []).map(r => [String(r.id), String(r.code || '').toLowerCase()]),
+      );
+      const codes = [...new Set([...codeByNgo.values()].filter(Boolean))];
+      if (codes.length > 0) {
+        const { rows } = await db._pool.query(
+          `WITH latest AS (
+             SELECT DISTINCT ON (fa.ngo_id, fa.donor_id)
+                    fa.ngo_id, fa.donor_id, TRIM(fa.station) AS station
+               FROM fro_assignments fa
+              WHERE fa.ngo_id = ANY($1::uuid[])
+                AND fa.station IS NOT NULL
+                AND (fa.status IS NULL OR fa.status <> 'reassigned')
+                AND (fa.batch_type IS NULL OR fa.batch_type <> 'high_tier')
+              ORDER BY fa.ngo_id, fa.donor_id, fa.assigned_at DESC NULLS LAST, fa.id DESC
+           ),
+           rec AS (
+             SELECT donor_id, lower(project_id) AS code,
+                    count(*)::int AS cnt, sum(amount)::numeric AS total
+               FROM receipts
+              WHERE project_id = ANY($2::text[])
+                AND donor_id IS NOT NULL
+                AND voided_at IS NULL
+                AND COALESCE(amount, 0) > 0
+              GROUP BY donor_id, lower(project_id)
+           ),
+           cat AS (
+             SELECT l.ngo_id, l.station,
+                    CASE
+                      WHEN COALESCE(rec.cnt, 0) = 0 OR COALESCE(rec.total, 0) <= 0 THEN 'below'
+                      WHEN rec.total / rec.cnt >= 5000 THEN 'premium'
+                      WHEN rec.total / rec.cnt >= 2000 THEN 'high'
+                      WHEN rec.total / rec.cnt >= 500 THEN 'medium'
+                      WHEN rec.total / rec.cnt >= 251 THEN 'low'
+                      ELSE 'below'
+                    END AS category
+               FROM latest l
+               LEFT JOIN ngos n ON n.id = l.ngo_id
+               LEFT JOIN rec ON rec.donor_id = l.donor_id AND rec.code = lower(n.code)
+           )
+           SELECT ngo_id, station, category, count(*)::int AS cnt
+             FROM cat
+            GROUP BY ngo_id, station, category`,
+          [targetNgoIds, codes],
+        );
+        for (const r of rows || []) {
+          const st = String(r.station).trim();
+          if (!stationCategoryCounts[st]) stationCategoryCounts[st] = {};
+          const bucket = stationCategoryCounts[st][r.ngo_id]
+            || { premium: 0, high: 0, medium: 0, low: 0, below: 0 };
+          bucket[r.category] = r.cnt;
+          stationCategoryCounts[st][r.ngo_id] = bucket;
+        }
+      }
+    } catch (e) {
+      console.warn('[getStations] category aggregation failed:', e?.message || String(e));
     }
 
     // Amount range from receipts (distinct donors per station).
@@ -2040,6 +2127,11 @@ export const getStations = async (req, res) => {
       fro_donor_count: s.fro_worker_id ? (froDonorCount[`${s.station}_${s.fro_worker_id}`] || 0) : 0,
       donor_amount_min: stationAmountMin[s.station] ?? null,
       donor_amount_max: stationAmountMax[s.station] ?? null,
+      donor_categories: stationCategoryCounts[s.station] || {},
+      dominant_category: Object.fromEntries(
+        Object.entries(stationCategoryCounts[s.station] || {})
+          .map(([ngoId, counts]) => [ngoId, dominantValueCategory(counts)]),
+      ),
     }));
 
     result.sort((a, b) => {
@@ -2168,38 +2260,51 @@ export const removeStationByName = async (req, res) => {
       console.warn('follow-up loan station-delete check skipped:', e?.message || String(e));
     }
 
-    let delQuery = db
-      .from('fro_station_assignments')
-      .delete()
-      .eq('station', station.trim());
-    if (delNgoId) {
-      delQuery = delQuery.eq('ngo_id', delNgoId);
-    } else {
-      delQuery = delQuery.in('ngo_id', ngoIds);
+    const stationName = String(station).trim();
+    const scopeNgoIds = delNgoId ? [String(delNgoId)] : ngoIds.map(String);
+    if (scopeNgoIds.length === 0) {
+      return res.status(403).json({ message: 'No NGO access for this account' });
     }
 
-    const { error } = await delQuery;
-    if (error) throw error;
-
-    // Also detach the station from any donor assignments so it stops
-    // reappearing in the stations list (which is derived from fro_assignments).
+    const client = await db._pool.connect();
     try {
-      let faQuery = db
-        .from('fro_assignments')
-        .update({ station: null })
-        .eq('station', station.trim());
-      if (delNgoId) {
-        faQuery = faQuery.eq('ngo_id', delNgoId);
-      } else if (ngoIds.length > 0) {
-        faQuery = faQuery.in('ngo_id', ngoIds);
-      }
-      await faQuery;
-    } catch (e) {
-      // Non-fatal: station assignment deletion above is the primary action.
-    }
+      await client.query('BEGIN');
 
-    bustStationCache();
-    return res.json({ message: 'Station deleted' });
+      // TRIM on both sides: legacy rows were imported with trailing spaces, so
+      // an exact `.eq('station', name)` missed them and the station survived a
+      // delete only to reappear in the station list / unique-donor dropdown.
+      const delStation = await client.query(
+        `DELETE FROM fro_station_assignments
+          WHERE TRIM(station) = $1
+            AND ngo_id = ANY($2::uuid[])`,
+        [stationName, scopeNgoIds],
+      );
+
+      // Detach the station from donor assignments too. The stations list is
+      // derived from fro_assignments, so leaving these rows behind is what made
+      // a "deleted" station keep showing up.
+      const detach = await client.query(
+        `UPDATE fro_assignments
+            SET station = NULL
+          WHERE TRIM(station) = $1
+            AND ngo_id = ANY($2::uuid[])`,
+        [stationName, scopeNgoIds],
+      );
+
+      await client.query('COMMIT');
+      bustStationCache();
+      return res.json({
+        message: 'Station deleted',
+        station: stationName,
+        deleted_assignments: delStation.rowCount || 0,
+        detached_donors: detach.rowCount || 0,
+      });
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -2446,6 +2551,21 @@ export const getStationStats = async (req, res) => {
 
 
 
+// Donation-value category, identical to the reports/Excel ranges:
+// average per donation >= 5000 premium, >= 2000 high, >= 500 medium,
+// >= 251 low, otherwise below-low. Based on this NGO's receipts only.
+const donationValueCategory = (count, total) => {
+  const n = Number(count) || 0;
+  const sum = Number(total) || 0;
+  if (n === 0 || sum <= 0) return 'below';
+  const avg = sum / n;
+  if (avg >= 5000) return 'premium';
+  if (avg >= 2000) return 'high';
+  if (avg >= 500) return 'medium';
+  if (avg >= 251) return 'low';
+  return 'below';
+};
+
 export const getDonorsByStation = async (req, res) => {
   try {
     const { station, status, ngo_id, batch_type } = req.query;
@@ -2533,6 +2653,55 @@ export const getDonorsByStation = async (req, res) => {
       assigned_at: a.assigned_at,
       raw_data: a.donor_profiles?.raw_data || null,
     }));
+
+    // Donation-value category for each donor on this station, computed from
+    // this NGO's receipts (average per donation). `data_category` above is the
+    // imported data bucket and is NOT the Premium/High/Medium/Low split the
+    // station screen needs.
+    try {
+      const { rows: ngoCodeRows } = await db._pool.query(
+        `SELECT id, lower(code) AS code FROM ngos WHERE id = ANY($1::uuid[])`,
+        [ngoIds],
+      );
+      const codeByNgo = new Map(
+        (ngoCodeRows || []).map(r => [String(r.id), String(r.code || '').toLowerCase()]),
+      );
+      const codes = [...new Set([...codeByNgo.values()].filter(Boolean))];
+      const donorIds = [...new Set(result.map(r => r.donor_id).filter(Boolean))];
+      if (codes.length > 0 && donorIds.length > 0) {
+        const { rows: recRows } = await db._pool.query(
+          `SELECT project_id, donor_id,
+                  count(*)::int AS cnt,
+                  sum(amount)::numeric AS total
+             FROM receipts
+            WHERE project_id = ANY($1::text[])
+              AND donor_id = ANY($2::int[])
+              AND voided_at IS NULL
+              AND COALESCE(amount, 0) > 0
+            GROUP BY project_id, donor_id`,
+          [codes, donorIds],
+        );
+        const recByKey = new Map(
+          (recRows || []).map(r => [`${r.project_id}:${r.donor_id}`, r]),
+        );
+        for (const row of result) {
+          const code = codeByNgo.get(String(row.ngo_id)) || '';
+          const rec = recByKey.get(`${code}:${row.donor_id}`);
+          const cnt = Number(rec?.cnt) || 0;
+          const total = Number(rec?.total) || 0;
+          row.donation_count = cnt;
+          row.avg_donation = cnt > 0 ? Math.round((total / cnt) * 100) / 100 : 0;
+          row.value_category = donationValueCategory(cnt, total);
+        }
+      }
+    } catch (e) {
+      console.warn('[getDonorsByStation] value category failed:', e?.message || String(e));
+      for (const row of result) {
+        row.donation_count = 0;
+        row.avg_donation = 0;
+        row.value_category = 'below';
+      }
+    }
 
     return res.json(result);
   } catch (error) {

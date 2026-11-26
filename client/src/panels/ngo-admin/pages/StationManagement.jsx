@@ -11,6 +11,11 @@ import DonorStacksModal from './DonorStacksModal';
 import StackSettingsModal from './StackSettingsModal';
 import FollowUpLoanModal from './FollowUpLoanModal';
 import BulkFollowUpLoanModal from './BulkFollowUpLoanModal';
+import StationTransferModal from './StationTransferModal';
+import StationTransferHistoryModal from './StationTransferHistoryModal';
+import UniqueDonorModal from './UniqueDonorModal';
+import UniqueDonorHistoryModal from './UniqueDonorHistoryModal';
+import BulkDeleteStationsModal from './BulkDeleteStationsModal';
 
 // IST (Asia/Kolkata) helpers for temporary-access badges: the grant stores
 // UTC timestamptz; admins read IST, so every display goes through the zone
@@ -1168,7 +1173,7 @@ const PAGE_MENU_ITEM = {
 // The two controls that used to sit as loose icons beside the FRO search box on
 // a station row ("grant temporary access" and the green S for stacks). One ⋮
 // menu replaces them; each item opens its own dialog.
-function RowAssignmentsKebab({ hasStacks, stacksEnabled = false, onTemp, onStacks, onSettings, onLend }) {
+function RowAssignmentsKebab({ hasStacks, stacksEnabled = false, onTemp, onStacks, onSettings, onLend, onDelete }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -1214,6 +1219,11 @@ function RowAssignmentsKebab({ hasStacks, stacksEnabled = false, onTemp, onStack
           <button role="menuitem" onClick={run(onSettings)} style={itemStyle}>
             <Settings size={14} /> Settings
           </button>
+          {onDelete && (
+            <button role="menuitem" onClick={run(onDelete)} style={{ ...itemStyle, color: '#b91c1c', fontWeight: 700 }}>
+              <Trash2 size={14} /> Delete station
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -1997,6 +2007,33 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
 // paged rather than rendered whole — the same bound the dashboard station popup uses.
 const DONOR_ROWS_PER_PAGE = 50;
 
+// Donation-value categories (average per donation), the same ranges the Excel
+// reports use. `data_category` on the donor profile is the imported data bucket
+// and must not be shown as the value category.
+const VALUE_CATEGORY_META = {
+  premium: { label: 'Premium', range: '₹5,000+', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+  high: { label: 'High Value', range: '₹2,000–4,999', color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+  medium: { label: 'Medium', range: '₹500–1,999', color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
+  low: { label: 'Low', range: '₹251–499', color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
+  below: { label: 'Below Low', range: '₹0–250', color: '#64748b', bg: '#f8fafc', border: '#e2e8f0' },
+};
+const VALUE_CATEGORY_ORDER = ['premium', 'high', 'medium', 'low', 'below'];
+
+// Station-number rule requested for BOD/AOD/MOD rows: #1 premium, #2–3 high
+// value, #4–9 medium, #10–11 low, #12+ below low. This is the tag shown on the
+// row even before any donor is opened.
+const stationValueCategoryTag = (station) => {
+  const m = String(station || '').trim().match(/^(BOD|AOD|MOD)-(\d+)$/i);
+  if (!m) return null;
+  const n = Number(m[2]);
+  if (!Number.isFinite(n) || n < 1) return null;
+  if (n === 1) return 'premium';
+  if (n <= 3) return 'high';
+  if (n <= 9) return 'medium';
+  if (n <= 11) return 'low';
+  return 'below';
+};
+
 // Relative "time since" for a donor's last contact, reusing the NCF modal's
 // phrasing so both station dialogs read the same way.
 function donorTimeSince(iso) {
@@ -2136,7 +2173,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
   const [donors, setDonors] = useState([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
+  const [valueFilter, setValueFilter] = useState('');
   const [selected, setSelected] = useState([]);
   const [page, setPage] = useState(1);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -2200,7 +2237,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
     const q = search.trim().toLowerCase();
     return donors.filter(d => {
       if (statusFilter && d.status !== statusFilter) return false;
-      if (categoryFilter && String(d.data_category || '') !== categoryFilter) return false;
+      if (valueFilter && (d.value_category || 'below') !== valueFilter) return false;
       if (!q) return true;
       return (
         String(d.donor_name || '').toLowerCase().includes(q) ||
@@ -2208,19 +2245,25 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
         String(d.donor_mobile_2 || '').includes(q) ||
         String(d.donor_city || '').toLowerCase().includes(q) ||
         String(d.fro_name || '').toLowerCase().includes(q) ||
-        String(d.data_category || '').toLowerCase().includes(q)
+        String(d.data_category || '').toLowerCase().includes(q) ||
+        String(VALUE_CATEGORY_META[d.value_category || 'below']?.label || '').toLowerCase().includes(q)
       );
     });
-  }, [donors, search, statusFilter, categoryFilter]);
+  }, [donors, search, statusFilter, valueFilter]);
 
   const statusOptions = useMemo(
     () => [...new Set(donors.map(d => d.status).filter(Boolean))].sort(),
     [donors],
   );
-  const categoryOptions = useMemo(
-    () => [...new Set(donors.map(d => String(d.data_category || '').trim()).filter(Boolean))].sort(),
-    [donors],
-  );
+  // Counts for the value-category chips shown as soon as a station is opened.
+  const valueCounts = useMemo(() => {
+    const counts = { premium: 0, high: 0, medium: 0, low: 0, below: 0 };
+    for (const d of donors) {
+      const cat = d.value_category || 'below';
+      if (counts[cat] != null) counts[cat] += 1;
+    }
+    return counts;
+  }, [donors]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / DONOR_ROWS_PER_PAGE));
   const pageRows = useMemo(() => {
@@ -2233,7 +2276,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [totalPages, page]);
-  useEffect(() => { setPage(1); }, [search, statusFilter, categoryFilter]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, valueFilter]);
 
   const selectedIds = useMemo(() => new Set(selected), [selected]);
   const allOnPageSelected = pageRows.length > 0 && pageRows.every(d => selectedIds.has(d.id));
@@ -2336,7 +2379,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
 
   return (
     <div className="modal-overlay" onClick={close}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 640 }}>
         <div className="modal-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <h3 style={{ margin: 0 }}>Assigned Donors — {station}</h3>
@@ -2379,7 +2422,70 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
 
           </div>
 
-
+          {/* Donation-value split for this station (premium / high / medium /
+              low / below-low), based on the average receipt amount. Clicking a
+              chip narrows the list. This is deliberately NOT donor_profiles
+              .data_category, which is the imported data bucket. */}
+          {!loading && donors.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>
+                  Donation category <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>(average per donation)</span>
+                </div>
+                {valueFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setValueFilter('')}
+                    style={{ background: 'none', border: 'none', color: 'var(--sage)', fontWeight: 700, fontSize: 11.5, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => setValueFilter('')}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '4px 11px', borderRadius: 999, fontFamily: 'inherit',
+                    cursor: 'pointer', fontSize: 12, fontWeight: valueFilter ? 600 : 700,
+                    border: `1px solid ${valueFilter ? 'var(--line, #e5e7eb)' : 'var(--sage)'}`,
+                    background: valueFilter ? '#fff' : '#f0fdf4',
+                    color: valueFilter ? 'var(--ink-soft)' : 'var(--sage)',
+                  }}
+                >
+                  All
+                  <span style={{ fontWeight: 700 }}>{donors.length}</span>
+                </button>
+                {VALUE_CATEGORY_ORDER.map(key => {
+                  const meta = VALUE_CATEGORY_META[key];
+                  const count = valueCounts[key] || 0;
+                  const active = valueFilter === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setValueFilter(active ? '' : key)}
+                      title={`${meta.range} — ${count} donor${count === 1 ? '' : 's'}`}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '4px 11px', borderRadius: 999, fontFamily: 'inherit',
+                        cursor: 'pointer', fontSize: 12, fontWeight: active ? 700 : 600,
+                        border: `1px solid ${active ? meta.color : meta.border}`,
+                        background: active ? meta.bg : '#fff',
+                        color: active ? meta.color : 'var(--ink-soft)',
+                      }}
+                    >
+                      {meta.label}
+                      <span style={{ fontWeight: 800, color: active ? meta.color : 'var(--ink)' }}>{count}</span>
+                      <span style={{ fontSize: 10, opacity: .7 }}>{meta.range}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Success */}
           {result && (
@@ -2543,7 +2649,31 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
                         {/* The donor name can be a full NGO title; without
                             ellipsis it pushes the Mobile column out of the
                             modal, which is why the number looked missing. */}
-                        <td title={d.donor_name || ''} style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.donor_name || '—'}</td>
+                        <td title={d.donor_name || ''} style={{ fontWeight: 600 }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.donor_name || '—'}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                            {(() => {
+                              const meta = VALUE_CATEGORY_META[d.value_category || 'below'] || VALUE_CATEGORY_META.below;
+                              return (
+                                <span
+                                  style={{
+                                    fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 999,
+                                    background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`,
+                                  }}
+                                  title={`${meta.label} (${meta.range})`}
+                                >
+                                  {meta.label}
+                                </span>
+                              );
+                            })()}
+                            {Number(d.avg_donation) > 0 && (
+                              <span style={{ fontSize: 10.5, fontWeight: 500, color: 'var(--ink-soft)' }}>
+                                avg ₹{Number(d.avg_donation).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                {d.donation_count ? ` · ${d.donation_count} donation${Number(d.donation_count) === 1 ? '' : 's'}` : ''}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                           {d.donor_mobile || '—'}
                           {d.donor_mobile_2 ? <div style={{ fontSize: 10.5, opacity: .7 }}>{d.donor_mobile_2}</div> : null}
@@ -3150,6 +3280,11 @@ export default function StationManagement() {
   const [assignmentsTarget, setAssignmentsTarget] = useState(null);
   const [loanTarget, setLoanTarget] = useState(null);
   const [bulkLoanOpen, setBulkLoanOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferHistoryOpen, setTransferHistoryOpen] = useState(false);
+  const [uniqueDonorOpen, setUniqueDonorOpen] = useState(false);
+  const [uniqueDonorHistoryOpen, setUniqueDonorHistoryOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   // Stack switch, one entry per (NGO, station): `{ "<ngoId>:<station>": true }`.
   // Missing = OFF (the default). The row ⋮ shows "Stack assignments" only for
   // stations in this map, and Settings edits exactly one key.
@@ -3364,9 +3499,9 @@ export default function StationManagement() {
     }).catch((err) => { console.error('Error:', err.message); });
   };
 
-  const fetchData = (successMsg, month) => {
+  const fetchData = (successMsg, month, opts = {}) => {
     const m = month || selectedMonth;
-    const url = '/ngo-admin/stations';
+    const url = opts.fresh ? `/ngo-admin/stations?fresh=1` : '/ngo-admin/stations';
     try {
       const cached = localStorage.getItem('ucs_stations_cache');
       if (cached) {
@@ -3506,6 +3641,27 @@ export default function StationManagement() {
         <td style={{ padding: '6px 8px', verticalAlign: 'top' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
             <strong style={{ fontSize: 14, letterSpacing: '.2px', cursor: 'pointer', color: 'var(--sage)' }} onClick={() => setDonorListTarget({ station: s.station, ngoList: s.ngos || [], defaultNgoId: ngoScopeForRow(s) })}>{s.station}</strong>
+            {(() => {
+              const key = stationValueCategoryTag(s.station) || s.dominant_category?.[ngo?.id];
+              const meta = key ? VALUE_CATEGORY_META[key] : null;
+              if (!meta) return null;
+              const counts = s.donor_categories?.[ngo?.id] || {};
+              const title = VALUE_CATEGORY_ORDER
+                .map(k => `${VALUE_CATEGORY_META[k].label}: ${Number(counts[k] || 0).toLocaleString('en-IN')}`)
+                .join(' · ');
+              return (
+                <span
+                  title={title}
+                  style={{
+                    fontSize: 9, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase',
+                    padding: '1px 6px', borderRadius: 999, whiteSpace: 'nowrap',
+                    background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`,
+                  }}
+                >
+                  {meta.label}
+                </span>
+              );
+            })()}
             {liveGrantsFor(s).filter(g => g.scope_type !== 'STATION_HIGH_TIER').map(g => (
               <TempGrantChip
                 key={g.id}
@@ -3568,6 +3724,7 @@ export default function StationManagement() {
               onStacks={() => openAssignments(s, 'stacks')}
               onSettings={() => setStackSettingsTarget({ station: s.station, ngoId: ngoScopeForRow(s) })}
               onLend={() => openLeadLoan(s)}
+              onDelete={() => handleDeleteStation(s.station, ngoScopeForRow(s))}
             />
           </div>
         </td>
@@ -3798,11 +3955,31 @@ export default function StationManagement() {
     }
   };
 
-  const handleDeleteStation = async (station) => {
-    if (!confirm(`Delete station "${station}"?`)) return;
+  const removeStationFromLocalState = (stationName, ngoId) => {
+    setStations(prev => {
+      const next = [];
+      for (const s of prev) {
+        if (String(s.station || '').trim() !== String(stationName).trim()) { next.push(s); continue; }
+        // Per-NGO delete: keep the station if other NGOs still use that name.
+        if (!ngoId) continue;
+        const ngos = (s.ngos || []).filter(n => String(n.ngo_id) !== String(ngoId));
+        if (ngos.length) next.push({ ...s, ngos });
+      }
+      try { localStorage.setItem('ucs_stations_cache', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const handleDeleteStation = async (station, ngoId) => {
+    if (!confirm(`Permanently delete station "${station}"?\n\nThe station will be removed and its donor assignments will be detached. This cannot be undone.`)) return;
     try {
-      await apiDelete(`/ngo-admin/stations/${encodeURIComponent(station)}`);
-      fetchData();
+      const qs = ngoId ? `?ngo_id=${encodeURIComponent(ngoId)}` : '';
+      await apiDelete(`/ngo-admin/stations/${encodeURIComponent(station)}${qs}`);
+      // Remove the row immediately so the deleted station cannot linger in the
+      // list (or in the unique-donor target dropdown) while the refetch is in
+      // flight, then refetch bypassing the server cache.
+      removeStationFromLocalState(station, ngoId);
+      fetchData('Station deleted permanently', undefined, { fresh: true });
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -3992,6 +4169,21 @@ export default function StationManagement() {
                   </button>
                   <button role="menuitem" onClick={() => { setToolsOpen(false); setBulkLoanOpen(true); }} style={PAGE_MENU_ITEM}>
                     <ArrowRightLeft size={14} /> Bulk lend
+                  </button>
+                  <button role="menuitem" onClick={() => { setToolsOpen(false); setTransferOpen(true); }} style={PAGE_MENU_ITEM}>
+                    <ArrowRightLeft size={14} /> Transfer leads
+                  </button>
+                  <button role="menuitem" onClick={() => { setToolsOpen(false); setTransferHistoryOpen(true); }} style={PAGE_MENU_ITEM}>
+                    <Clock size={14} /> Transfer history
+                  </button>
+                  <button role="menuitem" onClick={() => { setToolsOpen(false); setUniqueDonorOpen(true); }} style={PAGE_MENU_ITEM}>
+                    <UserPlus size={14} /> Unique donors → BSCT
+                  </button>
+                  <button role="menuitem" onClick={() => { setToolsOpen(false); setUniqueDonorHistoryOpen(true); }} style={PAGE_MENU_ITEM}>
+                    <Clock size={14} /> Unique donor history
+                  </button>
+                  <button role="menuitem" onClick={() => { setToolsOpen(false); setBulkDeleteOpen(true); }} style={PAGE_MENU_ITEM}>
+                    <Trash2 size={14} /> Delete stations
                   </button>
                   <button role="menuitem" onClick={() => { setToolsOpen(false); setDownloadNgoOpen(true); }} style={PAGE_MENU_ITEM}>
                     <Download size={14} /> Download donor list
@@ -4272,6 +4464,53 @@ export default function StationManagement() {
             loadLeadLoans();
             setMsg(`${summary?.lent ?? 0} lead(s) lent from ${summary?.stations ?? 0} station(s) to ${summary?.target || 'the receiving FRO'}.`);
           }}
+        />
+      )}
+
+      {transferOpen && (
+        <StationTransferModal
+          stations={stations}
+          allNgos={allNgos}
+          onClose={() => setTransferOpen(false)}
+          onDone={() => {
+            fetchData();
+            setMsg('Leads transferred permanently.');
+          }}
+        />
+      )}
+
+      {transferHistoryOpen && (
+        <StationTransferHistoryModal
+          onClose={() => setTransferHistoryOpen(false)}
+          onChanged={() => fetchData()}
+        />
+      )}
+
+      {uniqueDonorOpen && (
+        <UniqueDonorModal
+          stations={stations}
+          allNgos={allNgos}
+          onClose={() => setUniqueDonorOpen(false)}
+          onDone={() => {
+            fetchData();
+            setMsg('Unique donors added to BSCT.');
+          }}
+        />
+      )}
+
+      {uniqueDonorHistoryOpen && (
+        <UniqueDonorHistoryModal
+          onClose={() => setUniqueDonorHistoryOpen(false)}
+          onChanged={() => fetchData()}
+        />
+      )}
+
+      {bulkDeleteOpen && (
+        <BulkDeleteStationsModal
+          stations={stations}
+          allNgos={allNgos}
+          onClose={() => setBulkDeleteOpen(false)}
+          onDone={() => fetchData(undefined, undefined, { fresh: true })}
         />
       )}
 

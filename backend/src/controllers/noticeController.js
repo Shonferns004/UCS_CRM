@@ -9,6 +9,7 @@ import {
 } from '../models/noticeModel.js';
 import { resolveChatIdentity, listNoticeFeedFor } from '../models/chatModel.js';
 import { presignNoticeMediaUrls, presignNoticeMediaUrl } from '../services/signatureMediaLink.js';
+import { notifyNoticeRecipients } from '../services/workerNotifyService.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const asUuidOrNull = (v) => (v && UUID_RE.test(String(v))) ? String(v) : null;
@@ -44,6 +45,12 @@ export const addNotice = async (req, res) => {
       ngo_id: req.user.ngo_id || req.body.ngo_id || null,
       created_by: asUuidOrNull(req.user.id),
       created_by_name: req.user.name || null,
+    });
+    // Push + notification_log for every targeted worker, so a notice from an
+    // admin/HR/super-admin reaches the mobile app bell and the OS notification
+    // tray immediately, not only the web dashboard.
+    await notifyNoticeRecipients(notice).catch((e) => {
+      console.warn('[notices] worker delivery failed:', e?.message || String(e));
     });
     return res.status(201).json({ message: 'Notice created', notice: await withSignedMedia(notice) });
   } catch (error) {

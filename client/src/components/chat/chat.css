@@ -28,7 +28,7 @@
   --chat-r-md: 12px;
   --chat-r-lg: 16px;
 
-  --chat-font: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --chat-font: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif);
 }
 
 /* ==========================================================================

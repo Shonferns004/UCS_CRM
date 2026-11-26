@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:liquid_pull_to_refresh/liquid_pull_to_refresh.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
 import '../main.dart';
@@ -73,13 +74,22 @@ class _CodesPageState extends State<CodesPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 8)),
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 16),
+                vertical: Responsive.pad(context, 8),
+              ),
               child: Row(
                 children: [
-                  Text('Attendance Codes', style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.primary)),
+                  Text(
+                    'Attendance Codes',
+                    style: tt.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.primary,
+                    ),
+                  ),
                   const Spacer(),
                   IconButton(
-                    icon: const Icon(LucideIcons.refreshCw),
+                    icon: const Icon(TablerIcons.refresh),
                     onPressed: _fetchCodes,
                     tooltip: 'Refresh',
                   ),
@@ -90,23 +100,28 @@ class _CodesPageState extends State<CodesPage> {
               child: _loading
                   ? const ListSkeleton()
                   : _error != null && _codes.isEmpty
-                      ? _buildError(scheme, tt)
-                      : RefreshIndicator(
-                          onRefresh: _fetchCodes,
-                          child: _codes.isEmpty
-                              ? _buildEmpty(scheme, tt)
-                              : ListView.builder(
-                                  controller: widget.scrollController,
-                                  padding: EdgeInsets.fromLTRB(
-                                    Responsive.pad(context, 16),
-                                    Responsive.pad(context, 8),
-                                    Responsive.pad(context, 16),
-                                    Responsive.pad(context, 40),
-                                  ),
-                                  itemCount: _codes.length,
-                                  itemBuilder: (context, i) => _CodeCard(code: _codes[i]),
-                                ),
-                        ),
+                  ? _buildError(scheme, tt)
+                  : LiquidPullToRefresh(
+                      color: const Color(0xFF4A78E0),
+                      backgroundColor: const Color(0xFFF4F6FA),
+                      showChildOpacityTransition: false,
+                      springAnimationDurationInMilliseconds: 700,
+                      onRefresh: _fetchCodes,
+                      child: _codes.isEmpty
+                          ? _buildEmpty(scheme, tt)
+                          : ListView.builder(
+                              controller: widget.scrollController,
+                              padding: EdgeInsets.fromLTRB(
+                                Responsive.pad(context, 16),
+                                Responsive.pad(context, 8),
+                                Responsive.pad(context, 16),
+                                Responsive.pad(context, 40),
+                              ),
+                              itemCount: _codes.length,
+                              itemBuilder: (context, i) =>
+                                  _CodeCard(code: _codes[i]),
+                            ),
+                    ),
             ),
           ],
         ),
@@ -119,9 +134,16 @@ class _CodesPageState extends State<CodesPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(LucideIcons.cloudOff, size: Responsive.sp(context, 40), color: scheme.outline),
+          Icon(
+            TablerIcons.cloud_off,
+            size: Responsive.sp(context, 40),
+            color: scheme.outline,
+          ),
           const SizedBox(height: 12),
-          Text(_error ?? 'Failed to load codes', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            _error ?? 'Failed to load codes',
+            style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           const SizedBox(height: 12),
           OutlinedButton(onPressed: _fetchCodes, child: const Text('Retry')),
         ],
@@ -139,9 +161,18 @@ class _CodesPageState extends State<CodesPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(LucideIcons.shieldCheck, size: Responsive.sp(context, 40), color: scheme.outline),
+                Icon(
+                  TablerIcons.shield_check,
+                  size: Responsive.sp(context, 40),
+                  color: scheme.outline,
+                ),
                 const SizedBox(height: 12),
-                Text('No codes generated yet', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+                Text(
+                  'No codes generated yet',
+                  style: tt.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ),
@@ -181,12 +212,16 @@ class _CodeCard extends StatelessWidget {
     final active = !used && !expired;
 
     final statusColor = used
-        ? const Color(0xFF6b7280)
+        ? const Color(0xFF7C8698)
         : expired
-            ? const Color(0xFFba1a1a)
-            : const Color(0xFF1D7A4F);
+        ? const Color(0xFFba1a1a)
+        : const Color(0xff0f7a5a);
 
-    final statusLabel = used ? 'Used' : expired ? 'Expired' : 'Active';
+    final statusLabel = used
+        ? 'Used'
+        : expired
+        ? 'Expired'
+        : 'Active';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -194,13 +229,21 @@ class _CodeCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(Responsive.radius(context, 12)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
           if (active)
             _CodeCountdown(
-              expiresAt: DateTime.tryParse(code['expires_at']?.toString() ?? ''),
+              expiresAt: DateTime.tryParse(
+                code['expires_at']?.toString() ?? '',
+              ),
               textTheme: tt,
             )
           else
@@ -209,9 +252,9 @@ class _CodeCard extends StatelessWidget {
               thickness: 5,
               value: 0,
               color: statusColor,
-              icon: used ? LucideIcons.check : LucideIcons.timerOff,
+              icon: used ? TablerIcons.check : TablerIcons.hourglass_off,
               iconColor: statusColor,
-              backgroundColor: const Color(0xFFeaeef2),
+              backgroundColor: const Color(0xFFEDF0F6),
             ),
           const SizedBox(width: 16),
           Expanded(
@@ -222,18 +265,28 @@ class _CodeCard extends StatelessWidget {
                   children: [
                     Text(
                       code['code']?.toString() ?? '••••',
-                      style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 2, color: scheme.primary),
+                      style: tt.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 2,
+                        color: scheme.primary,
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: statusColor.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         statusLabel,
-                        style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w700),
+                        style: tt.labelSmall?.copyWith(
+                          color: statusColor,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
@@ -254,7 +307,6 @@ class _CodeCard extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _CodeCountdown extends StatefulWidget {
@@ -287,7 +339,10 @@ class _CodeCountdownState extends State<_CodeCountdown> {
   Widget build(BuildContext context) {
     final remaining = widget.expiresAt == null
         ? 0
-        : widget.expiresAt!.difference(DateTime.now()).inSeconds.clamp(0, 1 << 30);
+        : widget.expiresAt!
+              .difference(DateTime.now())
+              .inSeconds
+              .clamp(0, 1 << 30);
     final m = (remaining ~/ 60).toString().padLeft(2, '0');
     final s = (remaining % 60).toString().padLeft(2, '0');
     return Stack(
@@ -297,13 +352,17 @@ class _CodeCountdownState extends State<_CodeCountdown> {
           size: Responsive.sp(context, 56),
           thickness: 5,
           value: remaining / _codeTtlSeconds,
-          color: remaining <= 60 ? const Color(0xFFba1a1a) : const Color(0xFF1D7A4F),
+          color: remaining <= 60
+              ? const Color(0xFFba1a1a)
+              : const Color(0xff0f7a5a),
         ),
         Text(
           '$m:$s',
           style: widget.textTheme.labelSmall?.copyWith(
             fontWeight: FontWeight.w700,
-            color: remaining <= 60 ? const Color(0xFFba1a1a) : const Color(0xFF1D7A4F),
+            color: remaining <= 60
+                ? const Color(0xFFba1a1a)
+                : const Color(0xff0f7a5a),
           ),
         ),
       ],

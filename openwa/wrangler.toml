@@ -1,0 +1,36 @@
+# Cloudflare Containers deployment for OpenWA.
+#
+# Requires the Workers Paid plan ($5/mo): Containers are not available on the free plan.
+# Deploy from the `openwa/` directory:
+#
+#   npx wrangler secret put OPENWA_API_KEY     # the X-API-Key the CRM backend sends
+#   npx wrangler secret put DATABASE_PASSWORD
+#   ... (see deploy/cloudflare/README.md for the full list)
+#   npx wrangler deploy
+#
+# `wrangler deploy` builds ./Dockerfile with local Docker, so Docker Desktop must be running.
+
+name = "ucs-openwa"
+main = "deploy/cloudflare/gateway.ts"
+compatibility_date = "2026-11-25"
+
+# Exactly one instance: two containers sharing one WhatsApp session desync the Signal keys and can
+# get the number banned. Do not raise this without session-level locking.
+[[containers]]
+class_name = "BaileysGateway"
+image = "./Dockerfile"
+max_instances = 1
+instance_type = "basic" # 1/4 vCPU, 1 GiB RAM, 4 GB disk
+
+[[durable_objects.bindings]]
+name = "GATEWAY"
+class_name = "BaileysGateway"
+
+[exports.BaileysGateway]
+type = "durable-object"
+storage = "sqlite"
+
+# If `wrangler deploy` reports the class has no migration, add:
+# [[migrations]]
+# tag = "v1"
+# new_sqlite_classes = ["BaileysGateway"]

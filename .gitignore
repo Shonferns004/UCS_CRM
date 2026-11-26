@@ -57,6 +57,7 @@ aws/main.md
 /client/android
 /apps/beneficiaries/Secugen Android
 /apps/beneficiaries/Secugen Windows
+/apps/dovesoft-web
 /others/imp files
 
 /openwa/dashboard/node_modules
@@ -80,3 +81,6 @@ metrics.js
 
 cf-backend.log
 cf-webhook.log
+
+# Large local archive (not for version control)
+apps.zip

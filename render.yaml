@@ -1,0 +1,88 @@
+# Render Blueprint for the OpenWA WhatsApp gateway.
+#
+# Render reads this file from the ROOT of the repository. The service itself is built from `openwa/`
+# (rootDir below), so keep this file where it is and do not move it into openwa/.
+#
+# Create the Blueprint at https://dashboard.render.com/blueprints → "New Blueprint Instance".
+# Secrets marked `sync: false` are prompted for on creation and never stored in git.
+#
+# Two things make this stateless, and both are required:
+#   1. BAILEYS_AUTH_STORE=database — creds + Signal keys live in Postgres, not in ./data/baileys.
+#   2. API_MASTER_KEY — the admin key is re-seeded from this env var on every boot, because the
+#      SQLite file that would otherwise hold it is wiped with the container's ephemeral disk.
+
+services:
+  - type: web
+    name: ucs-openwa
+    runtime: docker
+    # `free` works only for a handful of numbers and sleeps after 15 min. Use `standard` (2 GB) for
+    # real use: 512 MB cannot hold NestJS + Baileys + media reliably.
+    plan: free
+    region: singapore
+    rootDir: openwa
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ENGINE_TYPE
+        value: baileys
+      - key: AUTO_START_SESSIONS
+        value: 'true'
+
+      # --- 1. auth state in Postgres, not on disk ---------------------------------------------
+      - key: BAILEYS_AUTH_STORE
+        value: database
+
+      - key: DATABASE_TYPE
+        value: postgres
+      - key: DATABASE_SYNCHRONIZE
+        value: 'false'
+      - key: DATABASE_SSL
+        value: 'true'
+      - key: POSTGRES_SCHEMA
+        value: openwa
+      - key: DATABASE_HOST
+        sync: false
+      - key: DATABASE_PORT
+        value: '5432'
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+      - key: DATABASE_NAME
+        sync: false
+
+      # --- 2. the admin key survives restarts ------------------------------------------------
+      # Render generates one value and keeps it across deploys. Copy it into the UCS CRM backend as
+      # OPENWA_API_KEY. In production it must be >= the minimum length enforced by the app.
+      - key: API_MASTER_KEY
+        generateValue: true
+
+      # --- media: no disk on Render, so S3-compatible storage (R2 / S3 / B2) -------------------
+      - key: STORAGE_TYPE
+        value: s3
+      - key: S3_REGION
+        value: auto
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+
+      # --- single instance: no shared Redis/queue/cache --------------------------------------
+      - key: REDIS_ENABLED
+        value: 'false'
+      - key: QUEUE_ENABLED
+        value: 'false'
+      - key: CACHE_ENABLED
+        value: 'false'
+
+      # Set after the first deploy to the public URL, e.g. https://ucs-openwa.onrender.com
+      - key: BASE_URL
+        sync: false

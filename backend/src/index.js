@@ -129,6 +129,7 @@ import { ensureTicketSchema } from './bootstrap/ensureTicketSchema.js';
 import { ensureWhatsAppSessionAssignmentSchema } from './bootstrap/ensureWhatsAppSessionAssignmentSchema.js';
 import { ensureWhatsAppReplySchema } from './bootstrap/ensureWhatsAppReplySchema.js';
 import { ensureOpenwaTemplateSchema } from './bootstrap/ensureOpenwaTemplateSchema.js';
+import { ensureSessionNotesSchema } from './bootstrap/ensureSessionNotesSchema.js';
 import { ensureBugsSchema } from './bootstrap/ensureBugsSchema.js';
 import { ensureLoanDeductionSchema } from './bootstrap/ensureLoanDeductionSchema.js';
 import { ensureSpecialIncentiveSchema } from './bootstrap/ensureSpecialIncentiveSchema.js';
@@ -181,6 +182,8 @@ import { ensureLeadWhatsAppAlertSchema } from './bootstrap/ensureLeadWhatsAppAle
 import { ensureGoogleAdsSchema } from './bootstrap/ensureGoogleAdsSchema.js';
 import { loadGoogleAdsConfigFromDb } from './services/googleAdsConfigStore.js';
 import { ensureBulkEmailSchema } from './bootstrap/ensureBulkEmailSchema.js';
+import { ensureStationLeadTransferSchema } from './bootstrap/ensureStationLeadTransferSchema.js';
+import { ensureUniqueDonorAdditionSchema } from './bootstrap/ensureUniqueDonorAdditionSchema.js';
 import { ensureLeadAlertSchema } from './bootstrap/ensureLeadAlertSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
@@ -1419,6 +1422,7 @@ if (!process.env.VERCEL) {
     await ensureWhatsAppSessionAssignmentSchema().catch(e => console.error('ensureWhatsAppSessionAssignmentSchema failed:', e?.message || e));
   await ensureWhatsAppReplySchema().catch(e => console.error('ensureWhatsAppReplySchema failed:', e?.message || e));
     await ensureOpenwaTemplateSchema().catch(e => console.error('ensureOpenwaTemplateSchema failed:', e?.message || e));
+    await ensureSessionNotesSchema().catch(e => console.error('ensureSessionNotesSchema failed:', e?.message || e));
 await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?.message || e));
     await ensureLoanDeductionSchema().catch(e => console.error('ensureLoanDeductionSchema failed:', e?.message || e));
     await ensureSpecialIncentiveSchema().catch(e => console.error('ensureSpecialIncentiveSchema failed:', e?.message || e));
@@ -1456,6 +1460,9 @@ await ensureSsLeadAiSchema().catch(e => console.error('ensureSsLeadAiSchema fail
     await ensureEventHeadPlannerEventLinkSchema().catch(e => console.error('ensureEventHeadPlannerEventLinkSchema failed:', e?.message || e));
     await ensureEventHeadReportCardOrderSchema().catch(e => console.error('ensureEventHeadReportCardOrderSchema failed:', e?.message || e));
     await ensureDashboardIndexes().catch(e => console.error('ensureDashboardIndexes failed:', e?.message || e));
+    await import('./services/notificationRetentionService.js')
+      .then((m) => m.maybePurgeOldNotifications?.())
+      .catch(e => console.error('notification retention failed:', e?.message || e));
     await ensureScraperIndexes().catch(e => console.error('ensureScraperIndexes failed:', e?.message || e));
     await ensureTemporaryDataAccessSchema().catch(e => console.error('ensureTemporaryDataAccessSchema failed:', e?.message || e));
     await ensureFollowUpLoanSchema().catch(e => console.error('ensureFollowUpLoanSchema failed:', e?.message || e));
@@ -1492,6 +1499,8 @@ await ensureSsLeadAiSchema().catch(e => console.error('ensureSsLeadAiSchema fail
       .then((m) => m.recoverInterruptedWhatsAppCampaigns?.())
       .catch(e => console.error('recoverInterruptedWhatsAppCampaigns failed:', e?.message || e));
     await ensureBulkEmailSchema().catch(e => console.error('ensureBulkEmailSchema failed:', e?.message || e));
+    await ensureStationLeadTransferSchema().catch(e => console.error('ensureStationLeadTransferSchema failed:', e?.message || e));
+    await ensureUniqueDonorAdditionSchema().catch(e => console.error('ensureUniqueDonorAdditionSchema failed:', e?.message || e));
     await ensureLeadAlertSchema().catch(e => console.error('ensureLeadAlertSchema failed:', e?.message || e));
     await import('./services/bulkEmailService.js')
       .then((m) => m.recoverInterruptedBulkEmails?.())

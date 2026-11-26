@@ -513,6 +513,11 @@ export interface SendMediaPayload {
   mimetype?: string;
   filename?: string;
   caption?: string;
+  /**
+   * Send an audio payload as a VOICE NOTE (WhatsApp's push-to-talk bubble, with the waveform the
+   * gateway computes) rather than a music-style audio file. Only meaningful for send-audio.
+   */
+  ptt?: boolean;
   /** Quote an earlier message, making the media send a reply. Omit for an ordinary send. */
   quotedMessageId?: string;
 }
@@ -1422,6 +1427,37 @@ export const messageApi = {
     request<void>(`/sessions/${sessionId}/messages/delete`, {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+};
+
+// =============================================================================
+// Media conversion API
+// =============================================================================
+
+/**
+ * Server-side ffmpeg conversion. WhatsApp only renders a voice note (mic bubble) for OGG/Opus;
+ * a WebM recording is accepted by the send endpoint, reports a message id, and is then dropped —
+ * so a browser recording has to be converted before it is sent.
+ */
+export const mediaApi = {
+  conversionStatus: (sessionId: string) =>
+    request<{ available: boolean }>(`/sessions/${sessionId}/media/convert`),
+
+  convertVoice: (sessionId: string, base64: string) =>
+    request<{ base64: string; mimetype: string; bytes: number }>(`/sessions/${sessionId}/media/convert/voice`, {
+      method: 'POST',
+      body: JSON.stringify({ base64 }),
+    }),
+
+  /**
+   * MP3 for the Android-safe path. Android refuses some Ogg/Opus PTT profiles that Web and Desktop
+   * play (delivered, then "something went wrong with the audio file"), so a recording is converted
+   * here and sent with `ptt` omitted, which renders as a normal audio message on every client.
+   */
+  convertAudio: (sessionId: string, base64: string) =>
+    request<{ base64: string; mimetype: string; bytes: number }>(`/sessions/${sessionId}/media/convert/audio`, {
+      method: 'POST',
+      body: JSON.stringify({ base64 }),
     }),
 };
 

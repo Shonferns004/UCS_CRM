@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost, apiPatch, apiDelete } from '../api/auth'
-import { UserCog, Trash2, MapPin, AlertCircle, CheckCircle2, X, MoreHorizontal, Eye, PencilLine, History, UserMinus, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { UserCog, Trash2, MapPin, AlertCircle, CheckCircle2, X, MoreHorizontal, Eye, PencilLine, History, UserMinus, Search, ChevronDown, ChevronUp, ShieldOff } from 'lucide-react'
 import { useUcs } from '../../../store'
 import { useIsMobile } from '../../../hooks/useIsMobile'
 import { useRealtime } from '../../../hooks/useRealtime'
@@ -120,6 +120,7 @@ function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
   const [editingAssignmentId, setEditingAssignmentId] = useState(null)
   const [assignmentBusy, setAssignmentBusy] = useState(false)
   const [assignmentErr, setAssignmentErr] = useState('')
+  const [dndBusy, setDndBusy] = useState(false)
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
@@ -324,6 +325,21 @@ function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
     }
   }
 
+  const markDnd = async () => {
+    const name = data?.donor?.name || data?.donor?.mobile_number || 'this donor'
+    if (!window.confirm(`Mark ${name} as DND?\n\nEvery agent assignment will be released and the donor will move to the DND tab.`)) return
+    setDndBusy(true)
+    setAssignmentErr('')
+    try {
+      await apiPost(`/accounts/donors/${donorId}/dnd`, {})
+      if (onChanged) onChanged()
+      onClose()
+    } catch (e) {
+      setAssignmentErr(e.message)
+      setDndBusy(false)
+    }
+  }
+
   const deleteDonor = async () => {
     const name = data?.donor?.name || data?.donor?.mobile_number || 'this donor'
     if (!window.confirm(`Permanently delete ${name}? This removes the donor profile, FRO assignments, call logs, and schedules. Financial receipts will be kept but detached. This cannot be undone.`)) return
@@ -444,7 +460,19 @@ function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
             <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5 }}>Agent assignments</div>
-                <button className="btn btn-sm" onClick={() => { setEditingAssignmentId(null); setAssignmentForm({ ngo_id: ngoOptions[0]?.id || '', worker_id: '', station: '' }); setAssignmentErr('') }} disabled={assignmentBusy}>Add agent</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={markDnd}
+                    disabled={assignmentBusy || dndBusy}
+                    title="Release every assignment and mark this donor DND"
+                    style={{ color: '#b91c1c', borderColor: '#fecaca', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  >
+                    <ShieldOff size={13} /> {dndBusy ? 'Marking…' : 'Mark DND'}
+                  </button>
+                  <button className="btn btn-sm" onClick={() => { setEditingAssignmentId(null); setAssignmentForm({ ngo_id: ngoOptions[0]?.id || '', worker_id: '', station: '' }); setAssignmentErr('') }} disabled={assignmentBusy}>Add agent</button>
+                </div>
               </div>
               {(data.assignments || []).length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--ink-soft)', padding: '8px 0' }}>No active agent assigned.</div>
@@ -589,8 +617,11 @@ const displayAssignments = (d, ngoFilter, agentFilter) => {
   if (d.isNewData) return [{ name: 'Unassigned (New Data)', station: '' }]
   const parsed = parseAssignments(d, ngoFilter, agentFilter, true)
   if (parsed.length > 0) return parsed
-  return (Array.isArray(d.assignment_list) ? d.assignment_list : [])
+  const fallback = (Array.isArray(d.assignment_list) ? d.assignment_list : [])
     .map(a => ({ id: a.id, name: a.name || 'Unassigned agent', station: a.station || '' }))
+  // A donor with no live assignment must still render (and stay searchable):
+  // show it as unassigned instead of dropping the whole row.
+  return fallback.length > 0 ? fallback : [{ name: 'Unassigned', station: '' }]
 }
 
 // Mini modal to manage an orphaned donor's agent-assignments: set the missing
@@ -899,6 +930,8 @@ export default function Donors() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const loadSeqRef = useRef(0)
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState(null)
   const [exporting, setExporting] = useState(false)
@@ -949,6 +982,7 @@ export default function Donors() {
   const load = useCallback(async (q, pg, ngo, ag, st) => {
     // Page 1 replaces the list; later pages append (Load More).
     if (pg === 1) setLoading(true)
+    const seq = ++loadSeqRef.current
     try {
       const params = new URLSearchParams()
       if (q) params.set('search', q)
@@ -958,10 +992,13 @@ export default function Donors() {
       params.set('limit', String(limit))
       params.set('page', String(pg))
       const res = await apiGet('/accounts/donors?' + params.toString())
+      // Ignore a slow response from an earlier keystroke — otherwise a partial
+      // number's result can overwrite the full number and look "not found".
+      if (seq !== loadSeqRef.current) return
       setDonors(prev => (pg === 1 ? (res.data || []) : [...prev, ...(res.data || [])]))
       setTotal(res.total || 0)
     } catch (err) { console.error('Error:', err.message) }
-    finally { setLoading(false) }
+    finally { if (seq === loadSeqRef.current) setLoading(false) }
   }, [])
 
   const loadNewData = useCallback(async (ngoName) => {
@@ -1000,9 +1037,18 @@ export default function Donors() {
   useEffect(() => { loadNewData(ngoFilter) }, [loadNewData, ngoFilter])
 
   const handleSearch = (e) => {
-    setSearch(e.target.value)
-    setPage(1)
+    // Type-ahead is debounced; `search` (which triggers the request) only moves
+    // after the admin stops typing.
+    setSearchInput(e.target.value)
   }
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput.trim())
+      setPage(1)
+    }, 350)
+    return () => clearTimeout(t)
+  }, [searchInput])
 
   const handleNgoChange = (name) => {
     setNgoFilter(name)
@@ -1082,7 +1128,7 @@ export default function Donors() {
             <input
               className="search-input"
               placeholder="Search by name, mobile, or ID..."
-              value={search}
+              value={searchInput}
               onChange={handleSearch}
               style={{ paddingLeft: 30 }}
             />

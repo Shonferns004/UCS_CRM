@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:sileo/sileo.dart';
+import 'theme/app_palette.dart';
+import 'widgets/app_toast.dart';
 import 'services/backend_switcher.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
@@ -14,7 +18,6 @@ import 'services/remote_config_service.dart';
 import 'pages/login_page.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/home_page.dart';
-import 'pages/profile_page.dart';
 import 'pages/splash_page.dart';
 
 bool firebaseInitialized = false;
@@ -29,11 +32,13 @@ void main() async {
   } catch (e) {
     print('Firebase init error: $e');
   }
-  SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-    statusBarBrightness: Brightness.light,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+    SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
+    ),
+  );
   final navigatorKey = GlobalKey<NavigatorState>();
   NotificationService().setNavigatorKey(navigatorKey);
   runApp(UfsAttendApp(navigatorKey: navigatorKey));
@@ -139,76 +144,82 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? inverseSurface,
     Color? inverseOnSurface,
     Color? inversePrimary,
-  }) =>
-      AppColors(
-        primaryFixed: primaryFixed ?? this.primaryFixed,
-        primaryFixedDim: primaryFixedDim ?? this.primaryFixedDim,
-        onPrimaryFixed: onPrimaryFixed ?? this.onPrimaryFixed,
-        onPrimaryFixedVariant: onPrimaryFixedVariant ?? this.onPrimaryFixedVariant,
-        secondaryContainer: secondaryContainer ?? this.secondaryContainer,
-        onSecondaryContainer: onSecondaryContainer ?? this.onSecondaryContainer,
-        secondaryFixed: secondaryFixed ?? this.secondaryFixed,
-        secondaryFixedDim: secondaryFixedDim ?? this.secondaryFixedDim,
-        onSecondaryFixed: onSecondaryFixed ?? this.onSecondaryFixed,
-        onSecondaryFixedVariant: onSecondaryFixedVariant ?? this.onSecondaryFixedVariant,
-        tertiary: tertiary ?? this.tertiary,
-        tertiaryContainer: tertiaryContainer ?? this.tertiaryContainer,
-        onTertiary: onTertiary ?? this.onTertiary,
-        onTertiaryContainer: onTertiaryContainer ?? this.onTertiaryContainer,
-        tertiaryFixed: tertiaryFixed ?? this.tertiaryFixed,
-        tertiaryFixedDim: tertiaryFixedDim ?? this.tertiaryFixedDim,
-        onTertiaryFixed: onTertiaryFixed ?? this.onTertiaryFixed,
-        onTertiaryFixedVariant: onTertiaryFixedVariant ?? this.onTertiaryFixedVariant,
-        surfaceContainerLowest: surfaceContainerLowest ?? this.surfaceContainerLowest,
-        surfaceContainerLow: surfaceContainerLow ?? this.surfaceContainerLow,
-        surfaceContainer: surfaceContainer ?? this.surfaceContainer,
-        surfaceContainerHigh: surfaceContainerHigh ?? this.surfaceContainerHigh,
-        surfaceContainerHighest: surfaceContainerHighest ?? this.surfaceContainerHighest,
-        surfaceDim: surfaceDim ?? this.surfaceDim,
-        surfaceBright: surfaceBright ?? this.surfaceBright,
-        surfaceVariant: surfaceVariant ?? this.surfaceVariant,
-        outline: outline ?? this.outline,
-        outlineVariant: outlineVariant ?? this.outlineVariant,
-        inverseSurface: inverseSurface ?? this.inverseSurface,
-        inverseOnSurface: inverseOnSurface ?? this.inverseOnSurface,
-        inversePrimary: inversePrimary ?? this.inversePrimary,
-      );
+  }) => AppColors(
+    primaryFixed: primaryFixed ?? this.primaryFixed,
+    primaryFixedDim: primaryFixedDim ?? this.primaryFixedDim,
+    onPrimaryFixed: onPrimaryFixed ?? this.onPrimaryFixed,
+    onPrimaryFixedVariant: onPrimaryFixedVariant ?? this.onPrimaryFixedVariant,
+    secondaryContainer: secondaryContainer ?? this.secondaryContainer,
+    onSecondaryContainer: onSecondaryContainer ?? this.onSecondaryContainer,
+    secondaryFixed: secondaryFixed ?? this.secondaryFixed,
+    secondaryFixedDim: secondaryFixedDim ?? this.secondaryFixedDim,
+    onSecondaryFixed: onSecondaryFixed ?? this.onSecondaryFixed,
+    onSecondaryFixedVariant:
+        onSecondaryFixedVariant ?? this.onSecondaryFixedVariant,
+    tertiary: tertiary ?? this.tertiary,
+    tertiaryContainer: tertiaryContainer ?? this.tertiaryContainer,
+    onTertiary: onTertiary ?? this.onTertiary,
+    onTertiaryContainer: onTertiaryContainer ?? this.onTertiaryContainer,
+    tertiaryFixed: tertiaryFixed ?? this.tertiaryFixed,
+    tertiaryFixedDim: tertiaryFixedDim ?? this.tertiaryFixedDim,
+    onTertiaryFixed: onTertiaryFixed ?? this.onTertiaryFixed,
+    onTertiaryFixedVariant:
+        onTertiaryFixedVariant ?? this.onTertiaryFixedVariant,
+    surfaceContainerLowest:
+        surfaceContainerLowest ?? this.surfaceContainerLowest,
+    surfaceContainerLow: surfaceContainerLow ?? this.surfaceContainerLow,
+    surfaceContainer: surfaceContainer ?? this.surfaceContainer,
+    surfaceContainerHigh: surfaceContainerHigh ?? this.surfaceContainerHigh,
+    surfaceContainerHighest:
+        surfaceContainerHighest ?? this.surfaceContainerHighest,
+    surfaceDim: surfaceDim ?? this.surfaceDim,
+    surfaceBright: surfaceBright ?? this.surfaceBright,
+    surfaceVariant: surfaceVariant ?? this.surfaceVariant,
+    outline: outline ?? this.outline,
+    outlineVariant: outlineVariant ?? this.outlineVariant,
+    inverseSurface: inverseSurface ?? this.inverseSurface,
+    inverseOnSurface: inverseOnSurface ?? this.inverseOnSurface,
+    inversePrimary: inversePrimary ?? this.inversePrimary,
+  );
 
   @override
-  ThemeExtension<AppColors> lerp(covariant ThemeExtension<AppColors>? other, double t) => this;
+  ThemeExtension<AppColors> lerp(
+    covariant ThemeExtension<AppColors>? other,
+    double t,
+  ) => this;
 
   static const light = AppColors(
-    primaryFixed: Color(0xFFd1e4ff),
-    primaryFixedDim: Color(0xFFb0c9e8),
-    onPrimaryFixed: Color(0xFF011d35),
-    onPrimaryFixedVariant: Color(0xFF314863),
-    secondaryContainer: Color(0xFFbfdbfe),
-    onSecondaryContainer: Color(0xFF1d4ed8),
-    secondaryFixed: Color(0xFFbfdbfe),
-    secondaryFixedDim: Color(0xFF93c5fd),
-    onSecondaryFixed: Color(0xFF172554),
-    onSecondaryFixedVariant: Color(0xFF1e3a8a),
-    tertiary: Color(0xFF201100),
-    tertiaryContainer: Color(0xFF3c2300),
+    primaryFixed: Color(0xFFE4EBFB),
+    primaryFixedDim: Color(0xFFCBD8F7),
+    onPrimaryFixed: Color(0xFF5A6473),
+    onPrimaryFixedVariant: Color(0xFF3762C9),
+    secondaryContainer: Color(0xFFDDE3EC),
+    onSecondaryContainer: Color(0xFF5A6473),
+    secondaryFixed: Color(0xFFDDE3EC),
+    secondaryFixedDim: Color(0xFFC9D0DB),
+    onSecondaryFixed: Color(0xFF5A6473),
+    onSecondaryFixedVariant: Color(0xFF6C7686),
+    tertiary: Color(0xFF3762C9),
+    tertiaryContainer: Color(0xFFE4EBFB),
     onTertiary: Color(0xFFffffff),
-    onTertiaryContainer: Color(0xFFc28228),
-    tertiaryFixed: Color(0xFFffddb8),
-    tertiaryFixedDim: Color(0xFFffb95f),
-    onTertiaryFixed: Color(0xFF2a1700),
-    onTertiaryFixedVariant: Color(0xFF653e00),
+    onTertiaryContainer: Color(0xFF2F55B8),
+    tertiaryFixed: Color(0xFFE4EBFB),
+    tertiaryFixedDim: Color(0xFF4A78E0),
+    onTertiaryFixed: Color(0xFF5A6473),
+    onTertiaryFixedVariant: Color(0xFF2F55B8),
     surfaceContainerLowest: Color(0xFFffffff),
-    surfaceContainerLow: Color(0xFFf0f4f8),
-    surfaceContainer: Color(0xFFeaeef2),
-    surfaceContainerHigh: Color(0xFFe4e9ed),
-    surfaceContainerHighest: Color(0xFFdfe3e7),
-    surfaceDim: Color(0xFFd6dade),
-    surfaceBright: Color(0xFFf6fafe),
-    surfaceVariant: Color(0xFFdfe3e7),
-    outline: Color(0xFF74777e),
-    outlineVariant: Color(0xFFc3c6ce),
-    inverseSurface: Color(0xFF2c3134),
-    inverseOnSurface: Color(0xFFedf1f5),
-    inversePrimary: Color(0xFFb0c9e8),
+    surfaceContainerLow: Color(0xFFF4F6FA),
+    surfaceContainer: Color(0xFFEDF0F6),
+    surfaceContainerHigh: Color(0xFFDDE3EC),
+    surfaceContainerHighest: Color(0xFFC9D0DB),
+    surfaceDim: Color(0xFFC9D0DB),
+    surfaceBright: Color(0xFFF4F6FA),
+    surfaceVariant: Color(0xFFDDE3EC),
+    outline: Color(0xFFA7AFBC),
+    outlineVariant: Color(0xFFC9D0DB),
+    inverseSurface: Color(0xFF5A6473),
+    inverseOnSurface: Color(0xFFF4F6FA),
+    inversePrimary: Color(0xFF4A78E0),
   );
 }
 
@@ -226,57 +237,261 @@ class UfsAttendApp extends StatelessWidget {
         useMaterial3: true,
         brightness: Brightness.light,
         colorScheme: const ColorScheme.light(
-          primary: Color(0xFF00152a),
+          primary: AppPalette.aqua,
           onPrimary: Color(0xFFffffff),
-          primaryContainer: Color(0xFF102a43),
-          onPrimaryContainer: Color(0xFF7a92b0),
-          secondary: Color(0xFF2563eb),
+          primaryContainer: AppPalette.aquaSoft,
+          onPrimaryContainer: AppPalette.aquaDeep,
+          secondary: AppPalette.ocean,
           onSecondary: Color(0xFFffffff),
-          secondaryContainer: Color(0xFFbfdbfe),
-          onSecondaryContainer: Color(0xFF1d4ed8),
-          surface: Color(0xFFf6fafe),
-          onSurface: Color(0xFF171c1f),
-          surfaceContainerHighest: Color(0xFFdfe3e7),
-          outline: Color(0xFF74777e),
-          error: Color(0xFFba1a1a),
+          secondaryContainer: AppPalette.iceDeep,
+          onSecondaryContainer: AppPalette.ocean,
+          tertiary: AppPalette.aquaDeep,
+          onTertiary: Color(0xFFffffff),
+          tertiaryContainer: AppPalette.aquaSoft,
+          onTertiaryContainer: AppPalette.aquaDeep,
+          surface: AppPalette.white,
+          onSurface: AppPalette.ink,
+          onSurfaceVariant: AppPalette.muted,
+          surfaceContainerHighest: Color(0xFFC9D0DB),
+          outline: Color(0xFFA7AFBC),
+          outlineVariant: Color(0xFFC9D0DB),
+          error: AppPalette.error,
           onError: Color(0xFFffffff),
           errorContainer: Color(0xFFffdad6),
           onErrorContainer: Color(0xFF93000a),
-          inverseSurface: Color(0xFF2c3134),
-          onInverseSurface: Color(0xFFedf1f5),
-          inversePrimary: Color(0xFFb0c9e8),
+          inverseSurface: AppPalette.graphite,
+          onInverseSurface: AppPalette.iceBlue,
+          inversePrimary: AppPalette.aqua,
+          shadow: AppPalette.graphite,
+          scrim: AppPalette.graphiteDeep,
         ),
         extensions: const [AppColors.light],
-        scaffoldBackgroundColor: const Color(0xFFf6fafe),
-        textTheme: GoogleFonts.manropeTextTheme().copyWith(
-          headlineLarge: GoogleFonts.hankenGrotesk(
-            fontSize: 24, fontWeight: FontWeight.w700, height: 32 / 24,
-          ),
-          headlineMedium: GoogleFonts.hankenGrotesk(
-            fontSize: 20, fontWeight: FontWeight.w600, height: 28 / 20,
-          ),
-          headlineSmall: GoogleFonts.hankenGrotesk(
-            fontSize: 18, fontWeight: FontWeight.w600, height: 24 / 18,
-          ),
-          titleLarge: GoogleFonts.hankenGrotesk(
-            fontSize: 24, fontWeight: FontWeight.w700, height: 32 / 24,
-          ),
-          bodyLarge: GoogleFonts.manrope(
-            fontSize: 16, fontWeight: FontWeight.w400, height: 24 / 16,
-          ),
-          bodyMedium: GoogleFonts.manrope(
-            fontSize: 14, fontWeight: FontWeight.w400, height: 20 / 14,
-          ),
-          labelLarge: GoogleFonts.manrope(
-            fontSize: 14, fontWeight: FontWeight.w600, height: 20 / 20, letterSpacing: 0.02,
-          ),
-          labelMedium: GoogleFonts.manrope(
-            fontSize: 12, fontWeight: FontWeight.w600, height: 16 / 12, letterSpacing: 0.05,
-          ),
-          labelSmall: GoogleFonts.manrope(
-            fontSize: 11, fontWeight: FontWeight.w700, height: 12 / 11,
+        scaffoldBackgroundColor: AppPalette.iceBlue,
+        splashFactory: InkSparkle.splashFactory,
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          },
+        ),
+        appBarTheme: AppBarTheme(
+          backgroundColor: AppPalette.iceBlue,
+          surfaceTintColor: Colors.transparent,
+          foregroundColor: AppPalette.ink,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          centerTitle: false,
+          titleTextStyle: GoogleFonts.hankenGrotesk(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppPalette.ink,
           ),
         ),
+        cardTheme: CardThemeData(
+          color: AppPalette.white,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+        ),
+        bottomSheetTheme: const BottomSheetThemeData(
+          backgroundColor: AppPalette.white,
+          modalBackgroundColor: AppPalette.white,
+          surfaceTintColor: Colors.transparent,
+          modalBarrierColor: Color(0x575A6473),
+          elevation: 0,
+          modalElevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: AppPalette.white,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+          titleTextStyle: GoogleFonts.hankenGrotesk(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppPalette.ink,
+          ),
+          contentTextStyle: GoogleFonts.manrope(
+            fontSize: 14,
+            fontWeight: FontWeight.w400,
+            color: AppPalette.oceanSoft,
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppPalette.aqua,
+            foregroundColor: AppPalette.white,
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+            textStyle: GoogleFonts.manrope(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppPalette.aqua,
+            foregroundColor: AppPalette.white,
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+            textStyle: GoogleFonts.manrope(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppPalette.ocean,
+            side: const BorderSide(color: AppPalette.iceDeep),
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+            textStyle: GoogleFonts.manrope(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: AppPalette.aquaDeep,
+            textStyle: GoogleFonts.manrope(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationThemeData(
+          filled: true,
+          fillColor: AppPalette.white,
+          isDense: true,
+          hintStyle: GoogleFonts.manrope(fontSize: 14, color: AppPalette.muted),
+          prefixIconColor: AppPalette.muted,
+          suffixIconColor: AppPalette.muted,
+          floatingLabelStyle: GoogleFonts.manrope(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppPalette.aquaDeep,
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 16,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: const BorderSide(color: AppPalette.aqua, width: 1.6),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: const BorderSide(color: AppPalette.error),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: const BorderSide(color: AppPalette.error, width: 1.6),
+          ),
+        ),
+        snackBarTheme: SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppPalette.oceanDeep,
+          contentTextStyle: GoogleFonts.manrope(
+            color: AppPalette.white,
+            fontSize: 14,
+          ),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+        ),
+        dividerTheme: const DividerThemeData(
+          color: Color(0xFFC9D0DB),
+          thickness: 1,
+          space: 1,
+        ),
+        textTheme: GoogleFonts.manropeTextTheme()
+            .apply(bodyColor: AppPalette.ink, displayColor: AppPalette.ink)
+            .copyWith(
+              headlineLarge: GoogleFonts.hankenGrotesk(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                height: 32 / 24,
+              ),
+              headlineMedium: GoogleFonts.hankenGrotesk(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                height: 28 / 20,
+              ),
+              headlineSmall: GoogleFonts.hankenGrotesk(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                height: 24 / 18,
+              ),
+              titleLarge: GoogleFonts.hankenGrotesk(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                height: 32 / 24,
+              ),
+              bodyLarge: GoogleFonts.manrope(
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+                height: 24 / 16,
+              ),
+              bodyMedium: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                height: 20 / 14,
+              ),
+              labelLarge: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                height: 20 / 20,
+                letterSpacing: 0.02,
+              ),
+              labelMedium: GoogleFonts.manrope(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                height: 16 / 12,
+                letterSpacing: 0.05,
+              ),
+              labelSmall: GoogleFonts.manrope(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                height: 12 / 11,
+              ),
+            ),
+      ),
+      builder: (context, child) => Toaster(
+        position: SileoPosition.topCenter,
+        theme: SileoTheme.light,
+        offset: const EdgeInsets.only(top: 8),
+        child: child,
       ),
       home: const AuthGate(),
     );
@@ -314,7 +529,9 @@ class _AuthGateState extends State<AuthGate> {
 
   Future<void> _checkAuth() async {
     try {
-      var token = await ApiService.getToken().timeout(const Duration(seconds: 2));
+      var token = await ApiService.getToken().timeout(
+        const Duration(seconds: 2),
+      );
       if (token != null) {
         // Access token may have lapsed while the app was closed; swap it for a
         // fresh one via the stored refresh token before deciding auth state.
@@ -323,11 +540,12 @@ class _AuthGateState extends State<AuthGate> {
           token = await ApiService.getToken();
         } catch (_) {}
       }
-      if (token != null && firebaseInitialized) {
+      if (token != null) {
         await NotificationService().init();
       }
       if (token != null && firebaseInitialized) {
-        final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+        final initialMessage = await FirebaseMessaging.instance
+            .getInitialMessage();
         if (initialMessage != null) {
           // App opened by tapping a notification — land on home
         }
@@ -336,7 +554,9 @@ class _AuthGateState extends State<AuthGate> {
         // Always query server; use local cache only as fallback
         final prefs = await SharedPreferences.getInstance();
         try {
-          final status = await ApiService.checkOnboardingStatus().timeout(const Duration(seconds: 2));
+          final status = await ApiService.checkOnboardingStatus().timeout(
+            const Duration(seconds: 2),
+          );
           final serverCompleted = status['onboarding_completed'] == true;
           if (serverCompleted) {
             await prefs.setBool('has_seen_onboarding', true);
@@ -362,9 +582,7 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   void _onLogin() async {
-    if (firebaseInitialized) {
-      NotificationService().init();
-    }
+    NotificationService().init();
     // Always query server; use local cache only as fallback
     final prefs = await SharedPreferences.getInstance();
     try {
@@ -397,6 +615,7 @@ class _AuthGateState extends State<AuthGate> {
 
   void _onLogout() async {
     await ApiService.clearAuth();
+    AppToast.info('Signed out successfully');
     setState(() {
       _loggedIn = false;
       _showOnboarding = false;
@@ -430,9 +649,8 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  int _currentIndex = 0;
-  int _tabChangeVersion = 0;
   Map<String, dynamic>? _announcement;
+
   @override
   void initState() {
     super.initState();
@@ -459,113 +677,21 @@ class _MainShellState extends State<MainShell> {
     setState(() => _announcement = null);
   }
 
-  void _switchTo(int index) {
-    if (_currentIndex != index) {
-      _tabChangeVersion++;
-      setState(() => _currentIndex = index);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final announcementVisible = _announcement != null;
-    final children = [
-      HomePage(tabChangeVersion: _tabChangeVersion),
-      ProfilePage(onLogout: widget.onLogout, tabChangeVersion: _tabChangeVersion),
-    ];
-    final navItems = [
-      _NavItem(
-        icon: LucideIcons.house,
-        activeIcon: LucideIcons.house,
-        label: 'Home',
-        isActive: _currentIndex == 0,
-        onTap: () => _switchTo(0),
-      ),
-      _NavItem(
-        icon: LucideIcons.circleUserRound,
-        activeIcon: LucideIcons.circleUserRound,
-        label: 'Profile',
-        isActive: _currentIndex == 1,
-        onTap: () => _switchTo(1),
-      ),
-    ];
-
     return Scaffold(
       body: Column(
         children: [
-          if (announcementVisible)
+          if (_announcement != null)
             _AnnouncementBanner(
               announcement: _announcement!,
               onDismiss: _dismissAnnouncement,
             ),
           Expanded(
-            child: _LazyIndexedStack(
-              index: _currentIndex,
-              children: children,
-            ),
+            child: HomePage(tabChangeVersion: 0, onLogout: widget.onLogout),
           ),
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        child: Container(
-          height: 72,
-          decoration: BoxDecoration(
-            color: const Color(0xFFf6fafe),
-            border: Border(top: BorderSide(color: const Color(0xFFc3c6ce).withValues(alpha: 0.5))),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 8,
-                offset: const Offset(0, -2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: navItems,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LazyIndexedStack extends StatefulWidget {
-  final int index;
-  final List<Widget> children;
-  const _LazyIndexedStack({required this.index, required this.children});
-
-  @override
-  State<_LazyIndexedStack> createState() => _LazyIndexedStackState();
-}
-
-class _LazyIndexedStackState extends State<_LazyIndexedStack> {
-  final Set<int> _built = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _built.add(widget.index);
-    // Tabs are built lazily on first visit only — pre-warming every tab runs
-    // all their timers, polls, and realtime listeners at once (main-thread +
-    // network churn) even while hidden.
-  }
-
-  @override
-  void didUpdateWidget(covariant _LazyIndexedStack oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.index >= 0 && widget.index < widget.children.length && !_built.contains(widget.index)) {
-      setState(() => _built.add(widget.index));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return IndexedStack(
-      index: widget.index,
-      children: [
-        for (var i = 0; i < widget.children.length; i++)
-          _built.contains(i) ? widget.children[i] : const SizedBox.shrink(),
-      ],
     );
   }
 }
@@ -587,13 +713,17 @@ class _AnnouncementBanner extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: const Color(0xFF00152a),
+      color: const Color(0xFF4A78E0),
       child: SafeArea(
         bottom: false,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(LucideIcons.megaphone, size: 20, color: Color(0xFF93c5fd)),
+            const Icon(
+              TablerIcons.speakerphone,
+              size: 20,
+              color: Color(0xFFCBD8F7),
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -602,7 +732,9 @@ class _AnnouncementBanner extends StatelessWidget {
                   Text(
                     title,
                     style: GoogleFonts.hankenGrotesk(
-                      fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
                     ),
                   ),
                   if (body.isNotEmpty) ...[
@@ -610,7 +742,9 @@ class _AnnouncementBanner extends StatelessWidget {
                     Text(
                       body,
                       style: GoogleFonts.manrope(
-                        fontSize: 13, fontWeight: FontWeight.w400, color: const Color(0xFFd7dee8),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w400,
+                        color: const Color(0xFFDDE3EC),
                       ),
                     ),
                   ],
@@ -622,52 +756,13 @@ class _AnnouncementBanner extends StatelessWidget {
                 onTap: onDismiss,
                 child: const Padding(
                   padding: EdgeInsets.only(left: 8),
-                  child: Icon(LucideIcons.x, size: 18, color: Color(0xFFd7dee8)),
+                  child: Icon(
+                    TablerIcons.x,
+                    size: 18,
+                    color: Color(0xFFDDE3EC),
+                  ),
                 ),
               ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  final bool isActive;
-  final VoidCallback onTap;
-
-  const _NavItem({
-    required this.icon,
-    required this.activeIcon,
-    required this.label,
-    required this.isActive,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              isActive ? activeIcon : icon,
-              size: 24,
-              color: isActive ? const Color(0xFF2563eb) : const Color(0xFF74777e),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11, fontWeight: FontWeight.w600,
-                color: isActive ? const Color(0xFF2563eb) : const Color(0xFF74777e),
-              ),
-            ),
           ],
         ),
       ),
@@ -685,7 +780,7 @@ class ForceUpdatePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final cfg = RemoteConfigService.instance;
     return Scaffold(
-      backgroundColor: const Color(0xFFf6fafe),
+      backgroundColor: const Color(0xFFF4F6FA),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -693,13 +788,19 @@ class ForceUpdatePage extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(LucideIcons.packageOpen, size: 72, color: const Color(0xFF2563eb)),
+                Icon(
+                  TablerIcons.package_export,
+                  size: 72,
+                  color: const Color(0xFF4A78E0),
+                ),
                 const SizedBox(height: 24),
                 Text(
                   'Update required',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.hankenGrotesk(
-                    fontSize: 24, fontWeight: FontWeight.w700, color: const Color(0xFF00152a),
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF4A78E0),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -707,7 +808,9 @@ class ForceUpdatePage extends StatelessWidget {
                   'A new version (${cfg.minimumVersion}) of UCS Attend is available. Please update to continue.',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.manrope(
-                    fontSize: 14, fontWeight: FontWeight.w400, color: const Color(0xFF474d57),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                    color: const Color(0xFF6C7686),
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -716,7 +819,7 @@ class ForceUpdatePage extends StatelessWidget {
                   child: FilledButton(
                     onPressed: _openStore,
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF2563eb),
+                      backgroundColor: const Color(0xFF4A78E0),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
                     child: const Text('Update Now'),

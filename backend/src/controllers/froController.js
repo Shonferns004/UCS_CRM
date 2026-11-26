@@ -146,7 +146,7 @@ const FRO_DONORS_REDIS_MAX_BYTES = 512 * 1024;
 const FRO_DONORS_KEY_PARAMS = [
   'status', 'status_group', 'ngo_id', 'station', 'new_only', 'old_only', 'high_tier_only',
   'verified_only', 'active_only', 'inactive_only', 'include_suppressed', 'all_statuses',
-  'period', 'limit', 'offset',
+  'period', 'limit', 'offset', 'donation_status', 'donation_category',
 ];
 
 /**
@@ -1059,16 +1059,9 @@ const STATUS_PRIORITY = [
   'donation_collected',
 ];
 
-// Exclusive cadence buckets for the Active Donors card and its donor-list
-// modal. A donor's cadence is the WIDEST gap in their donation pattern this
-// FY: the max of the gaps between consecutive donations AND the open gap
-// from the last donation to now — a monthly donor who vanished five months
-// ago stops counting as monthly. Each button shows EXACTLY that cadence:
-// 1M = monthly donors (gaps ~1 month), 2M = 2-month donors, and so on to
-// yearly; 'all' = every cadence combined. Half a month of grace per bucket
-// so a 33-day gap does not fail the monthly bucket.
+// Window math for the active/inactive split. A donor is active when their
+// last donation is inside the selected N-month window.
 const CADENCE_MONTH_MS = 30.44 * 24 * 60 * 60 * 1000;
-const CADENCE_BUCKETS = [1, 2, 3, 6, 8, 12];
 
 const groupDonationDatesByDonor = (logs) => {
   const byDonor = new Map();
@@ -1084,25 +1077,6 @@ const groupDonationDatesByDonor = (logs) => {
   return byDonor;
 };
 
-const widestDonationGapMs = (byDonor, donorId, nowMs) => {
-  const dates = byDonor.get(donorId);
-  if (!dates || dates.length === 0) return Infinity;
-  let widest = nowMs - dates[dates.length - 1];
-  for (let i = 1; i < dates.length; i++) {
-    widest = Math.max(widest, dates[i] - dates[i - 1]);
-  }
-  return Math.max(0, widest);
-};
-
-// Smallest bucket whose limit covers the widest gap; null = wider than a
-// year (no cadence). Donors with no FY donation at all also get null.
-const cadenceBucketMonths = (widestGapMs) => {
-  for (const b of CADENCE_BUCKETS) {
-    if (widestGapMs <= CADENCE_MONTH_MS * (b + 0.5)) return b;
-  }
-  return null;
-};
-
 export const getDashboard = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -1113,13 +1087,15 @@ export const getDashboard = async (req, res) => {
     // activeWindow scopes the active/inactive donor split to the last 1, 2, 3,
     // 6, 8 or 12 months (default 1 month). A donor with no donation in the
     // window is inactive. Part of the cache key — counts differ across windows.
-    const activeWindow = ['all', '1', '2', '3', '6', '8', '12'].includes(String(req.query.activeWindow)) ? String(req.query.activeWindow) : '1';
-    const dashKey = `fro:dash:${workerId}:${req.query.month || 'cur'}:${activeWindow}`;
+    const activeWindow = ['all', '1', '2', '3', '6', '8', '12'].includes(String(req.query.activeWindow)) ? String(req.query.activeWindow) : '12';
+    const requestedNgo = String(req.query.ngo_id || '').trim() || null;
+    const dashKey = `fro:dash:${workerId}:${req.query.month || 'cur'}:${activeWindow}:${requestedNgo || 'all'}`;
     const hitDash = cacheGet(dashKey, FRO_DASHBOARD_TTL_MS);
     if (hitDash !== undefined) return res.json(hitDash);
 
     // Count donors by this FRO's stations (from fro_assignments)
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const ngoFilter = requestedNgo && allowedNgoIds.includes(requestedNgo) ? requestedNgo : null;
     let totalDonors = 0;
     let assignedByNgo = {};
     let assignedByStation = {};
@@ -1224,6 +1200,18 @@ export const getDashboard = async (req, res) => {
 
     const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
     const fyStart = new Date(fyYear, 3, 1);
+    // My Leads marks a donor Active when they donated in the last 12 months.
+    // The dashboard must use the same window or its counts disagree with the
+    // list the FRO actually checks.
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+    let assignmentsQuery = db
+      .from('fro_assignments')
+      .select('status, donor_id')
+      .in('station', stationNames)
+      .or('status.is.null,status.neq.reassigned');
+    if (ngoFilter) assignmentsQuery = assignmentsQuery.eq('ngo_id', ngoFilter);
 
     // The year-long donation scan and today's punch-in lookup are
     // independent of the 8 aggregations below, so they ride in the same
@@ -1235,8 +1223,8 @@ export const getDashboard = async (req, res) => {
       ? await Promise.all([
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, amount_collected, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(db.from('fro_assignments').select('status, donor_id').in('station', stationNames).or('status.is.null,status.neq.reassigned'), myScope),
+          withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, amount_collected, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', oneYearAgo.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(assignmentsQuery, myScope),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done').eq('accounts_status', 'verified'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
@@ -1290,8 +1278,11 @@ export const getDashboard = async (req, res) => {
     // donation recorded by more than one flow.
     let totalDonations = 0;
     const monthDonatedIds = new Set();
+    const fyStartIso = fyStart.toISOString();
     for (const l of totalDonationsRes.data || []) {
-      totalDonations += parseFloat(l.amount_collected || 0);
+      // The scan now reaches back a year so the active/inactive split can use
+      // it; the FY total must still ignore anything before the FY start.
+      if (l.created_at >= fyStartIso) totalDonations += parseFloat(l.amount_collected || 0);
       if (l.created_at >= monthStart && l.created_at <= monthEnd) {
         if (l.donor_id) monthDonatedIds.add(l.donor_id);
       }
@@ -1356,22 +1347,35 @@ export const getDashboard = async (req, res) => {
       froReactivatedMonthly = [...froMonthDonorSet].filter(id => !fyBeforeMonthDonorsSet.has(id)).length;
     }
 
-    // Active donors by EXCLUSIVE donation cadence: each window button counts
-    // exactly that cadence (1M = monthly donors only, 2M = 2-month donors
-    // only, …; 'all' = every cadence combined). Inactive is FIXED and does
-    // not follow the pills: every assigned donor who did not donate in the
-    // past one month — including donors who have never donated a single
-    // rupee — is inactive.
+    // Active/inactive by RECENCY, matching the Status column in My Leads:
+    // active when the donor's last donation (profile history OR a scoped log)
+    // falls inside the selected window. The old cadence-bucket rule counted
+    // only donors whose usual giving rhythm matched the pill exactly, so most
+    // genuinely active donors were missing from the Active figure.
+    const profileLastDonation = new Map();
+    {
+      const ids = [...donorInfo.keys()];
+      if (ids.length) {
+        const rows = await chunkedInQuery(ids, chunk =>
+          db.from('donor_profiles').select('id, last_donation_date').in('id', chunk)
+        );
+        for (const p of rows || []) {
+          const ms = p.last_donation_date ? new Date(p.last_donation_date).getTime() : 0;
+          if (ms) profileLastDonation.set(p.id, ms);
+        }
+      }
+    }
     const donationDatesByDonor = groupDonationDatesByDonor(totalDonationsRes.data);
-    const cadenceNowMs = Date.now();
-    const activeWindowMonths = activeWindow === 'all' ? null : Number(activeWindow);
+    const nowMs = Date.now();
+    const activeWindowMonths = activeWindow === 'all' ? 12 : Number(activeWindow);
+    const activeCutoffMs = nowMs - activeWindowMonths * CADENCE_MONTH_MS;
     let activeDonors = 0, inactiveDonors = 0;
     for (const [donorId] of donorInfo) {
       const dates = donationDatesByDonor.get(donorId);
-      const lastDonationMs = dates && dates.length ? dates[dates.length - 1] : 0;
-      const bucket = lastDonationMs ? cadenceBucketMonths(widestDonationGapMs(donationDatesByDonor, donorId, cadenceNowMs)) : null;
-      if (activeWindow === 'all' ? bucket !== null : bucket === activeWindowMonths) activeDonors++;
-      if (!lastDonationMs || (cadenceNowMs - lastDonationMs) > CADENCE_MONTH_MS) inactiveDonors++;
+      const logMs = dates && dates.length ? dates[dates.length - 1] : 0;
+      const lastDonationMs = Math.max(logMs || 0, profileLastDonation.get(donorId) || 0);
+      if (lastDonationMs && lastDonationMs >= activeCutoffMs) activeDonors++;
+      else inactiveDonors++;
     }
 
     const { data: myAtt } = await db
@@ -1469,7 +1473,7 @@ export const getDonorSplitList = async (req, res) => {
     const isAllWindow = windowParam === 'all';
     const windowN = ['all', '1', '2', '3', '6', '8', '12'].includes(windowParam)
       ? (isAllWindow ? 12 : Number(windowParam))
-      : 1;
+      : 12;
     const limit = Math.min(Number(req.query.limit) || 500, 1000);
 
     const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
@@ -1484,6 +1488,18 @@ export const getDonorSplitList = async (req, res) => {
       myScope
     );
     const assignedIds = [...new Set((assignedRows || []).map(a => a.donor_id).filter(Boolean))];
+
+    // Same last-donation source as the dashboard count.
+    const profileLastDonation = new Map();
+    if (assignedIds.length) {
+      const rows = await chunkedInQuery(assignedIds, chunk =>
+        db.from('donor_profiles').select('id, last_donation_date').in('id', chunk)
+      );
+      for (const p of rows || []) {
+        const ms = p.last_donation_date ? new Date(p.last_donation_date).getTime() : 0;
+        if (ms) profileLastDonation.set(p.id, ms);
+      }
+    }
 
     let ids;
     if (status === 'total') {
@@ -1504,40 +1520,34 @@ export const getDonorSplitList = async (req, res) => {
       const donorSet = new Set((logs || []).map(l => l.donor_id).filter(Boolean));
       ids = assignedIds.filter(id => donorSet.has(id));
     } else {
-      // Active = cadence fits the selected window (widest FY gap, consecutive
-      // donations plus the open gap to now). Inactive is FIXED — did not
-      // donate in the past one month — the window pills never apply to it.
-      const now = new Date();
-      const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
-      const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
-      const fyStart = new Date(fyYear, 3, 1);
+      // Same recency rule as the dashboard: a donor is active when the last
+      // donation is inside the selected window. A year of history is needed
+      // for the 12-month view, so the scan reaches back that far.
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
       const { data: logs } = await withStationNgoPairs(
         db
           .from('fro_donor_logs')
           .select('donor_id, created_at, fro_assignments!inner(station, ngo_id)')
           .in('fro_assignments.station', stationNames)
           .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-          .gte('created_at', fyStart.toISOString()),
+          .gte('created_at', oneYearAgo.toISOString()),
         myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
       );
       const donationDatesByDonor = groupDonationDatesByDonor(logs);
       const nowMs = Date.now();
-      // Active = EXCLUSIVE cadence bucket ('all' = any bucket). Inactive is
-      // FIXED — every assigned donor who did not donate in the past one
-      // month, including those who have never donated at all — the window
-      // pills never apply to it.
+      const cutoffMs = nowMs - windowN * CADENCE_MONTH_MS;
+      const lastDonationMs = id => {
+        const dates = donationDatesByDonor.get(id);
+        const logMs = dates && dates.length ? dates[dates.length - 1] : 0;
+        return Math.max(logMs || 0, profileLastDonation.get(id) || 0);
+      };
       ids = status === 'active'
         ? assignedIds.filter(id => {
-            const dates = donationDatesByDonor.get(id);
-            if (!dates || !dates.length) return false;
-            const bucket = cadenceBucketMonths(widestDonationGapMs(donationDatesByDonor, id, nowMs));
-            return isAllWindow ? bucket !== null : bucket === windowN;
+            const lastMs = lastDonationMs(id);
+            return lastMs > 0 && lastMs >= cutoffMs;
           })
-        : assignedIds.filter(id => {
-            const dates = donationDatesByDonor.get(id);
-            const lastMs = dates && dates.length ? dates[dates.length - 1] : 0;
-            return !lastMs || (nowMs - lastMs) > CADENCE_MONTH_MS;
-          });
+        : assignedIds.filter(id => lastDonationMs(id) < cutoffMs);
     }
 
     const total = ids.length;
@@ -1999,7 +2009,11 @@ export const getMyCollections = async (req, res) => {
     const ngos = Object.entries(ngoMap).map(([id, name]) => ({ id, name: name || 'Unknown' }));
 
     return res.json({
-      month: monthStart.slice(0, 7),
+      // The IST calendar month the rows were read for. Deriving this from
+      // monthStart's instant (midnight IST is 18:30 UTC the previous day)
+      // labelled every response with the previous month; startDay is already
+      // the IST day string for the window, so its YYYY-MM is the actual month.
+      month: startDay.slice(0, 7),
       collections,
       ngos,
       ngoMap,
@@ -3061,6 +3075,138 @@ export const getReactivatedDonors = async (req, res) => {
 const NOT_CONNECTED_STATUSES = ['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail'];
 const CONNECTED_STATUSES = ['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected'];
 
+// ─── Per-NGO donor labels (same rules as the station-wise Excel) ─────────────
+// A donor's donation history belongs to the NGO that issued the receipt. The
+// FRO list previously showed donor_profiles totals, which aggregate every NGO,
+// so an AFLF donor could display a BSCT count. These helpers derive the four
+// labels from receipts scoped to the assignment's NGO only.
+const LABEL_AS_ON = new Date();
+const labelParseDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+};
+const labelAge = (lastDate) => {
+  const d = labelParseDate(lastDate);
+  if (!d) return 'Date Not Available';
+  const asOn = LABEL_AS_ON;
+  let months = (asOn.getUTCFullYear() - d.getUTCFullYear()) * 12 + (asOn.getUTCMonth() - d.getUTCMonth());
+  if (asOn.getUTCDate() < d.getUTCDate()) months -= 1;
+  if (months < 0) months = 0;
+  if (months === 0) return 'Less than 1 Month';
+  if (months < 12) return months === 1 ? '1 Month' : `${months} Months`;
+  const years = Math.floor(months / 12);
+  const rem = months % 12;
+  const ys = years === 1 ? '1 Year' : `${years} Years`;
+  if (!rem) return ys;
+  return `${ys} ${rem === 1 ? '1 Month' : `${rem} Months`}`;
+};
+const labelFrequency = (count, firstDate, lastDate) => {
+  if (!count) return 'No Donation';
+  if (count === 1) return 'One-Time Donor';
+  const first = labelParseDate(firstDate);
+  const last = labelParseDate(lastDate);
+  if (!first || !last || last < first) return 'Not Available';
+  const days = (last - first) / 86400000;
+  const gap = days / 30.4375 / (count - 1);
+  const n = Math.max(1, Math.round(gap));
+  if (n >= 13) return 'More Than Yearly';
+  if (n === 3) return 'Quarterly Donor (3 Months)';
+  if (n === 6) return 'Half-Yearly Donor (6 Months)';
+  if (n === 12) return 'Yearly Donor (12 Months)';
+  return `${n} Month Donor`;
+};
+const labelCategory = (count, total) => {
+  if (!count || !total) return 'Below Low';
+  const avg = total / count;
+  if (avg >= 5000) return 'Premium Donors';
+  if (avg >= 2000) return 'High Value Donors';
+  if (avg >= 500) return 'Medium Donors';
+  if (avg >= 251) return 'Low Value Donors';
+  return 'Below Low';
+};
+const labelStatus = (lastDate) => {
+  const d = labelParseDate(lastDate);
+  if (!d) return 'Inactive';
+  const asOn = LABEL_AS_ON;
+  const cutoff = new Date(Date.UTC(asOn.getUTCFullYear() - 1, asOn.getUTCMonth(), asOn.getUTCDate()));
+  return d > cutoff ? 'Active' : 'Inactive';
+};
+const buildDonorNgoLabels = (stat) => {
+  const count = Number(stat?.cnt || 0);
+  const total = Number(stat?.total || 0);
+  return {
+    donation_category: labelCategory(count, total),
+    donation_frequency_label: labelFrequency(count, stat?.first_date, stat?.last_date),
+    donation_status_label: labelStatus(stat?.last_date),
+    last_donation_age_label: labelAge(stat?.last_date),
+    ngo_receipt_count: count,
+    ngo_receipt_total: total,
+    ngo_last_receipt_date: stat?.last_date || null,
+  };
+};
+
+const attachDonorNgoLabels = async (rows) => {
+  if (!rows || rows.length === 0) return;
+  const donorIds = [...new Set(rows.map(r => r.donor_id).filter(Boolean))];
+  const projects = [...new Set(
+    rows.map(r => String(r.ngo_name || '').toLowerCase())
+      .filter(p => p === 'bsct' || p === 'aflf' || p === 'mann'),
+  )];
+  // AFLF/MANN rows also carry the donor's BSCT category, because a donor can be
+  // Premium in BSCT but Below Low in the NGO currently being viewed.
+  const needsBsctTag = rows.some(r => {
+    const ngo = String(r.ngo_name || '').toLowerCase();
+    return ngo === 'aflf' || ngo === 'mann';
+  });
+  if (needsBsctTag && !projects.includes('bsct')) projects.push('bsct');
+  if (donorIds.length === 0 || projects.length === 0) return;
+  try {
+    const { rows: stats } = await db._pool.query(
+      `WITH rec AS (
+         SELECT COALESCE(r.donor_id, d.id) AS donor_id,
+                r.project_id,
+                r.amount,
+                r.receipt_date
+           FROM public.receipts r
+           LEFT JOIN public.donor_profiles d
+             ON r.donor_id IS NULL AND d.mobile_number = r.donor_mobile
+          WHERE (r.donor_id = ANY($1::int[]) OR d.id = ANY($1::int[]))
+            AND r.project_id = ANY($2::text[])
+            AND r.voided_at IS NULL
+            AND COALESCE(r.amount, 0) > 0
+       )
+       SELECT donor_id, project_id,
+              count(*)::int AS cnt,
+              sum(amount)::float8 AS total,
+              min(receipt_date)::date AS first_date,
+              max(receipt_date)::date AS last_date
+         FROM rec
+        WHERE donor_id IS NOT NULL
+        GROUP BY donor_id, project_id`,
+      [donorIds, projects],
+    );
+    const byPair = new Map(
+      (stats || []).map(s => [`${s.donor_id}|${String(s.project_id).toLowerCase()}`, s]),
+    );
+    for (const r of rows) {
+      const ngo = String(r.ngo_name || '').toLowerCase();
+      const key = `${r.donor_id}|${ngo}`;
+      Object.assign(r, buildDonorNgoLabels(byPair.get(key)));
+      if (needsBsctTag && (ngo === 'aflf' || ngo === 'mann')) {
+        const bsct = byPair.get(`${r.donor_id}|bsct`);
+        r.bsct_donation_category = labelCategory(Number(bsct?.cnt || 0), Number(bsct?.total || 0));
+      }
+    }
+  } catch (err) {
+    console.warn('[donor labels] skipped:', err?.message || String(err));
+  }
+};
+
 export const getMyDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -3868,6 +4014,7 @@ export const getMyDonors = async (req, res) => {
           return res.json({ donor: null, position: -1, total: totalActive, cycle_key: cycleKey({ ngoId: null, station: queueStation, tab: queueTab }), done: true });
         }
         const r = byId.get(next.donor_id);
+        await attachDonorNgoLabels([r]);
         await markShown({ workerId, donorId: next.donor_id, ngoId: next.ngo_id, station: queueStation, tab: queueTab, position: next.position });
         return res.json({
           donor: r,
@@ -3917,12 +4064,40 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
+    // Per-NGO labels power the new Active/Inactive and Category filters. When
+    // either filter is used we must label the whole scope before slicing; when
+    // they are not used, only the returned page is labelled (cheaper).
+    const donationStatus = String(req.query.donation_status || '').toLowerCase();
+    const donationCategory = String(req.query.donation_category || '').trim().toLowerCase();
+    const needsLabelFilter = (donationStatus === 'active' || donationStatus === 'inactive')
+      || (donationCategory && donationCategory !== 'all');
+
+    if (needsLabelFilter) {
+      await attachDonorNgoLabels(filtered);
+      if (donationStatus === 'active' || donationStatus === 'inactive') {
+        const want = donationStatus === 'active' ? 'Active' : 'Inactive';
+        filtered = filtered.filter(r => r.donation_status_label === want);
+      }
+      if (donationCategory && donationCategory !== 'all') {
+        const categoryByKey = {
+          premium: 'Premium Donors',
+          high: 'High Value Donors',
+          medium: 'Medium Donors',
+          low: 'Low Value Donors',
+          below: 'Below Low',
+        };
+        const wantCategory = categoryByKey[donationCategory] || req.query.donation_category;
+        filtered = filtered.filter(r => r.donation_category === wantCategory);
+      }
+    }
+
     const total = filtered.length;
     let page = filtered;
     if (Number.isFinite(limit) && limit > 0) {
       const start = (Number.isFinite(offset) && offset > 0) ? offset : 0;
       page = filtered.slice(start, start + limit);
     }
+    if (!needsLabelFilter) await attachDonorNgoLabels(page);
 
     if (total === 0 && assignments && assignments.length > 0) {
       console.warn('getMyDonors EMPTY after filters for worker', workerId,
@@ -4901,7 +5076,13 @@ export const getMyTarget = async (req, res) => {
     // duplicates work getDashboard already does — and the dashboard page fires
     // both on mount. Cache it on its own TTL so a page reload or a tab bounce
     // does not pay for it twice.
-    const targetKey = `fro:target:${workerId}:${req.query.month || 'cur'}`;
+    // A month picker on the Incentive Calendar asks for an older month; keep
+    // the default (no query) on the current month so every existing caller is
+    // unchanged. The value is a plain YYYY-MM key.
+    const requestedMonth = /^\d{4}-\d{2}$/.test(String(req.query.month || ''))
+      ? String(req.query.month)
+      : null;
+    const targetKey = `fro:target:${workerId}:${requestedMonth || 'cur'}`;
     const hitTarget = cacheGet(targetKey, FRO_TARGET_TTL_MS);
     if (hitTarget !== undefined) return res.json(hitTarget);
 
@@ -4911,7 +5092,11 @@ export const getMyTarget = async (req, res) => {
     const currentSalary = salary ? parseFloat(salary.salary) : 0;
 
     const now = new Date();
-    const monthBounds = istMonthBounds(now);
+    // Midday on the 1st avoids the IST/UTC edge that midnight would cross.
+    // It is also the reference date for tenure so a past month resolves the
+    // auto target that applied then, not today's tier.
+    const refDate = requestedMonth ? new Date(`${requestedMonth}-01T12:00:00+05:30`) : now;
+    const monthBounds = istMonthBounds(refDate);
     const monthStr = monthBounds.month;
     const monthStart = monthBounds.start.toISOString();
     const monthEnd = monthBounds.end.toISOString();
@@ -4930,7 +5115,7 @@ export const getMyTarget = async (req, res) => {
       salary: currentSalary,
       currentRow: manualTarget,
       priorRow: priorTarget,
-      refDate: now,
+      refDate,
     });
     const target = resolved.target;
     const targetSource = resolved.source;

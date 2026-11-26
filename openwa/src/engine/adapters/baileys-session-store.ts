@@ -21,6 +21,25 @@ interface LastMessage {
 export const SESSION_STORE_MAP_CAP_DEFAULT = 5000;
 
 /**
+ * Per-map cap under `BAILEYS_MEMORY_PROFILE=low`. Nine maps per session, so the 5000 default can hold
+ * tens of thousands of entries for a busy account; 200 keeps the recent working set while everything
+ * older re-resolves from the socket or from the persisted stores. This is the single largest per-session
+ * memory lever the engine has.
+ */
+export const SESSION_STORE_MAP_CAP_LOW_MEMORY = 200;
+
+/**
+ * The per-map LRU cap. An explicit `BAILEYS_SESSION_STORE_MAX_ENTRIES` always wins (0 = unbounded);
+ * otherwise the profile picks the default. Read per session, so a restart picks up a change.
+ */
+export function resolveSessionStoreMapCap(env: NodeJS.ProcessEnv = process.env): number {
+  return resolveNonNegativeIntEnv(
+    env.BAILEYS_SESSION_STORE_MAX_ENTRIES,
+    env.BAILEYS_MEMORY_PROFILE === 'low' ? SESSION_STORE_MAP_CAP_LOW_MEMORY : SESSION_STORE_MAP_CAP_DEFAULT,
+  );
+}
+
+/**
  * Insertion-ordered Map with an LRU cap, the same discipline as LidMappingStoreService: a read or
  * write re-inserts the key at the most-recent end, and a set evicts the least-recently-used entry
  * while over `max`. `max = 0` means unbounded.
@@ -259,10 +278,8 @@ export class BaileysSessionStore {
     private readonly chatStateStore?: ChatStateStore,
   ) {
     // Mirrors LidMappingStoreService: a finite default, 0 opts back into unbounded, garbage falls back.
-    const maxEntries = resolveNonNegativeIntEnv(
-      process.env.BAILEYS_SESSION_STORE_MAX_ENTRIES,
-      SESSION_STORE_MAP_CAP_DEFAULT,
-    );
+    // `BAILEYS_MEMORY_PROFILE=low` lowers that default (see resolveSessionStoreMapCap).
+    const maxEntries = resolveSessionStoreMapCap();
     // A saved name only ever arrives from the account's own app-state address book, never from peer
     // traffic, so pinning on it keeps the curated set out of reach of the peers this session happens
     // to observe. The pinned population is bounded by the account's own contact list.
@@ -362,6 +379,23 @@ export class BaileysSessionStore {
       this.chats.set(r.id, { ...existing, ...r });
       this.persistChatState(r.id, r);
       this.applyChatTimer(r.id, r, lidIndex);
+    }
+  }
+
+  /**
+   * Clear a chat's unread counter after this session sent a read receipt for it.
+   *
+   * WhatsApp patches an app-state `markRead` onto the account's OTHER devices only; the device that
+   * sent the receipt never receives one. So the count established by the history sync outlived the
+   * read, every chat-list read reported the chat unread again, and a client that marks a chat read
+   * and then re-reads the list put the badge straight back. Clearing it here, for every spelling of
+   * the chat, is what makes a read stick.
+   */
+  markChatRead(chatId: string): void {
+    for (const key of new Set([this.chatKey(chatId), ...this.chatTwins(chatId)])) {
+      const record = this.chats.get(key);
+      if (!record || !record.unreadCount) continue;
+      this.chats.set(key, { ...record, unreadCount: 0 });
     }
   }
 
@@ -1324,7 +1358,9 @@ export class BaileysSessionStore {
   /**
    * Best-known display name for a chat id when Baileys gave the chat no title (#369). Prefers the saved
    * contact name, then verifiedName, then pushName (`notify`); for a @lid chat it also tries the contact
-   * behind the resolved phone. Falls back to the raw user-part so a number/lid is never shown as a JID.
+   * behind the resolved phone, and falls back to that PHONE before its lid. A lid is an opaque privacy
+   * identifier an operator cannot act on, so a number is always the better label — for a chat saved under
+   * no name, that is the difference between "263904533995715" and the number they can dial.
    */
   private resolveContactName(id: string): string {
     const direct = this.contactDisplayName(id);
@@ -1345,6 +1381,11 @@ export class BaileysSessionStore {
           this.contactDisplayName(`${userPart(pn)}@c.us`);
         if (viaPhone) {
           return viaPhone;
+        }
+        // The phone is known but nobody saved a name for it: show the number, never the lid.
+        const digits = userPart(pn);
+        if (digits) {
+          return digits;
         }
       }
     }

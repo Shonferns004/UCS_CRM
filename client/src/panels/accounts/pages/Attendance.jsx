@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { apiGet, apiPut } from '../api/auth';
 import { deptLabel } from '../../../lib/labels';
 import { SHOW_NETWORK_DETAIL } from '../../../lib/networkDetail';
+import { getForfeitedHolidayDates } from '../../../lib/holidayForfeiture';
 import * as XLSX from 'xlsx-js-style';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
@@ -119,6 +120,19 @@ export async function exportAttendanceSheet(exportFrom, exportTo, preload) {
 
     activeWorkers.forEach((w, idx) => {
       const joinDate = (w.created_at || '').slice(0, 10);
+      const workerRecords = (allRecords || []).filter((r) => r.worker_id === w.id);
+      const forfeited = new Set();
+      for (const holiday of holidaySet) {
+        const [hy, hm] = holiday.split('-').map(Number);
+        if (!hy || !hm) continue;
+        getForfeitedHolidayDates({
+          year: hy,
+          month: hm - 1,
+          holidayDates: [...holidaySet],
+          records: workerRecords,
+          workerCreatedAt: w.created_at,
+        }).forEach((d) => forfeited.add(d));
+      }
       let present = 0, absent = 0, holiday = 0, sunday = 0, halfDay = 0, lateMinutes = 0;
       const inCells = [];
       const outCells = [];
@@ -129,9 +143,10 @@ export async function exportAttendanceSheet(exportFrom, exportTo, preload) {
         if (dow === 0) { sunday++; inCells.push(''); outCells.push(''); continue; }
         const rec = recCache[`${w.id}|${ds}`];
         // A declared holiday with no punch — or with a stale absent/leave row —
-        // is a paid day: count it separately and never as an absent day. A real
-        // punch on that date still wins below.
+        // is a paid day, unless this month's forfeiture rule turns it into an
+        // absent day (e.g. Nov 9-10 when 11 Nov was not reported).
         if (holidaySet.has(ds) && (!rec || rec.status === 'absent' || rec.status === 'leave')) {
+          if (forfeited.has(ds)) { absent++; inCells.push('A'); outCells.push(''); continue; }
           holiday++; inCells.push('H'); outCells.push(''); continue;
         }
         if (!rec) { absent++; inCells.push('A'); outCells.push(''); continue; }
@@ -428,13 +443,29 @@ export default function Attendance() {
       setWorkerMonth(nm);
     };
 
+    const workerMonthRecords = allRecords.filter((a) => {
+      if (a.worker_id !== selectedWorker.id) return false;
+      const d = a.date || (a.punch_in_time ? getIstDateStr(new Date(a.punch_in_time)) : '');
+      return String(d).startsWith(workerMonth);
+    });
+    const workerForfeited = new Set(getForfeitedHolidayDates({
+      year: y,
+      month: m - 1,
+      holidayDates: [...workerHolidaySet],
+      records: workerMonthRecords,
+      workerCreatedAt: selectedWorker.created_at,
+    }));
+
     const resolveStatus = (rec, dow, dateStr) => {
       if (rec && rec.id) {
+        // The month-scoped forfeiture rule wins over a declared holiday.
+        if (dateStr && workerForfeited.has(dateStr)) return 'absent';
         // A stale absent/leave row on a declared holiday reads as the holiday.
         if (dateStr && workerHolidaySet.has(dateStr) && (rec.status === 'absent' || rec.status === 'leave')) return 'holiday';
         return rec.status;
       }
       if (dow === 0) return 'off';
+      if (dateStr && workerForfeited.has(dateStr)) return 'absent';
       if (dateStr && workerHolidaySet.has(dateStr)) return 'holiday';
       return 'absent';
     };

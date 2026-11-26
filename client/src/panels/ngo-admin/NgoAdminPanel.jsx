@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { usePolling } from './hooks/usePolling'
@@ -15,6 +16,7 @@ import { toast } from '../../components/Toast'
 import ToastContainer from '../../components/Toast'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
+import SidebarFooter from '../../components/admin-sidebar/SidebarFooter'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const StationManagement = lazy(() => import('./pages/StationManagement'))
@@ -48,44 +50,63 @@ const ICONS = {
   leads: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
 }
 
-// Panel-with-a-left-edge icons. The divider on the left is the part of the
-// panel that stays; the arrow points the way the sidebar is about to go.
-const RAIL_ICON = {
-  collapse: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>,
-  expand: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>,
-}
+// Flat sidebar order.
+const SIDEBAR_ITEMS = ['dashboard', 'station-mgmt', 'leads-hub', 'my-tickets', 'chat']
 
 const MAX_DROPDOWN = 4
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014'
 
-function Sidebar({ open, onClose, collapsed }) {
+function Sidebar({ open, onClose, collapsed, onToggleCollapse, onOpenSettings }) {
   const location = useLocation()
+
+  const renderItem = (id) => {
+    const n = NAV.find(item => item.id === id)
+    if (!n) return null
+    const active = location.pathname === n.path || location.pathname.startsWith(n.path + '/')
+    return (
+      <NavLink
+        key={n.id}
+        to={n.path}
+        className={`snav-item${active ? ' active' : ''}`}
+        onClick={() => onClose?.()}
+        title={collapsed ? n.label : undefined}
+        aria-label={collapsed ? n.label : undefined}
+      >
+        <span className="ico">{ICONS[n.icon]}</span>
+        <span className="sb-item-body">
+          <span className="sb-item-label snav-label">{n.label}</span>
+        </span>
+        {n.id === 'chat' && <ChatNavBadge quiet />}
+      </NavLink>
+    )
+  }
+
   return (
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
       <aside className={`sidebar${open ? ' open' : ''}`}>
-        <div className="sidebar-brand">
-          <div className="brand-mark">NA</div>
-          {/* Classed so the rail rule in index.css can drop the wordmark. Left in
-              the DOM rather than conditionally rendered, so the expanded and
-              collapsed layouts cannot drift apart. */}
-          <div className="sidebar-brand-text"><h1>UFS</h1><span>Admin Panel</span></div>
+        <div className="sb-header">
+          <div className="sb-mark" aria-hidden="true">NA</div>
+          <div className="sb-brand">
+            <h1>UFS</h1>
+            <span>Admin Panel</span>
+          </div>
+          <button
+            type="button"
+            className="sb-collapse"
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+          </button>
         </div>
-        <nav className="sidebar-nav">
-          {NAV.map(n => {
-            const active = location.pathname === n.path || location.pathname.startsWith(n.path + '/')
-            return (
-            <NavLink key={n.id} to={n.path} className={`snav-item ${active ? 'active' : ''}`}
-              onClick={() => onClose?.()}
-              title={collapsed ? n.label : undefined}
-              aria-label={collapsed ? n.label : undefined}>
-              <span className="ico">{ICONS[n.icon]}</span>
-              <span className="snav-label">{n.label}</span>
-              {n.id === 'chat' && <ChatNavBadge quiet />}
-            </NavLink>
-          )})}
+        <nav className="sidebar-nav" aria-label="Admin navigation">
+          {SIDEBAR_ITEMS.map(renderItem)}
         </nav>
+        <SidebarFooter onSettings={onOpenSettings} onNavigate={onClose} />
       </aside>
     </>
   )
@@ -309,23 +330,20 @@ export default function NgoAdminPanel() {
 
 return (
     <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
-      {!isSuperAdmin && <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={navCollapsed} />}
+      {!isSuperAdmin && (
+        <Sidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          collapsed={navCollapsed}
+          onToggleCollapse={() => setNavCollapsed(c => !c)}
+          onOpenSettings={() => { setSidebarOpen(false); setShowSettings(true) }}
+        />
+      )}
       <div className="main">
         <header className="topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
             <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
-            </button>
-            {/* desktop-only: the hamburger above owns the mobile drawer, so this
-                shows nothing below 821px rather than competing with it. */}
-            <button
-              className="desktop-only nav-collapse-toggle"
-              onClick={() => setNavCollapsed(c => !c)}
-              aria-label={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              aria-expanded={!navCollapsed}
-              title={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            >
-              {navCollapsed ? RAIL_ICON.expand : RAIL_ICON.collapse}
             </button>
             <div style={{ minWidth: 140 }}>
               <div className="eyebrow">Admin</div>
@@ -478,14 +496,14 @@ return (
               )}
             </div>
           </div>
-          <SettingsDrawer
-            open={showSettings}
-            onClose={() => setShowSettings(false)}
-            themes={themes}
-            themeName={themeName}
-            onThemeChange={(key) => setThemeName(key)}
-          />
         </header>
+        <SettingsDrawer
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          themes={themes}
+          themeName={themeName}
+          onThemeChange={(key) => setThemeName(key)}
+        />
 
         {!meetingActive && showMeetingPrompt && (
           <div

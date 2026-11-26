@@ -411,6 +411,58 @@ test('holiday: stale absent rows on declared holidays are not absences', () => {
   assert.equal(r.sundayDeductionDays, 0);
 });
 
+// --- Nov 2026 one-off rule --------------------------------------------------
+// Diwali holidays 9-10 Nov. A worker who does not report on 11 Nov forfeits
+// both holiday days (they become absent/deducted too).
+
+function novWeekdayRecords({ skip = [] } = {}) {
+  const dim = daysInMonth(2026, 10);
+  const records = [];
+  for (let d = 1; d <= dim; d++) {
+    const date = `2026-11-${String(d).padStart(2, '0')}`;
+    if (new Date(date + 'T00:00:00Z').getUTCDay() === 0) continue;
+    if (skip.includes(date)) continue;
+    records.push(rec(date, 'present'));
+  }
+  return records;
+}
+
+test('Nov rule: absent on 11 Nov forfeits the 9-10 Nov holidays', () => {
+  const dim = daysInMonth(2026, 10);
+  const r = paid({
+    year: 2026,
+    month: 10,
+    daysInMonth: dim,
+    records: novWeekdayRecords({ skip: ['2026-11-09', '2026-11-10', '2026-11-11'] }),
+    createdAt: '2026-01-01T04:00:00.000Z',
+    holidayDates: ['2026-11-09', '2026-11-10'],
+    includeHolidayPay: true,
+    viewingToday: dim,
+  });
+  assert.equal(r.holidayPaidDays, 0);
+  assert.deepEqual(r.forfeitedHolidayDates, ['2026-11-09', '2026-11-10']);
+  assert.ok(r.absentDatesAfterJoin.includes('2026-11-09'));
+  assert.ok(r.absentDatesAfterJoin.includes('2026-11-10'));
+  assert.ok(r.absentDatesAfterJoin.includes('2026-11-11'));
+});
+
+test('Nov rule: reporting on 11 Nov keeps the holidays paid', () => {
+  const dim = daysInMonth(2026, 10);
+  const r = paid({
+    year: 2026,
+    month: 10,
+    daysInMonth: dim,
+    records: novWeekdayRecords({ skip: ['2026-11-09', '2026-11-10'] }),
+    createdAt: '2026-01-01T04:00:00.000Z',
+    holidayDates: ['2026-11-09', '2026-11-10'],
+    includeHolidayPay: true,
+    viewingToday: dim,
+  });
+  assert.equal(r.holidayPaidDays, 2);
+  assert.deepEqual(r.forfeitedHolidayDates, []);
+  assert.ok(!r.absentDatesAfterJoin.includes('2026-11-09'));
+});
+
 // --- Joiners from AFTER the exported month ---------------------------------
 
 test('a worker who joined after the month scores a full zero', () => {

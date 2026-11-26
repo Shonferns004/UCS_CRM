@@ -206,6 +206,76 @@ export default function AddressImport() {
 
   const visibleReceipts = sortedReceipts
 
+  const isEditableKey = (key) => RECEIPT_EDIT_FIELDS.some(([k]) => k === key)
+
+  const beginCellEdit = (r, key) => {
+    if (!isEditableKey(key)) return
+    setEditError('')
+    setCellEdit({ id: r.id, key })
+    if (key === 'address') setCellForm({ address: rv(r, 'address'), address_2: rv(r, 'address_2') })
+    else setCellForm({ [key]: rv(r, key) })
+  }
+
+  const cancelCellEdit = () => { setCellEdit(null); setCellForm({}) }
+
+  const commitCellEdit = async (r) => {
+    if (!cellEdit || savingCell) return
+    const changes = {}
+    for (const [k, v] of Object.entries(cellForm)) {
+      if (String(v ?? '').trim() !== rv(r, k).trim()) changes[k] = v
+    }
+    if (Object.keys(changes).length === 0) { cancelCellEdit(); return }
+    setSavingCell(true); setEditError('')
+    try {
+      await apiPatch(`/accounts/receipts/${r.id}`, changes)
+      cancelCellEdit()
+      setListReload(c => c + 1)
+    } catch (err) {
+      setEditError(err.message || 'Unable to save receipt')
+    } finally {
+      setSavingCell(false)
+    }
+  }
+
+  // In-cell editor. Blur only commits when focus leaves the whole cell. The
+  // address cell is two DB fields, so it gets full-width wrapped textareas —
+  // a side-by-side pair clipped long addresses to a few characters.
+  const cellEditor = (r, keys) => (
+    <div
+      onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) commitCellEdit(r) }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}
+    >
+      {keys.map(key => (
+        key === 'address' || key === 'address_2' ? (
+          <textarea
+            key={key}
+            autoFocus={key === keys[0]}
+            rows={key === 'address' ? 2 : 1}
+            value={cellForm[key] ?? ''}
+            onChange={e => setCellForm(p => ({ ...p, [key]: e.target.value }))}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitCellEdit(r) }
+              if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit() }
+            }}
+            style={{ ...editInputStyle, height: 'auto', minHeight: key === 'address' ? 32 : 18, resize: 'vertical', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+          />
+        ) : (
+          <input
+            key={key}
+            autoFocus={key === keys[0]}
+            value={cellForm[key] ?? ''}
+            onChange={e => setCellForm(p => ({ ...p, [key]: e.target.value }))}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); commitCellEdit(r) }
+              if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit() }
+            }}
+            style={{ ...editInputStyle, fontFamily: RECEIPT_MONO.includes(key) ? 'monospace' : undefined }}
+          />
+        )
+      ))}
+    </div>
+  )
+
   const openEdit = (r, field) => {
     setEditField(field || '')
     setEditReceipt(r)

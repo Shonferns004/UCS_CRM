@@ -1,6 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:liquid_pull_to_refresh/liquid_pull_to_refresh.dart';
+import '../widgets/ui_motion.dart';
+import '../widgets/app_toast.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
@@ -19,6 +24,7 @@ class AdminAttendancePage extends StatefulWidget {
 class _AdminAttendancePageState extends State<AdminAttendancePage> {
   List<dynamic> _records = [];
   List<dynamic> _workers = [];
+  List<dynamic> _pendingProofs = [];
   DateTime _selectedDate = DateTime.now();
   bool _loading = true;
   String? _error;
@@ -31,7 +37,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     super.initState();
     _load();
     RealtimeService.instance.addListener(_onRealtimeChange);
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _load(silent: true));
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _load(silent: true),
+    );
   }
 
   @override
@@ -45,13 +54,19 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
 
   void _onRealtimeChange() {
     final event = RealtimeService.instance.lastEvent;
-    if (event == RealtimeEvent.attendance || event == RealtimeEvent.corrections) {
+    if (event == RealtimeEvent.attendance ||
+        event == RealtimeEvent.corrections ||
+        event == RealtimeEvent.absenceProofs) {
       _load(silent: true);
     }
   }
 
   Future<void> _load({bool silent = false}) async {
-    if (!silent) setState(() { _loading = true; _error = null; });
+    if (!silent)
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
     try {
       final results = await Future.wait([
         ApiService.getAllAttendance(),
@@ -77,6 +92,14 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+    _loadPendingProofs();
+  }
+
+  Future<void> _loadPendingProofs() async {
+    try {
+      final proofs = await ApiService.getPendingAbsenceProofs();
+      if (mounted) setState(() => _pendingProofs = proofs);
+    } catch (_) {}
   }
 
   String get _dateKey {
@@ -95,7 +118,9 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   Timer? _searchDebounce;
 
   void _recomputeDerived() {
-    _dayRecords = _records.where((r) => (r['date']?.toString() ?? '') == _dateKey).toList();
+    _dayRecords = _records
+        .where((r) => (r['date']?.toString() ?? '') == _dateKey)
+        .toList();
     _recordByWorker = {};
     for (final r in _dayRecords) {
       final id = r['worker_id']?.toString() ?? '';
@@ -140,7 +165,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   bool get _canGoNext {
     final now = DateTime.now();
     if (_selectedDate.year != now.year) return _selectedDate.year < now.year;
-    if (_selectedDate.month != now.month) return _selectedDate.month < now.month;
+    if (_selectedDate.month != now.month)
+      return _selectedDate.month < now.month;
     return _selectedDate.day < now.day;
   }
 
@@ -155,14 +181,17 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDate.isAfter(DateTime.now()) ? DateTime.now() : _selectedDate,
+      initialDate: _selectedDate.isAfter(DateTime.now())
+          ? DateTime.now()
+          : _selectedDate,
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
     );
-    if (picked != null) setState(() {
-      _selectedDate = picked;
-      _recomputeDerived();
-    });
+    if (picked != null)
+      setState(() {
+        _selectedDate = picked;
+        _recomputeDerived();
+      });
   }
 
   @override
@@ -181,6 +210,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
             _buildHeader(tt, scheme),
             const SizedBox(height: 4),
             if (!_loading && _workers.isNotEmpty) _buildStats(scheme, tt),
+            if (!_loading && _pendingProofs.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _buildProofBanner(scheme, tt),
+            ],
             const SizedBox(height: 12),
             _buildDateBar(scheme, tt, colors, isToday),
             const SizedBox(height: 12),
@@ -190,14 +223,102 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
               child: _loading
                   ? const _DayListSkeleton()
                   : _error != null
-                      ? _buildError(scheme, tt)
-                      : RefreshIndicator(
-                          onRefresh: () => _load(),
-                          child: _buildList(tt, scheme),
-                        ),
+                  ? _buildError(scheme, tt)
+                  : LiquidPullToRefresh(
+                      color: const Color(0xFF4A78E0),
+                      backgroundColor: const Color(0xFFF4F6FA),
+                      showChildOpacityTransition: false,
+                      springAnimationDurationInMilliseconds: 700,
+                      onRefresh: () => _load(),
+                      child: _buildList(tt, scheme),
+                    ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildProofBanner(ColorScheme scheme, TextTheme tt) {
+    final count = _pendingProofs.length;
+    const amber = Color(0xFFB45309);
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+      child: Material(
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _openProofReview,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: amber.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    TablerIcons.file_alert,
+                    size: 19,
+                    color: amber,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$count absence proof${count == 1 ? '' : 's'} to review',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF8A4B08),
+                        ),
+                      ),
+                      const Text(
+                        'Uploaded proofs from workers',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF8A4B08),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Text(
+                  'Review',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: amber,
+                  ),
+                ),
+                const Icon(TablerIcons.chevron_right, size: 16, color: amber),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openProofReview() {
+    showSpringSheet(
+      context: context,
+      builder: (_) => _AdminProofsSheet(
+        proofs: List<dynamic>.from(_pendingProofs),
+        onReviewed: (id) {
+          setState(() {
+            _pendingProofs.removeWhere(
+              (p) => p['id']?.toString() == id.toString(),
+            );
+          });
+        },
       ),
     );
   }
@@ -207,14 +328,25 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
 
   Widget _buildHeader(TextTheme tt, ColorScheme scheme) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 12), Responsive.pad(context, 8), 0),
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pad(context, 16),
+        Responsive.pad(context, 12),
+        Responsive.pad(context, 8),
+        0,
+      ),
       child: Row(
         children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Attendance', style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                Text(
+                  'Attendance',
+                  style: tt.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurface,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 Text(
                   'Daily attendance for all workers',
@@ -228,7 +360,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
               backgroundColor: scheme.secondary.withValues(alpha: 0.1),
               foregroundColor: scheme.secondary,
             ),
-            icon: const Icon(LucideIcons.plus),
+            icon: const Icon(TablerIcons.plus),
             onPressed: _workers.isEmpty ? null : _openAddSheet,
             tooltip: 'Add attendance',
           ),
@@ -238,7 +370,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
               backgroundColor: scheme.secondary.withValues(alpha: 0.1),
               foregroundColor: scheme.secondary,
             ),
-            icon: const Icon(LucideIcons.refreshCw),
+            icon: const Icon(TablerIcons.refresh),
             onPressed: () => _load(),
             tooltip: 'Refresh',
           ),
@@ -247,7 +379,9 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     );
   }
 
-  Widget _statCard(ColorScheme scheme, TextTheme tt, {
+  Widget _statCard(
+    ColorScheme scheme,
+    TextTheme tt, {
     required String label,
     required int value,
     required Color color,
@@ -255,7 +389,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   }) {
     return Expanded(
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 10)),
+        padding: EdgeInsets.symmetric(
+          horizontal: Responsive.pad(context, 6),
+          vertical: Responsive.pad(context, 10),
+        ),
         decoration: BoxDecoration(
           color: scheme.surface,
           borderRadius: BorderRadius.circular(14),
@@ -273,12 +410,28 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
             Container(
               width: Responsive.pad(context, 28),
               height: Responsive.pad(context, 28),
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.12), shape: BoxShape.circle),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
               child: Icon(icon, size: Responsive.sp(context, 15), color: color),
             ),
             const SizedBox(height: 6),
-            Text('$value', style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800, color: color, height: 1.1)),
-            Text(label, style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant, fontSize: Responsive.sp(context, 10))),
+            Text(
+              '$value',
+              style: tt.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: color,
+                height: 1.1,
+              ),
+            ),
+            Text(
+              label,
+              style: tt.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontSize: Responsive.sp(context, 10),
+              ),
+            ),
           ],
         ),
       ),
@@ -290,31 +443,62 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
       padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
       child: Row(
         children: [
-          _statCard(scheme, tt,
-              label: 'Present', value: _presentCount + _lateCount + _halfDayCount,
-              color: const Color(0xFF16a34a), icon: LucideIcons.checkCircle2),
+          _statCard(
+            scheme,
+            tt,
+            label: 'Present',
+            value: _presentCount + _lateCount + _halfDayCount,
+            color: const Color(0xff17a97f),
+            icon: TablerIcons.circle_check,
+          ),
           const SizedBox(width: 8),
-          _statCard(scheme, tt,
-              label: 'Late', value: _lateCount, color: const Color(0xFFd97706), icon: LucideIcons.alertTriangle),
+          _statCard(
+            scheme,
+            tt,
+            label: 'Late',
+            value: _lateCount,
+            color: const Color(0xFFd97706),
+            icon: TablerIcons.alert_triangle,
+          ),
           const SizedBox(width: 8),
-          _statCard(scheme, tt,
-              label: 'Leave', value: _leaveCount, color: const Color(0xFF2563eb), icon: LucideIcons.calendarDays),
+          _statCard(
+            scheme,
+            tt,
+            label: 'Leave',
+            value: _leaveCount,
+            color: const Color(0xFF4A78E0),
+            icon: TablerIcons.calendar_event,
+          ),
           const SizedBox(width: 8),
-          _statCard(scheme, tt,
-              label: 'Absent', value: _absentCount, color: const Color(0xFFdc2626), icon: LucideIcons.minusCircle),
+          _statCard(
+            scheme,
+            tt,
+            label: 'Absent',
+            value: _absentCount,
+            color: const Color(0xFFdc2626),
+            icon: TablerIcons.circle_minus,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildDateBar(ColorScheme scheme, TextTheme tt, AppColors colors, bool isToday) {
+  Widget _buildDateBar(
+    ColorScheme scheme,
+    TextTheme tt,
+    AppColors colors,
+    bool isToday,
+  ) {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 4)),
+        padding: EdgeInsets.symmetric(
+          horizontal: Responsive.pad(context, 6),
+          vertical: Responsive.pad(context, 4),
+        ),
         decoration: BoxDecoration(
           color: scheme.primary,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
               color: scheme.primary.withValues(alpha: 0.25),
@@ -326,14 +510,14 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
         child: Row(
           children: [
             IconButton(
-              icon: const Icon(LucideIcons.chevronLeft, color: Colors.white),
+              icon: const Icon(TablerIcons.chevron_left, color: Colors.white),
               onPressed: () => _shiftDay(-1),
               tooltip: 'Previous day',
             ),
             Expanded(
               child: InkWell(
                 onTap: _pickDate,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(18),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Column(
@@ -342,7 +526,9 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            isToday ? 'Today' : DateFormat('EEEE').format(_selectedDate),
+                            isToday
+                                ? 'Today'
+                                : DateFormat('EEEE').format(_selectedDate),
                             style: tt.titleMedium?.copyWith(
                               fontWeight: FontWeight.w800,
                               color: Colors.white,
@@ -351,14 +537,21 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
                           ),
                           if (!isToday) ...[
                             const SizedBox(width: 6),
-                            Icon(LucideIcons.chevronDown, size: 14, color: Colors.white70),
+                            Icon(
+                              TablerIcons.chevron_down,
+                              size: 14,
+                              color: Colors.white70,
+                            ),
                           ],
                         ],
                       ),
                       const SizedBox(height: 2),
                       Text(
                         DateFormat('d MMMM yyyy').format(_selectedDate),
-                        style: tt.bodySmall?.copyWith(color: Colors.white70, fontWeight: FontWeight.w600),
+                        style: tt.bodySmall?.copyWith(
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -366,7 +559,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
               ),
             ),
             IconButton(
-              icon: const Icon(LucideIcons.chevronRight, color: Colors.white),
+              icon: const Icon(TablerIcons.chevron_right, color: Colors.white),
               onPressed: _canGoNext ? () => _shiftDay(1) : null,
               tooltip: _canGoNext ? 'Next day' : 'Cannot view future days',
             ),
@@ -384,20 +577,21 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
         onChanged: (v) {
           _searchDebounce?.cancel();
           _searchDebounce = Timer(const Duration(milliseconds: 300), () {
-            if (mounted) setState(() {
-              _searchQuery = v.trim().toLowerCase();
-              _recomputeDerived();
-            });
+            if (mounted)
+              setState(() {
+                _searchQuery = v.trim().toLowerCase();
+                _recomputeDerived();
+              });
           });
         },
         decoration: InputDecoration(
           hintText: 'Search by name or department',
           hintStyle: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-          prefixIcon: const Icon(LucideIcons.search, size: 20),
+          prefixIcon: const Icon(TablerIcons.search, size: 20),
           suffixIcon: _searchQuery.isEmpty
               ? null
               : IconButton(
-                  icon: const Icon(LucideIcons.x, size: 18),
+                  icon: const Icon(TablerIcons.x, size: 18),
                   onPressed: () {
                     _searchController.clear();
                     setState(() {
@@ -413,11 +607,15 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
           contentPadding: const EdgeInsets.symmetric(vertical: 10),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+            borderSide: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.6),
+            ),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+            borderSide: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.6),
+            ),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
@@ -433,9 +631,16 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(LucideIcons.cloudOff, size: Responsive.sp(context, 40), color: scheme.outline),
+          Icon(
+            TablerIcons.cloud_off,
+            size: Responsive.sp(context, 40),
+            color: scheme.outline,
+          ),
           const SizedBox(height: 12),
-          Text(_error ?? 'Failed to load attendance', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            _error ?? 'Failed to load attendance',
+            style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           const SizedBox(height: 12),
           OutlinedButton(onPressed: _load, child: const Text('Retry')),
         ],
@@ -446,11 +651,22 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   Widget _buildList(TextTheme tt, ColorScheme scheme) {
     final workers = _filteredWorkers;
     if (workers.isEmpty) {
-      return _empty(tt, scheme, LucideIcons.users,
-          _searchQuery.isEmpty ? 'No workers found' : 'No workers match your search');
+      return _empty(
+        tt,
+        scheme,
+        TablerIcons.users,
+        _searchQuery.isEmpty
+            ? 'No workers found'
+            : 'No workers match your search',
+      );
     }
     return ListView.builder(
-      padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 40)),
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pad(context, 16),
+        Responsive.pad(context, 8),
+        Responsive.pad(context, 16),
+        Responsive.pad(context, 40),
+      ),
       itemCount: workers.length,
       itemBuilder: (context, i) => _workerCard(workers[i], tt, scheme),
     );
@@ -472,7 +688,9 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     var status = record['status']?.toString() ?? 'absent';
     if (punchIn != null && (status == 'absent' || status.isEmpty)) {
       final lateMin = record['late_minutes'];
-      if (lateMin != null && (lateMin is int ? lateMin : (lateMin is num ? lateMin.toInt() : 0)) > 0) {
+      if (lateMin != null &&
+          (lateMin is int ? lateMin : (lateMin is num ? lateMin.toInt() : 0)) >
+              0) {
         status = 'late';
       } else {
         status = 'present';
@@ -484,28 +702,28 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     String statusLabel;
     switch (status) {
       case 'present':
-        statusColor = const Color(0xFF16a34a);
-        statusIcon = LucideIcons.checkCircle2;
+        statusColor = const Color(0xff17a97f);
+        statusIcon = TablerIcons.circle_check;
         statusLabel = 'Present';
         break;
       case 'late':
         statusColor = const Color(0xFFd97706);
-        statusIcon = LucideIcons.alertTriangle;
+        statusIcon = TablerIcons.alert_triangle;
         statusLabel = 'Late';
         break;
       case 'half-day':
-        statusColor = const Color(0xFF7c3aed);
-        statusIcon = LucideIcons.clock;
+        statusColor = const Color(0xFF4A78E0);
+        statusIcon = TablerIcons.clock;
         statusLabel = 'Half Day';
         break;
       case 'leave':
-        statusColor = const Color(0xFF2563eb);
-        statusIcon = LucideIcons.calendarDays;
+        statusColor = const Color(0xFF4A78E0);
+        statusIcon = TablerIcons.calendar_event;
         statusLabel = 'Leave';
         break;
       default:
         statusColor = const Color(0xFFdc2626);
-        statusIcon = LucideIcons.minusCircle;
+        statusIcon = TablerIcons.circle_minus;
         statusLabel = 'Absent';
     }
 
@@ -526,8 +744,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
         padding: EdgeInsets.all(Responsive.pad(context, 12)),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+          borderRadius: BorderRadius.circular(24),
+
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.03),
@@ -545,16 +763,30 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
                 color: statusColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: Icon(statusIcon, color: statusColor, size: Responsive.sp(context, 22)),
+              child: Icon(
+                statusIcon,
+                color: statusColor,
+                size: Responsive.sp(context, 22),
+              ),
             ),
             SizedBox(width: Responsive.pad(context, 12)),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: tt.bodyLarge?.copyWith(fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(
+                    name,
+                    style: tt.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   if (dept.isNotEmpty)
-                    Text(dept, style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                    Text(
+                      dept,
+                      style: tt.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
                   if (punchIn != null || punchOut != null) ...[
                     const SizedBox(height: 6),
                     Wrap(
@@ -562,11 +794,32 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
                       runSpacing: 4,
                       children: [
                         if (punchIn != null)
-                          _punchChip(scheme, tt, LucideIcons.logIn, 'In', punchIn, statusColor),
+                          _punchChip(
+                            scheme,
+                            tt,
+                            TablerIcons.login,
+                            'In',
+                            punchIn,
+                            statusColor,
+                          ),
                         if (punchOut != null)
-                          _punchChip(scheme, tt, LucideIcons.logOut, 'Out', punchOut, statusColor),
+                          _punchChip(
+                            scheme,
+                            tt,
+                            TablerIcons.logout,
+                            'Out',
+                            punchOut,
+                            statusColor,
+                          ),
                         if (hours != null)
-                          _punchChip(scheme, tt, LucideIcons.timer, '', hours, statusColor),
+                          _punchChip(
+                            scheme,
+                            tt,
+                            TablerIcons.hourglass,
+                            '',
+                            hours,
+                            statusColor,
+                          ),
                       ],
                     ),
                   ],
@@ -577,15 +830,28 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Container(
-                  padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 5)),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: Responsive.pad(context, 10),
+                    vertical: Responsive.pad(context, 5),
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text(statusLabel, style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w800)),
+                  child: Text(
+                    statusLabel,
+                    style: tt.labelSmall?.copyWith(
+                      color: statusColor,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 6),
-                Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 16), color: scheme.outlineVariant),
+                Icon(
+                  TablerIcons.chevron_right,
+                  size: Responsive.sp(context, 16),
+                  color: scheme.outlineVariant,
+                ),
               ],
             ),
           ],
@@ -594,12 +860,22 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     );
   }
 
-  Widget _punchChip(ColorScheme scheme, TextTheme tt, IconData icon, String prefix, String value, Color color) {
+  Widget _punchChip(
+    ColorScheme scheme,
+    TextTheme tt,
+    IconData icon,
+    String prefix,
+    String value,
+    Color color,
+  ) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 8), vertical: 3),
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.pad(context, 8),
+        vertical: 3,
+      ),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow.withValues(alpha: 0.8),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(22),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -608,7 +884,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
           const SizedBox(width: 4),
           Text(
             prefix.isEmpty ? value : '$prefix $value',
-            style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant, fontWeight: FontWeight.w600),
+            style: tt.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -622,7 +901,12 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     return DateFormat('h:mm a').format(parsed.toLocal());
   }
 
-  Widget _empty(TextTheme tt, ColorScheme scheme, IconData icon, String message) {
+  Widget _empty(
+    TextTheme tt,
+    ColorScheme scheme,
+    IconData icon,
+    String message,
+  ) {
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -632,9 +916,18 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: Responsive.sp(context, 40), color: scheme.outline),
+                Icon(
+                  icon,
+                  size: Responsive.sp(context, 40),
+                  color: scheme.outline,
+                ),
                 const SizedBox(height: 12),
-                Text(message, style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+                Text(
+                  message,
+                  style: tt.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ),
@@ -644,10 +937,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   }
 
   Future<void> _openAddSheet() async {
-    final changed = await showModalBottomSheet<bool>(
+    final changed = await showSpringSheet<bool>(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => _AddAttendanceSheet(
         workers: _workers,
         onSave: (payload) async {
@@ -667,16 +958,20 @@ class _DayListSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SkeletonLoader(
       child: ListView.builder(
-        padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 40)),
+        padding: EdgeInsets.fromLTRB(
+          Responsive.pad(context, 16),
+          Responsive.pad(context, 8),
+          Responsive.pad(context, 16),
+          Responsive.pad(context, 40),
+        ),
         physics: const NeverScrollableScrollPhysics(),
         itemCount: 8,
         itemBuilder: (context, i) => Container(
           margin: EdgeInsets.only(bottom: Responsive.pad(context, 10)),
           padding: EdgeInsets.all(Responsive.pad(context, 14)),
           decoration: BoxDecoration(
-            color: const Color(0xFFf6fafe),
+            color: const Color(0xFFF4F6FA),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFe0e4ea)),
           ),
           child: const Row(
             children: [
@@ -703,7 +998,8 @@ class _DayListSkeleton extends StatelessWidget {
 
 class _AddAttendanceSheet extends StatefulWidget {
   final List<dynamic> workers;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic> payload) onSave;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> payload)
+  onSave;
   const _AddAttendanceSheet({required this.workers, required this.onSave});
 
   @override
@@ -754,12 +1050,20 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
       setState(() => _error = 'Please select a worker');
       return;
     }
-    setState(() { _saving = true; _error = null; });
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
-      final dateStr = '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
-      String toUtcIso(TimeOfDay t) => DateTime.utc(_date.year, _date.month, _date.day, t.hour, t.minute)
-          .subtract(const Duration(hours: 5, minutes: 30))
-          .toIso8601String();
+      final dateStr =
+          '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
+      String toUtcIso(TimeOfDay t) => DateTime.utc(
+        _date.year,
+        _date.month,
+        _date.day,
+        t.hour,
+        t.minute,
+      ).subtract(const Duration(hours: 5, minutes: 30)).toIso8601String();
       final payload = {
         'worker_id': _workerId,
         'date': dateStr,
@@ -789,49 +1093,83 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
         left: Responsive.pad(context, 24),
         right: Responsive.pad(context, 24),
         top: Responsive.pad(context, 20),
-        bottom: MediaQuery.of(context).viewInsets.bottom + Responsive.pad(context, 32),
+        bottom:
+            MediaQuery.of(context).viewInsets.bottom +
+            Responsive.pad(context, 32),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Center(
-            child: Container(width: Responsive.pad(context, 40), height: Responsive.pad(context, 4),
-              decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            child: Container(
+              width: Responsive.pad(context, 40),
+              height: Responsive.pad(context, 4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
           ),
           SizedBox(height: Responsive.pad(context, 16)),
-          Text('Add Attendance', style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            'Add Attendance',
+            style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
           SizedBox(height: Responsive.pad(context, 20)),
           DropdownButtonFormField<String>(
             value: _workerId,
             isExpanded: true,
             decoration: InputDecoration(
               labelText: 'Worker',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              contentPadding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 14), vertical: Responsive.pad(context, 12)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 14),
+                vertical: Responsive.pad(context, 12),
+              ),
             ),
-            items: _sortedWorkers.map((w) =>
-              DropdownMenuItem(value: w['id'].toString(), child: Text('${w['name']?.toString() ?? ''}${(w['department']?.toString() ?? '').isEmpty ? '' : ' (${w['department']})'}'))
-            ).toList(),
+            items: _sortedWorkers
+                .map(
+                  (w) => DropdownMenuItem(
+                    value: w['id'].toString(),
+                    child: Text(
+                      '${w['name']?.toString() ?? ''}${(w['department']?.toString() ?? '').isEmpty ? '' : ' (${w['department']})'}',
+                    ),
+                  ),
+                )
+                .toList(),
             onChanged: (v) => setState(() => _workerId = v),
           ),
           SizedBox(height: Responsive.pad(context, 16)),
           InkWell(
             onTap: _pickDate,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(18),
             child: Container(
               width: double.infinity,
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 14), vertical: Responsive.pad(context, 14)),
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 14),
+                vertical: Responsive.pad(context, 14),
+              ),
               decoration: BoxDecoration(
-                border: Border.all(color: scheme.outlineVariant),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(18),
               ),
               child: Row(
                 children: [
-                  Icon(LucideIcons.calendarDays, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
+                  Icon(
+                    TablerIcons.calendar_event,
+                    size: Responsive.sp(context, 18),
+                    color: scheme.onSurfaceVariant,
+                  ),
                   SizedBox(width: Responsive.pad(context, 10)),
-                  Text(DateFormat('EEEE, d MMMM yyyy').format(_date),
-                    style: TextStyle(fontSize: Responsive.sp(context, 15), fontWeight: FontWeight.w600)),
+                  Text(
+                    DateFormat('EEEE, d MMMM yyyy').format(_date),
+                    style: TextStyle(
+                      fontSize: Responsive.sp(context, 15),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -839,9 +1177,21 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
           SizedBox(height: Responsive.pad(context, 16)),
           Row(
             children: [
-              Expanded(child: _timeField('Punch In', _inTime, () => _pickTime(isIn: true))),
+              Expanded(
+                child: _timeField(
+                  'Punch In',
+                  _inTime,
+                  () => _pickTime(isIn: true),
+                ),
+              ),
               SizedBox(width: Responsive.pad(context, 16)),
-              Expanded(child: _timeField('Punch Out', _outTime, () => _pickTime(isIn: false))),
+              Expanded(
+                child: _timeField(
+                  'Punch Out',
+                  _outTime,
+                  () => _pickTime(isIn: false),
+                ),
+              ),
             ],
           ),
           SizedBox(height: Responsive.pad(context, 16)),
@@ -849,8 +1199,13 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
             value: _status,
             decoration: InputDecoration(
               labelText: 'Status',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              contentPadding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 14), vertical: Responsive.pad(context, 12)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 14),
+                vertical: Responsive.pad(context, 12),
+              ),
             ),
             items: const [
               DropdownMenuItem(value: 'present', child: Text('Present')),
@@ -863,18 +1218,25 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
           ),
           if (_error != null) ...[
             SizedBox(height: Responsive.pad(context, 12)),
-            Text(_error!, style: tt.bodySmall?.copyWith(color: const Color(0xFFdc2626))),
+            Text(
+              _error!,
+              style: tt.bodySmall?.copyWith(color: const Color(0xFFdc2626)),
+            ),
           ],
           SizedBox(height: Responsive.pad(context, 20)),
           SizedBox(
             width: double.infinity,
-            height: Responsive.pad(context, 46),
             child: ElevatedButton(
               onPressed: _saving ? null : _save,
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563eb)),
-              child: _saving
-                  ? const ButtonSkeleton()
-                  : const Text('Save'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4A78E0),
+                minimumSize: const Size.fromHeight(48),
+                padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.pad(context, 16),
+                  vertical: Responsive.pad(context, 12),
+                ),
+              ),
+              child: _saving ? const ButtonSkeleton() : const Text('Save'),
             ),
           ),
         ],
@@ -886,20 +1248,261 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(18),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 14), vertical: Responsive.pad(context, 12)),
-        decoration: BoxDecoration(
-          border: Border.all(color: scheme.outlineVariant),
-          borderRadius: BorderRadius.circular(10),
+        padding: EdgeInsets.symmetric(
+          horizontal: Responsive.pad(context, 14),
+          vertical: Responsive.pad(context, 12),
         ),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(18)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: Responsive.sp(context, 12), color: scheme.onSurfaceVariant)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: Responsive.sp(context, 12),
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
             SizedBox(height: Responsive.pad(context, 4)),
-            Text(DateFormat('h:mm a').format(DateTime(2000, 1, 1, time.hour, time.minute)),
-              style: TextStyle(fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w700)),
+            Text(
+              DateFormat(
+                'h:mm a',
+              ).format(DateTime(2000, 1, 1, time.hour, time.minute)),
+              style: TextStyle(
+                fontSize: Responsive.sp(context, 16),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AdminProofsSheet extends StatefulWidget {
+  final List<dynamic> proofs;
+  final ValueChanged<String> onReviewed;
+
+  const _AdminProofsSheet({required this.proofs, required this.onReviewed});
+
+  @override
+  State<_AdminProofsSheet> createState() => _AdminProofsSheetState();
+}
+
+class _AdminProofsSheetState extends State<_AdminProofsSheet> {
+  late List<dynamic> _items;
+  final Set<String> _busy = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _items = List<dynamic>.from(widget.proofs);
+  }
+
+  Future<void> _review(dynamic proof, String status) async {
+    final id = proof['id']?.toString() ?? '';
+    if (id.isEmpty || _busy.contains(id)) return;
+    setState(() => _busy.add(id));
+    try {
+      await ApiService.reviewAbsenceProof(id, status);
+      if (!mounted) return;
+      widget.onReviewed(id);
+      setState(() => _items.removeWhere((p) => p['id']?.toString() == id));
+      if (status == 'approved') {
+        AppToast.success('Proof approved');
+      } else {
+        AppToast.warning('Proof rejected');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppToast.error(e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy.remove(id));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.85,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDDE3EC),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Absence Proofs',
+                        style: TextStyle(
+                          fontSize: Responsive.sp(context, 20),
+                          fontWeight: FontWeight.w700,
+                          color: scheme.onSurface,
+                        ),
+                      ),
+                      Text(
+                        '${_items.length} awaiting review',
+                        style: TextStyle(
+                          fontSize: Responsive.sp(context, 12),
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Expanded(
+              child: _items.isEmpty
+                  ? Center(
+                      child: Text(
+                        'All caught up',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: _items.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, i) {
+                        final proof = _items[i];
+                        final id = proof['id']?.toString() ?? '';
+                        final worker = proof['workers'];
+                        final name = worker is Map
+                            ? (worker['name'] ?? 'Worker').toString()
+                            : 'Worker';
+                        final loginId = worker is Map
+                            ? worker['login_id']?.toString()
+                            : null;
+                        var dateStr = proof['date']?.toString() ?? '';
+                        final date = DateTime.tryParse(dateStr);
+                        if (date != null) {
+                          dateStr = DateFormat('d MMM yyyy').format(date);
+                        }
+                        Uint8List? bytes;
+                        try {
+                          bytes = base64Decode(
+                            (proof['proof_data'] ?? '').toString(),
+                          );
+                        } catch (_) {}
+                        final busy = _busy.contains(id);
+                        return Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEDF0F6),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: TextStyle(
+                                  fontSize: Responsive.sp(context, 14.5),
+                                  fontWeight: FontWeight.w700,
+                                  color: scheme.onSurface,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                [dateStr, ?loginId].join(' · '),
+                                style: TextStyle(
+                                  fontSize: Responsive.sp(context, 11.5),
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                              if (bytes != null) ...[
+                                const SizedBox(height: 10),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: Image.memory(
+                                    bytes,
+                                    height: 150,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: busy
+                                          ? null
+                                          : () => _review(proof, 'rejected'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: const Color(
+                                          0xFFB42318,
+                                        ),
+                                        side: BorderSide(
+                                          color: const Color(
+                                            0xFFB42318,
+                                          ).withValues(alpha: 0.4),
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                      ),
+                                      child: const Text('Reject'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: FilledButton(
+                                      onPressed: busy
+                                          ? null
+                                          : () => _review(proof, 'approved'),
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xFF0F7A5A,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                      ),
+                                      child: const Text('Approve'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
           ],
         ),
       ),

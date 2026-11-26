@@ -1,0 +1,130 @@
+# OpenWA + Postgres, tuned for a memory-constrained box (12–16 GB, ~70 sessions).
+#
+# The point of this file is the memory section: it is what a running gateway actually spends RAM on.
+# Read the numbers before changing them — the floor is ~50–80 MB per live WhatsApp socket, which no
+# cache setting removes.
+#
+#   docker compose up -d
+#
+# Put real secrets in a sibling `.env` file (compose reads it automatically); nothing here is secret.
+
+name: ucs-openwa
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openwa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-openwa}
+    volumes:
+      - openwa-pg:/var/lib/postgresql/data
+    # 70 sessions write Signal keys on every message; these buffers keep that off the page cache path.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=2GB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_connections=100
+    mem_limit: 2g
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-openwa} -d ${POSTGRES_DB:-openwa}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  openwa:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '3001:3001'
+    volumes:
+      # Survives restart and reboot: the API keys + audit log live here (./data/main.sqlite), and so
+      # does local media when STORAGE_TYPE=local. The WhatsApp auth state is NOT here — it is in
+      # Postgres, which is the whole point of BAILEYS_AUTH_STORE=database.
+      - openwa-data:/app/data
+    environment:
+      NODE_ENV: production
+      PORT: '3001'
+      ENGINE_TYPE: baileys
+      AUTO_START_SESSIONS: 'true'
+      NODE_ID: OPENWA-01
+
+      # --- auth state in Postgres: no volume, restart-safe -------------------------------
+      BAILEYS_AUTH_STORE: database
+      DATABASE_TYPE: postgres
+      DATABASE_HOST: postgres
+      DATABASE_PORT: '5432'
+      DATABASE_USERNAME: ${POSTGRES_USER:-openwa}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      DATABASE_NAME: ${POSTGRES_DB:-openwa}
+      DATABASE_SSL: 'false'
+      DATABASE_SYNCHRONIZE: 'false'
+      # `public` so a bare `docker compose up` works; set `openwa` only if you pre-created that schema.
+      POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-public}
+
+      # Optional: pins the seeded admin key. If empty, one is generated and stored in the data volume.
+      API_MASTER_KEY: ${API_MASTER_KEY:-}
+
+      # --- media: point at R2/S3, or keep ./data/media on a volume -----------------------
+      STORAGE_TYPE: ${STORAGE_TYPE:-local}
+      STORAGE_LOCAL_PATH: /app/data/media
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+
+      # --- MEMORY: this is the section that matters -------------------------------------
+      # Shrinks nine per-session LRU maps from 5000 to 200 entries each, the chat-state mirror to
+      # 1000 rows and the group cache to 60s/32 groups. Eviction costs a re-read, never data.
+      BAILEYS_MEMORY_PROFILE: low
+      BAILEYS_SESSION_STORE_MAX_ENTRIES: '200'
+      BAILEYS_CHAT_STATE_CACHE_MAX: '1000'
+      BAILEYS_GROUP_METADATA_CACHE_TTL_MS: '60000'
+      BAILEYS_GROUP_METADATA_CACHE_MAX: '32'
+      LID_MAPPING_CACHE_MAX: '1000'
+      BAILEYS_MESSAGE_STORE_LIMIT: '500'
+
+      # Don't preload statuses/ephemeral messages at connect; they are read on demand instead.
+      STATUS_SEED_ON_READY: 'false'
+      STORE_EPHEMERAL_MESSAGES: 'false'
+
+      # Stagger startups: 70 sockets + 70 history syncs at once is the classic boot OOM.
+      MAX_CONCURRENT_SESSIONS: '15'
+
+      # Leave headroom for buffers/media outside the V8 heap; the container cap below is 8 GB.
+      NODE_OPTIONS: --max-old-space-size=6144
+
+      REDIS_ENABLED: 'false'
+      QUEUE_ENABLED: 'false'
+      CACHE_ENABLED: 'false'
+
+    # Hard ceiling so one runaway session restarts the container instead of taking the host down.
+    # 70 tuned sessions land around 5–7 GB; 8 GB is the safety margin.
+    mem_limit: 8g
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e 'fetch("http://127.0.0.1:3001/api/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+
+volumes:
+  openwa-pg:
+  openwa-data:

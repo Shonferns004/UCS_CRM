@@ -32,8 +32,9 @@ class ApiService {
     try {
       final dohClient = http.Client();
       try {
-        final dohUrl =
-            Uri.parse('https://cloudflare-dns.com/dns-query?name=$host&type=A');
+        final dohUrl = Uri.parse(
+          'https://cloudflare-dns.com/dns-query?name=$host&type=A',
+        );
         final resp = await dohClient
             .get(dohUrl, headers: {'accept': 'application/dns-json'})
             .timeout(const Duration(seconds: 5));
@@ -46,8 +47,7 @@ class ApiService {
               if (record['type'] == 1) {
                 final ip = record['data'] as String;
                 _cachedIp = ip;
-                _cacheExpiry =
-                    DateTime.now().add(const Duration(hours: 1));
+                _cacheExpiry = DateTime.now().add(const Duration(hours: 1));
                 return ip;
               }
             }
@@ -61,8 +61,9 @@ class ApiService {
     }
 
     // Fallback to system DNS
-    final results =
-        await InternetAddress.lookup(host).timeout(const Duration(seconds: 5));
+    final results = await InternetAddress.lookup(
+      host,
+    ).timeout(const Duration(seconds: 5));
     if (results.isNotEmpty) {
       _cachedIp = results[0].address;
       _cacheExpiry = DateTime.now().add(const Duration(hours: 1));
@@ -80,14 +81,16 @@ class ApiService {
     httpClient.connectionFactory = (uri, proxyHost, proxyPort) {
       final port = uri.port;
       Future<Socket> connect() async {
-        final socket = await Socket.connect(ip, port)
-            .timeout(_connectTimeout);
+        final socket = await Socket.connect(ip, port).timeout(_connectTimeout);
         if (uri.scheme == 'https') {
-          return await SecureSocket.secure(socket, host: origHost)
-              .timeout(_defaultTimeout);
+          return await SecureSocket.secure(
+            socket,
+            host: origHost,
+          ).timeout(_defaultTimeout);
         }
         return socket;
       }
+
       return Future.value(ConnectionTask.fromSocket(connect(), () {}));
     };
     return IOClient(httpClient);
@@ -124,8 +127,7 @@ class ApiService {
             .get(Uri.parse('https://$_host/'), headers: {'accept': 'text/html'})
             .timeout(const Duration(seconds: 8));
         probe.close();
-        _preferStandardClient =
-            resp.statusCode >= 200 && resp.statusCode < 600;
+        _preferStandardClient = resp.statusCode >= 200 && resp.statusCode < 600;
       } catch (_) {
         _preferStandardClient = false;
       }
@@ -144,10 +146,15 @@ class ApiService {
   /// proxy all resolve the hostname happily, and the tunnel then answers
   /// HTTP 200 with a text interstitial. Checking DNS is precisely why punches
   /// were being aimed at a dead endpoint and then lost on the floor.
-  static Future<bool> checkConnectivity({Duration timeout = const Duration(seconds: 6)}) async {
+  static Future<bool> checkConnectivity({
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
     try {
       final res = await http
-          .get(Uri.parse('$baseUrl/config'), headers: const {'Accept': 'application/json'})
+          .get(
+            Uri.parse('$baseUrl/config'),
+            headers: const {'Accept': 'application/json'},
+          )
           .timeout(timeout);
       if (res.statusCode != 200) return false;
       // A 200 with an HTML/text body is not a working backend.
@@ -222,9 +229,12 @@ class ApiService {
     try {
       final parts = token.split('.');
       if (parts.length < 2) return null;
-      final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+      final payload = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      );
       final exp = payload is Map ? payload['exp'] : null;
-      if (exp is num) return DateTime.fromMillisecondsSinceEpoch(exp.toInt() * 1000);
+      if (exp is num)
+        return DateTime.fromMillisecondsSinceEpoch(exp.toInt() * 1000);
     } catch (_) {}
     return null;
   }
@@ -238,7 +248,10 @@ class ApiService {
     try {
       final res = await _post(
         Uri.parse('$baseUrl/auth/refresh'),
-        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
         body: jsonEncode({'refresh_token': refresh}),
         skipRefresh: true,
       );
@@ -296,7 +309,9 @@ class ApiService {
     if (_cachedToken == null) {
       final prefs = await _prefsInstance;
       _cachedToken = prefs.getString('worker_token');
-      _accessTokenExpiry = _cachedToken != null ? _jwtExpiry(_cachedToken!) : null;
+      _accessTokenExpiry = _cachedToken != null
+          ? _jwtExpiry(_cachedToken!)
+          : null;
     }
     return _cachedToken;
   }
@@ -367,23 +382,42 @@ class ApiService {
     };
   }
 
-  static Future<Map<String, dynamic>> login(String identifier, String password) async {
+  static Future<Map<String, dynamic>> login(
+    String identifier,
+    String password,
+  ) async {
     final res = await _post(
       Uri.parse('$baseUrl/auth/worker/login'),
-      headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
-      body: jsonEncode({'identifier': identifier, 'password': password, 'client': 'attendance'}),
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      body: jsonEncode({
+        'identifier': identifier,
+        'password': password,
+        'client': 'attendance',
+      }),
       skipRefresh: true,
     );
     try {
       final body = jsonDecode(res.body);
-      if (res.statusCode != 200) throw Exception(body['message'] ?? 'Login failed');
+      if (res.statusCode != 200)
+        throw Exception(body['message'] ?? 'Login failed');
       return body;
     } on FormatException {
-      throw Exception('Server error (${res.statusCode}). Please contact admin.');
+      throw Exception(
+        'Server error (${res.statusCode}). Please contact admin.',
+      );
     }
   }
 
-  static Future<Map<String, dynamic>> punchIn(String code, double lat, double lng, {String? punchMethod, DateTime? punchTime}) async {
+  static Future<Map<String, dynamic>> punchIn(
+    String code,
+    double lat,
+    double lng, {
+    String? punchMethod,
+    DateTime? punchTime,
+  }) async {
     final body = {
       'code': code,
       'latitude': lat,
@@ -401,7 +435,12 @@ class ApiService {
     return _decodePunchResponse(res, 'Punch in failed');
   }
 
-  static Future<Map<String, dynamic>> punchOut(double lat, double lng, {String? punchMethod, DateTime? punchTime}) async {
+  static Future<Map<String, dynamic>> punchOut(
+    double lat,
+    double lng, {
+    String? punchMethod,
+    DateTime? punchTime,
+  }) async {
     final body = {
       'latitude': lat,
       'longitude': lng,
@@ -424,7 +463,10 @@ class ApiService {
   /// and the punch was dropped. The caller could not tell "I could not read
   /// the server" apart from "the server rejected you", so nothing was queued
   /// and nothing was retried.
-  static Map<String, dynamic> _decodePunchResponse(http.Response res, String fallback) {
+  static Map<String, dynamic> _decodePunchResponse(
+    http.Response res,
+    String fallback,
+  ) {
     Map<String, dynamic>? parsed;
     try {
       final decoded = jsonDecode(res.body);
@@ -446,14 +488,23 @@ class ApiService {
       return parsed;
     }
     if (res.statusCode >= 500) {
-      throw ApiException(ApiErrorKind.server, serverMessage ?? fallback, statusCode: res.statusCode);
+      throw ApiException(
+        ApiErrorKind.server,
+        serverMessage ?? fallback,
+        statusCode: res.statusCode,
+      );
     }
-    throw ApiException(ApiErrorKind.business, serverMessage ?? fallback, statusCode: res.statusCode);
+    throw ApiException(
+      ApiErrorKind.business,
+      serverMessage ?? fallback,
+      statusCode: res.statusCode,
+    );
   }
 
   static String _todayCacheKey() {
     final now = DateTime.now();
-    final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final dateStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     return 'cache_today_status_$dateStr';
   }
 
@@ -508,24 +559,36 @@ class ApiService {
     return list;
   }
 
-  static Future<Map<String, dynamic>> applyLeave(Map<String, dynamic> data) async {
+  static Future<Map<String, dynamic>> applyLeave(
+    Map<String, dynamic> data,
+  ) async {
     final res = await _post(
       Uri.parse('$baseUrl/leaves/apply'),
       headers: await _headers(),
       body: jsonEncode(data),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 201) throw Exception(body['message'] ?? 'Failed to apply leave');
+    if (res.statusCode != 201)
+      throw Exception(body['message'] ?? 'Failed to apply leave');
     return body;
   }
 
   // ---- Absence proofs (unauthorized-absence grace flow) ----
-  static Future<Map<String, dynamic>> getAbsenceProofActionable({String? month}) async {
-    final uri = Uri.parse('$baseUrl/absence-proofs/actionable'
-        '${month != null ? '?month=$month' : ''}');
+  static Future<Map<String, dynamic>> getAbsenceProofActionable({
+    String? month,
+  }) async {
+    final uri = Uri.parse(
+      '$baseUrl/absence-proofs/actionable'
+      '${month != null ? '?month=$month' : ''}',
+    );
     final res = await _get(uri, headers: await _headers());
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to load absence proofs') : 'Failed to load absence proofs');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to load absence proofs')
+            : 'Failed to load absence proofs',
+      );
     return body is Map ? Map<String, dynamic>.from(body) : <String, dynamic>{};
   }
 
@@ -546,7 +609,8 @@ class ApiService {
       }),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 201) throw Exception(body['message'] ?? 'Failed to upload proof');
+    if (res.statusCode != 201)
+      throw Exception(body['message'] ?? 'Failed to upload proof');
     return body;
   }
 
@@ -556,29 +620,53 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch proofs') : 'Failed to fetch proofs');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to fetch proofs')
+            : 'Failed to fetch proofs',
+      );
     return (body is Map ? body['proofs'] : null) ?? [];
   }
 
-  static Future<Map<String, dynamic>> reviewAbsenceProof(String id, String status, {String? remark}) async {
+  static Future<Map<String, dynamic>> reviewAbsenceProof(
+    String id,
+    String status, {
+    String? remark,
+  }) async {
     final res = await _put(
       Uri.parse('$baseUrl/absence-proofs/$id/status'),
       headers: await _headers(),
-      body: jsonEncode({'status': status, if (remark != null && remark.isNotEmpty) 'admin_remark': remark}),
+      body: jsonEncode({
+        'status': status,
+        if (remark != null && remark.isNotEmpty) 'admin_remark': remark,
+      }),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to review proof') : 'Failed to review proof');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to review proof')
+            : 'Failed to review proof',
+      );
     return body is Map ? Map<String, dynamic>.from(body) : <String, dynamic>{};
   }
 
-  static Future<Map<String, dynamic>> applyAdvance(String amount, String reason, {String type = 'advance'}) async {
+  static Future<Map<String, dynamic>> applyAdvance(
+    String amount,
+    String reason, {
+    String type = 'advance',
+  }) async {
     final res = await _post(
-      Uri.parse(type == 'loan' ? '$baseUrl/loans/apply' : '$baseUrl/advances/apply'),
+      Uri.parse(
+        type == 'loan' ? '$baseUrl/loans/apply' : '$baseUrl/advances/apply',
+      ),
       headers: await _headers(),
       body: jsonEncode({'amount': amount, 'reason': reason, 'type': type}),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 201) throw Exception(body['message'] ?? 'Failed to apply $type');
+    if (res.statusCode != 201)
+      throw Exception(body['message'] ?? 'Failed to apply $type');
     return body;
   }
 
@@ -588,7 +676,12 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch loans') : 'Failed to fetch loans');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to fetch loans')
+            : 'Failed to fetch loans',
+      );
     if (body is List) return body;
     return body['loans'] ?? [];
   }
@@ -600,7 +693,12 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch codes') : 'Failed to fetch codes');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to fetch codes')
+            : 'Failed to fetch codes',
+      );
     return (body is Map ? body['codes'] : null) ?? [];
   }
 
@@ -611,7 +709,12 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch attendance') : 'Failed to fetch attendance');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to fetch attendance')
+            : 'Failed to fetch attendance',
+      );
     if (body is List) return body;
     return body['records'] ?? [];
   }
@@ -623,7 +726,12 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch workers') : 'Failed to fetch workers');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to fetch workers')
+            : 'Failed to fetch workers',
+      );
     if (body is List) return body;
     return body['workers'] ?? [];
   }
@@ -651,7 +759,9 @@ class ApiService {
     );
     final body = jsonDecode(res.body);
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(body is Map ? (body['message'] ?? 'Punch failed') : 'Punch failed');
+      throw Exception(
+        body is Map ? (body['message'] ?? 'Punch failed') : 'Punch failed',
+      );
     }
     return body;
   }
@@ -664,7 +774,12 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch workers') : 'Failed to fetch workers');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to fetch workers')
+            : 'Failed to fetch workers',
+      );
     if (body is List) return body;
     return body['workers'] ?? [];
   }
@@ -675,24 +790,39 @@ class ApiService {
       headers: await _headers(),
     );
     final body = res.body.isEmpty ? null : jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to load today status') : 'Failed to load today status');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to load today status')
+            : 'Failed to load today status',
+      );
     return body is List ? body : <dynamic>[];
   }
 
   // ---- Admin: worker monthly attendance ----
-  static Future<List<dynamic>> getWorkerMonthlyAttendance(String workerId, String month) async {
+  static Future<List<dynamic>> getWorkerMonthlyAttendance(
+    String workerId,
+    String month,
+  ) async {
     final res = await _get(
       Uri.parse('$baseUrl/attendance/worker/$workerId?month=$month'),
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch worker attendance') : 'Failed to fetch worker attendance');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to fetch worker attendance')
+            : 'Failed to fetch worker attendance',
+      );
     if (body is List) return body;
     return body['records'] ?? [];
   }
 
   // ---- Admin: create attendance record ----
-  static Future<Map<String, dynamic>> createAttendance(Map<String, dynamic> payload) async {
+  static Future<Map<String, dynamic>> createAttendance(
+    Map<String, dynamic> payload,
+  ) async {
     final res = await _post(
       Uri.parse('$baseUrl/attendance'),
       headers: await _headers(),
@@ -700,13 +830,21 @@ class ApiService {
     );
     final body = jsonDecode(res.body);
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(body is Map ? (body['message'] ?? 'Failed to add attendance') : 'Failed to add attendance');
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to add attendance')
+            : 'Failed to add attendance',
+      );
     }
-    return (body is Map ? (body['attendance'] ?? body) : body) as Map<String, dynamic>;
+    return (body is Map ? (body['attendance'] ?? body) : body)
+        as Map<String, dynamic>;
   }
 
   // ---- Admin: update attendance record ----
-  static Future<Map<String, dynamic>> updateAttendance(String id, Map<String, dynamic> payload) async {
+  static Future<Map<String, dynamic>> updateAttendance(
+    String id,
+    Map<String, dynamic> payload,
+  ) async {
     final res = await _put(
       Uri.parse('$baseUrl/attendance/$id'),
       headers: await _headers(),
@@ -714,9 +852,14 @@ class ApiService {
     );
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) {
-      throw Exception(body is Map ? (body['message'] ?? 'Failed to update attendance') : 'Failed to update attendance');
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to update attendance')
+            : 'Failed to update attendance',
+      );
     }
-    return (body is Map ? (body['attendance'] ?? body) : body) as Map<String, dynamic>;
+    return (body is Map ? (body['attendance'] ?? body) : body)
+        as Map<String, dynamic>;
   }
 
   // ---- Admin: delete attendance record ----
@@ -727,9 +870,14 @@ class ApiService {
     );
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) {
-      throw Exception(body is Map ? (body['message'] ?? 'Failed to delete attendance') : 'Failed to delete attendance');
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to delete attendance')
+            : 'Failed to delete attendance',
+      );
     }
-    return (body is Map ? (body['attendance'] ?? body) : body) as Map<String, dynamic>;
+    return (body is Map ? (body['attendance'] ?? body) : body)
+        as Map<String, dynamic>;
   }
 
   // ---- Admin: all leave requests ----
@@ -739,7 +887,12 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch leaves') : 'Failed to fetch leaves');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to fetch leaves')
+            : 'Failed to fetch leaves',
+      );
     if (body is List) return body;
     return body['leaves'] ?? [];
   }
@@ -751,19 +904,36 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch pending leaves') : 'Failed to fetch pending leaves');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to fetch pending leaves')
+            : 'Failed to fetch pending leaves',
+      );
     if (body is List) return body;
     return body['leaves'] ?? [];
   }
 
-  static Future<Map<String, dynamic>> decideLeave(String id, String status, {String? remark}) async {
+  static Future<Map<String, dynamic>> decideLeave(
+    String id,
+    String status, {
+    String? remark,
+  }) async {
     final res = await _put(
       Uri.parse('$baseUrl/leaves/$id/status'),
       headers: await _headers(),
-      body: jsonEncode({'status': status, if (remark != null) 'admin_remark': remark}),
+      body: jsonEncode({
+        'status': status,
+        if (remark != null) 'admin_remark': remark,
+      }),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to update leave') : 'Failed to update leave');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to update leave')
+            : 'Failed to update leave',
+      );
     return body is Map ? Map<String, dynamic>.from(body) : {};
   }
 
@@ -774,12 +944,22 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch pending advances') : 'Failed to fetch pending advances');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to fetch pending advances')
+            : 'Failed to fetch pending advances',
+      );
     if (body is List) return body;
     return body['loans'] ?? [];
   }
 
-  static Future<Map<String, dynamic>> decideLoan(String id, String status, {double? monthlyDeduction, String? remark}) async {
+  static Future<Map<String, dynamic>> decideLoan(
+    String id,
+    String status, {
+    double? monthlyDeduction,
+    String? remark,
+  }) async {
     final res = await _put(
       Uri.parse('$baseUrl/loans/$id/decide'),
       headers: await _headers(),
@@ -790,7 +970,12 @@ class ApiService {
       }),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to update advance') : 'Failed to update advance');
+    if (res.statusCode != 200)
+      throw Exception(
+        body is Map
+            ? (body['message'] ?? 'Failed to update advance')
+            : 'Failed to update advance',
+      );
     return body is Map ? Map<String, dynamic>.from(body) : {};
   }
 
@@ -812,30 +997,37 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body['message'] ?? 'Failed to get profile');
+    if (res.statusCode != 200)
+      throw Exception(body['message'] ?? 'Failed to get profile');
     await _cacheProfile(body);
     return body;
   }
 
-  static Future<Map<String, dynamic>> updateMyProfile(Map<String, dynamic> updates) async {
+  static Future<Map<String, dynamic>> updateMyProfile(
+    Map<String, dynamic> updates,
+  ) async {
     final res = await _put(
       Uri.parse('$baseUrl/workers/me'),
       headers: await _headers(),
       body: jsonEncode(updates),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body['message'] ?? 'Failed to update profile');
+    if (res.statusCode != 200)
+      throw Exception(body['message'] ?? 'Failed to update profile');
     return body;
   }
 
-  static Future<Map<String, dynamic>> submitProfileUpdateRequest(Map<String, dynamic> changes) async {
+  static Future<Map<String, dynamic>> submitProfileUpdateRequest(
+    Map<String, dynamic> changes,
+  ) async {
     final res = await _post(
       Uri.parse('$baseUrl/profile-update-requests'),
       headers: await _headers(),
       body: jsonEncode({'changes': changes}),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 201) throw Exception(body['message'] ?? 'Failed to submit request');
+    if (res.statusCode != 201)
+      throw Exception(body['message'] ?? 'Failed to submit request');
     return body;
   }
 
@@ -848,14 +1040,17 @@ class ApiService {
     return jsonDecode(res.body);
   }
 
-  static Future<Map<String, dynamic>> updateMyEducation(List<Map<String, dynamic>> education) async {
+  static Future<Map<String, dynamic>> updateMyEducation(
+    List<Map<String, dynamic>> education,
+  ) async {
     final res = await _put(
       Uri.parse('$baseUrl/workers/me/education'),
       headers: await _headers(),
       body: jsonEncode({'education': education}),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body['message'] ?? 'Failed to update education');
+    if (res.statusCode != 200)
+      throw Exception(body['message'] ?? 'Failed to update education');
     return body;
   }
 
@@ -888,7 +1083,19 @@ class ApiService {
   static Future<List<dynamic>?> getCachedNotifications(String workerId) async {
     final prefs = await _prefsInstance;
     final data = prefs.getString('cache_notifications_$workerId');
-    if (data != null) return jsonDecode(data);
+    if (data != null) {
+      final deleted =
+          (prefs.getStringList('deleted_notifications_$workerId') ?? [])
+              .toSet();
+      final decoded = jsonDecode(data);
+      if (decoded is List) {
+        return decoded
+            .where(
+              (n) => !deleted.contains(n is Map ? n['id']?.toString() : null),
+            )
+            .toList();
+      }
+    }
     return null;
   }
 
@@ -899,13 +1106,49 @@ class ApiService {
     );
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) throw Exception('Failed to get notifications');
-    final list = body is List ? body : [];
     final prefs = await _prefsInstance;
+    final deleted =
+        (prefs.getStringList('deleted_notifications_$workerId') ?? []).toSet();
+    final list = (body is List ? body : [])
+        .where((n) => !deleted.contains(n is Map ? n['id']?.toString() : null))
+        .toList();
     await prefs.setString('cache_notifications_$workerId', jsonEncode(list));
     return list;
   }
 
-  static Future<void> deleteNotification(String id) async {
+  // Deleting a notification is remembered locally (a tombstone) so a deleted
+  // item never reappears from cache or a stale server response, even if the
+  // device is offline when it is removed.
+  static Future<void> deleteNotification(String id, {String? workerId}) async {
+    final prefs = await _prefsInstance;
+    if (workerId != null && workerId.isNotEmpty) {
+      final cacheKey = 'cache_notifications_$workerId';
+      final raw = prefs.getString(cacheKey);
+      if (raw != null) {
+        try {
+          final cached = jsonDecode(raw);
+          if (cached is List) {
+            await prefs.setString(
+              cacheKey,
+              jsonEncode(
+                cached
+                    .where((n) => !(n is Map && n['id']?.toString() == id))
+                    .toList(),
+              ),
+            );
+          }
+        } catch (_) {}
+      }
+      final tombKey = 'deleted_notifications_$workerId';
+      final tombstones = prefs.getStringList(tombKey) ?? [];
+      if (!tombstones.contains(id)) {
+        tombstones.add(id);
+        if (tombstones.length > 300) {
+          tombstones.removeRange(0, tombstones.length - 300);
+        }
+        await prefs.setStringList(tombKey, tombstones);
+      }
+    }
     final res = await _delete(
       Uri.parse('$baseUrl/notifications/$id'),
       headers: await _headers(),
@@ -913,6 +1156,43 @@ class ApiService {
     if (res.statusCode != 200) {
       final body = jsonDecode(res.body);
       throw Exception(body['message'] ?? 'Failed to delete notification');
+    }
+  }
+
+  // Locally dismissed unauthorized-absence alerts, keyed by worker + date, so
+  // a deleted alert does not return on the next refresh.
+  static Future<Set<String>> getDismissedAbsenceDates(String workerId) async {
+    final prefs = await _prefsInstance;
+    return (prefs.getStringList('dismissed_absence_dates_$workerId') ?? [])
+        .toSet();
+  }
+
+  static Future<void> dismissAbsenceDate(String workerId, String date) async {
+    if (workerId.isEmpty || date.isEmpty) return;
+    final prefs = await _prefsInstance;
+    final key = 'dismissed_absence_dates_$workerId';
+    final list = prefs.getStringList(key) ?? [];
+    if (!list.contains(date)) {
+      list.add(date);
+      if (list.length > 400) list.removeRange(0, list.length - 400);
+      await prefs.setStringList(key, list);
+    }
+  }
+
+  static Future<Set<String>> getReadAbsenceDates(String workerId) async {
+    final prefs = await _prefsInstance;
+    return (prefs.getStringList('read_absence_dates_$workerId') ?? []).toSet();
+  }
+
+  static Future<void> markAbsenceRead(String workerId, String date) async {
+    if (workerId.isEmpty || date.isEmpty) return;
+    final prefs = await _prefsInstance;
+    final key = 'read_absence_dates_$workerId';
+    final list = prefs.getStringList(key) ?? [];
+    if (!list.contains(date)) {
+      list.add(date);
+      if (list.length > 400) list.removeRange(0, list.length - 400);
+      await prefs.setStringList(key, list);
     }
   }
 
@@ -952,7 +1232,8 @@ class ApiService {
       body: jsonEncode({'worker_id': workerId}),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body['message'] ?? 'Failed to send test notification');
+    if (res.statusCode != 200)
+      throw Exception(body['message'] ?? 'Failed to send test notification');
   }
 
   // ---- Onboarding API ----
@@ -963,7 +1244,8 @@ class ApiService {
       headers: await _headers(),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception('Failed to check onboarding status');
+    if (res.statusCode != 200)
+      throw Exception('Failed to check onboarding status');
     return body;
   }
 
@@ -977,25 +1259,38 @@ class ApiService {
     return body is List ? body : [];
   }
 
-  static Future<Map<String, dynamic>> uploadPhoto(String base64Photo, String mimeType) async {
+  static Future<Map<String, dynamic>> uploadPhoto(
+    String base64Photo,
+    String mimeType,
+  ) async {
     final res = await _post(
       Uri.parse('$baseUrl/onboarding/upload-photo'),
       headers: await _headers(),
       body: jsonEncode({'photo_base64': base64Photo, 'mime_type': mimeType}),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body['message'] ?? 'Failed to upload photo');
+    if (res.statusCode != 200)
+      throw Exception(body['message'] ?? 'Failed to upload photo');
     return body;
   }
 
-  static Future<Map<String, dynamic>> uploadDocument(String documentType, String fileBase64, String mimeType) async {
+  static Future<Map<String, dynamic>> uploadDocument(
+    String documentType,
+    String fileBase64,
+    String mimeType,
+  ) async {
     final res = await _post(
       Uri.parse('$baseUrl/onboarding/upload-document'),
       headers: await _headers(),
-      body: jsonEncode({'document_type': documentType, 'file_base64': fileBase64, 'mime_type': mimeType}),
+      body: jsonEncode({
+        'document_type': documentType,
+        'file_base64': fileBase64,
+        'mime_type': mimeType,
+      }),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body['message'] ?? 'Failed to upload document');
+    if (res.statusCode != 200)
+      throw Exception(body['message'] ?? 'Failed to upload document');
     return body;
   }
 
@@ -1018,7 +1313,8 @@ class ApiService {
       }),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body['message'] ?? 'Failed to submit onboarding');
+    if (res.statusCode != 200)
+      throw Exception(body['message'] ?? 'Failed to submit onboarding');
     return body;
   }
 
@@ -1034,14 +1330,14 @@ class ApiService {
 
   // ---- Salary / Expense Breakdown API ----
 
-  static Future<Map<String, dynamic>?> getMySalaryBreakdown({int? year, int? month}) async {
+  static Future<Map<String, dynamic>?> getMySalaryBreakdown({
+    int? year,
+    int? month,
+  }) async {
     try {
       var path = '$baseUrl/salary/my-breakdown';
       if (year != null && month != null) path += '?year=$year&month=$month';
-      final res = await _get(
-        Uri.parse(path),
-        headers: await _headers(),
-      );
+      final res = await _get(Uri.parse(path), headers: await _headers());
       if (res.statusCode != 200) return null;
       final body = jsonDecode(res.body);
       return body;
@@ -1052,7 +1348,10 @@ class ApiService {
 
   // ---- Calendar API ----
 
-  static Future<Map<String, dynamic>> getCalendar({int? year, int? month}) async {
+  static Future<Map<String, dynamic>> getCalendar({
+    int? year,
+    int? month,
+  }) async {
     final now = DateTime.now();
     final y = year ?? now.year;
     final m = month ?? now.month;

@@ -25,8 +25,8 @@ export function Dropdown({ value, onChange, options, placeholder, renderOption, 
   const filtered = searchable && query ? options.filter(o => (typeof o === 'string' ? o : (o.label || o.value)).toLowerCase().includes(query.toLowerCase())) : options
 
   return (
-    <div className={`dropdown${className ? ` ${className}` : ''}${menuInset ? ' menu-inset' : ''}`} ref={ref}>
-      <button type="button" className="dropdown-trigger" onClick={() => { setOpen(!open); setQuery('') }}>
+    <div className={`dropdown${open ? ' open' : ''}${className ? ` ${className}` : ''}${menuInset ? ' menu-inset' : ''}`} ref={ref}>
+      <button type="button" className="dropdown-trigger" aria-haspopup="listbox" aria-expanded={open} onClick={() => { setOpen(!open); setQuery('') }}>
         {renderValue ? renderValue(selected) : (selected ? (typeof selected === 'string' ? selected : selected.label) : (placeholder || 'Select...'))}
         <ChevronDown />
       </button>

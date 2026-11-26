@@ -9,6 +9,7 @@ import { PluginLoaderService, PluginType } from '../core/plugins';
 import { BaileysMessageStoreService } from './adapters/baileys-message-store.service';
 import { LidMappingStoreService } from './identity/lid-mapping-store.service';
 import { ChatStateStoreService } from './adapters/baileys-chat-state-store.service';
+import { BaileysAuthStateStoreService } from './adapters/baileys-auth-state-store.service';
 import { baileysAuthDir } from './auth-dir-paths';
 
 describe('EngineFactory', () => {
@@ -47,6 +48,15 @@ describe('EngineFactory', () => {
       reload: jest.fn().mockResolvedValue(undefined),
     }) as unknown as ChatStateStoreService;
 
+  const buildAuthStore = (): BaileysAuthStateStoreService =>
+    ({
+      load: jest.fn().mockResolvedValue([]),
+      write: jest.fn().mockResolvedValue(undefined),
+      clear: jest.fn().mockResolvedValue(undefined),
+      hasQuarantined: jest.fn().mockResolvedValue(false),
+      quarantine: jest.fn().mockResolvedValue(undefined),
+    }) as unknown as BaileysAuthStateStoreService;
+
   it('refuses to create an engine for an unsafe session key (path-traversal into the auth dir)', () => {
     const createEngine = jest.fn().mockReturnValue({});
     const pluginLoader = {
@@ -58,6 +68,7 @@ describe('EngineFactory', () => {
       buildMessageStore(),
       buildLidStore(),
       buildChatStateStore(),
+      buildAuthStore(),
     );
 
     expect(() => factory.create({ sessionId: '../../etc', dbSessionId: 'db-1' })).toThrow(/unsafe session key/i);
@@ -81,6 +92,7 @@ describe('EngineFactory', () => {
         buildMessageStore(),
         buildLidStore(),
         buildChatStateStore(),
+        buildAuthStore(),
       );
       factory.create({ sessionId: 'sess-1', dbSessionId: 'db-1', proxyUrl: 'http://p', proxyType: 'http' });
 
@@ -118,6 +130,7 @@ describe('EngineFactory', () => {
         buildMessageStore(),
         buildLidStore(),
         buildChatStateStore(),
+        buildAuthStore(),
       );
 
       factory.create({ sessionId: SESSION_ID, dbSessionId: SESSION_ID });
@@ -144,6 +157,7 @@ describe('EngineFactory', () => {
       buildMessageStore(),
       buildLidStore(),
       buildChatStateStore(),
+      buildAuthStore(),
     );
     await factory.onModuleInit();
 
@@ -169,6 +183,7 @@ describe('EngineFactory', () => {
       buildMessageStore(),
       buildLidStore(),
       buildChatStateStore(),
+      buildAuthStore(),
     );
     await factory.onModuleInit();
 
@@ -202,6 +217,7 @@ describe('EngineFactory', () => {
         buildMessageStore(),
         buildLidStore(),
         buildChatStateStore(),
+        buildAuthStore(),
       );
       const create = () => factory.create({ sessionId: SESSION_ID, dbSessionId: SESSION_ID });
       expect(create).toThrow("Engine 'baileys' is not registered; cannot start the session.");
@@ -235,6 +251,7 @@ describe('EngineFactory', () => {
         buildMessageStore(),
         buildLidStore(),
         buildChatStateStore(),
+        buildAuthStore(),
       );
       return { factory, baileysDir: baileysAuthDir(authDir, SESSION_ID) };
     };
@@ -268,6 +285,7 @@ describe('EngineFactory', () => {
         buildMessageStore(),
         lidStore,
         buildChatStateStore(),
+        buildAuthStore(),
       );
       return { factory, lidStore, baileysDir: baileysAuthDir(authDir, SESSION_ID) };
     };

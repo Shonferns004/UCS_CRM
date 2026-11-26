@@ -679,7 +679,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
       <style>{`
         .ced { --blue:#2563EB; --blue-l:#EFF6FF; --purple:#7C3AED; --green:#10B981; --amber:#F59E0B; --red:#EF4444;
           --bg:#F8FAFF; --surface:#FFFFFF; --line:#E5E7EB; --ink:#0F172A; --ink2:#64748B; --ink3:#94A3B8;
-          font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); box-sizing:border-box;
+          font-family:var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif); color:var(--ink); box-sizing:border-box;
           height:100%; display:flex; flex-direction:column; overflow:hidden; }
         .ced *, .ced *::before, .ced *::after { box-sizing:border-box; }
         .ced h1,.ced h2,.ced h3 { margin:0; }

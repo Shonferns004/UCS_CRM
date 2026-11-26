@@ -24,6 +24,7 @@ import {
   runFfmpeg,
   videoEncodeArgs,
   voiceEncodeArgs,
+  audioFileEncodeArgs,
 } from './ffmpeg';
 import type { ConvertMediaDto } from './dto/convert-media.dto';
 
@@ -100,6 +101,14 @@ export class MediaConversionService implements OnModuleInit, OnApplicationShutdo
    */
   async convertToVoice(sessionId: string, dto: ConvertMediaDto): Promise<ConvertedMedia> {
     return this.convert(sessionId, dto, 'ogg', voiceEncodeArgs(), 'audio/ogg; codecs=opus');
+  }
+
+  /**
+   * Convert to an MP3 audio message, for the Android-safe path: send it with `ptt: false` and the
+   * client renders a normal audio bubble that plays on every device.
+   */
+  async convertToAudioFile(sessionId: string, dto: ConvertMediaDto): Promise<ConvertedMedia> {
+    return this.convert(sessionId, dto, 'mp3', audioFileEncodeArgs(), 'audio/mpeg');
   }
 
   /** Convert to an MP4 WhatsApp will accept and preview on every client. */

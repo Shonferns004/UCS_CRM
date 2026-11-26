@@ -21,7 +21,7 @@
   min-height: 0;
   background: var(--owa-bg);
   color: var(--owa-text);
-  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif);
 }
 
 /* The Accounts content area normally scrolls with 24px padding. The WhatsApp page

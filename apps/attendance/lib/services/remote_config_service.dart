@@ -28,7 +28,10 @@ class RemoteConfigService {
   String get socketUrl =>
       _config['socket_url'] as String? ??
       (Config.bootstrapBaseUrl.endsWith('/api')
-          ? Config.bootstrapBaseUrl.substring(0, Config.bootstrapBaseUrl.length - 4)
+          ? Config.bootstrapBaseUrl.substring(
+              0,
+              Config.bootstrapBaseUrl.length - 4,
+            )
           : Config.bootstrapBaseUrl);
 
   String get minimumVersion => _config['minimum_version'] as String? ?? '0.0.0';
@@ -76,10 +79,7 @@ class RemoteConfigService {
 
   List<int> _split(String v) {
     final cleaned = v.trim().split('-').first;
-    return cleaned
-        .split('.')
-        .map((s) => int.tryParse(s) ?? 0)
-        .toList();
+    return cleaned.split('.').map((s) => int.tryParse(s) ?? 0).toList();
   }
 
   /// Loads cached config (applies it immediately), then refreshes from the

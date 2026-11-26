@@ -7,7 +7,7 @@ class OrganicBackground extends StatelessWidget {
 
   const OrganicBackground({
     super.key,
-    this.colors = const [Color(0xFFf6fafe), Color(0xFFf0f4f8)],
+    this.colors = const [Color(0xFFF4F6FA), Color(0xFFEDF0F6)],
     this.stops = const [0.0, 1.0],
   });
 
@@ -34,7 +34,9 @@ class OrganicBackground extends StatelessWidget {
               right: -60,
               child: CustomPaint(
                 size: Size(320, 320),
-                painter: _BlobPainter(const Color(0xFFd1e4ff).withValues(alpha: 0.15)),
+                painter: _BlobPainter(
+                  const Color(0xFFE4EBFB).withValues(alpha: 0.15),
+                ),
               ),
             ),
             Positioned(
@@ -42,7 +44,9 @@ class OrganicBackground extends StatelessWidget {
               left: -40,
               child: CustomPaint(
                 size: Size(260, 260),
-                painter: _BlobPainter(const Color(0xFFbfdbfe).withValues(alpha: 0.10)),
+                painter: _BlobPainter(
+                  const Color(0xFFCBD8F7).withValues(alpha: 0.10),
+                ),
               ),
             ),
             Positioned(
@@ -50,7 +54,9 @@ class OrganicBackground extends StatelessWidget {
               right: -30,
               child: CustomPaint(
                 size: Size(180, 180),
-                painter: _BlobPainter(const Color(0xFFeaeef2).withValues(alpha: 0.2)),
+                painter: _BlobPainter(
+                  const Color(0xFFEDF0F6).withValues(alpha: 0.2),
+                ),
               ),
             ),
           ],

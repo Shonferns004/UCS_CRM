@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:liquid_pull_to_refresh/liquid_pull_to_refresh.dart';
+import '../theme/app_palette.dart';
+import '../widgets/ui_motion.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
@@ -16,7 +19,8 @@ class AttendanceListPage extends StatefulWidget {
   State<AttendanceListPage> createState() => _AttendanceListPageState();
 }
 
-class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBindingObserver {
+class _AttendanceListPageState extends State<AttendanceListPage>
+    with WidgetsBindingObserver {
   List<dynamic> _allRecords = [];
   bool _loading = true;
   int _selectedMonth = DateTime.now().month;
@@ -52,7 +56,8 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
 
   void _onRealtimeChange() {
     final event = RealtimeService.instance.lastEvent;
-    if (event == RealtimeEvent.attendance || event == RealtimeEvent.corrections) {
+    if (event == RealtimeEvent.attendance ||
+        event == RealtimeEvent.corrections) {
       _load(silent: true);
     }
   }
@@ -114,25 +119,38 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
     int tempMonth = _selectedMonth;
     int tempYear = _selectedYear;
 
-    final picked = await showModalBottomSheet<(int, int)?>(
+    final picked = await showSpringSheet<(int, int)?>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setSheetState) {
             return Padding(
-              padding: EdgeInsets.fromLTRB(Responsive.pad(ctx, 24), Responsive.pad(ctx, 20), Responsive.pad(ctx, 24), Responsive.pad(ctx, 32)),
+              padding: EdgeInsets.fromLTRB(
+                Responsive.pad(ctx, 24),
+                Responsive.pad(ctx, 20),
+                Responsive.pad(ctx, 24),
+                Responsive.pad(ctx, 32),
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(width: Responsive.pad(ctx, 40), height: Responsive.pad(ctx, 4),
-                    decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+                  Container(
+                    width: Responsive.pad(ctx, 40),
+                    height: Responsive.pad(ctx, 4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
                   SizedBox(height: Responsive.pad(ctx, 20)),
-                  Text('Select Month & Year', style: GoogleFonts.hankenGrotesk(
-                    fontSize: Responsive.sp(ctx, 17), fontWeight: FontWeight.w700, color: const Color(0xFF1f1f1f),
-                  )),
+                  Text(
+                    'Select Month & Year',
+                    style: GoogleFonts.hankenGrotesk(
+                      fontSize: Responsive.sp(ctx, 17),
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1f1f1f),
+                    ),
+                  ),
                   SizedBox(height: Responsive.pad(ctx, 20)),
                   Row(
                     children: [
@@ -141,12 +159,26 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
                           value: tempMonth,
                           decoration: InputDecoration(
                             labelText: 'Month',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                            contentPadding: EdgeInsets.symmetric(horizontal: Responsive.pad(ctx, 14), vertical: Responsive.pad(ctx, 12)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: Responsive.pad(ctx, 14),
+                              vertical: Responsive.pad(ctx, 12),
+                            ),
                           ),
-                          items: List.generate(12, (i) => i + 1).map((m) =>
-                            DropdownMenuItem(value: m, child: Text(DateFormat('MMMM').format(DateTime(2000, m))))
-                          ).toList(),
+                          items: List.generate(12, (i) => i + 1)
+                              .map(
+                                (m) => DropdownMenuItem(
+                                  value: m,
+                                  child: Text(
+                                    DateFormat(
+                                      'MMMM',
+                                    ).format(DateTime(2000, m)),
+                                  ),
+                                ),
+                              )
+                              .toList(),
                           onChanged: (v) => setSheetState(() => tempMonth = v!),
                         ),
                       ),
@@ -156,12 +188,22 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
                           value: tempYear,
                           decoration: InputDecoration(
                             labelText: 'Year',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                            contentPadding: EdgeInsets.symmetric(horizontal: Responsive.pad(ctx, 14), vertical: Responsive.pad(ctx, 12)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: Responsive.pad(ctx, 14),
+                              vertical: Responsive.pad(ctx, 12),
+                            ),
                           ),
-                          items: years.map((y) =>
-                            DropdownMenuItem(value: y, child: Text(y.toString()))
-                          ).toList(),
+                          items: years
+                              .map(
+                                (y) => DropdownMenuItem(
+                                  value: y,
+                                  child: Text(y.toString()),
+                                ),
+                              )
+                              .toList(),
                           onChanged: (v) => setSheetState(() => tempYear = v!),
                         ),
                       ),
@@ -172,13 +214,22 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
                     width: double.infinity,
                     height: Responsive.pad(ctx, 44),
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pop(ctx, (tempMonth, tempYear)),
+                      onPressed: () =>
+                          Navigator.pop(ctx, (tempMonth, tempYear)),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563eb),
+                        backgroundColor: const Color(0xFF4A78E0),
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
                       ),
-                      child: Text('Apply', style: TextStyle(fontSize: Responsive.sp(ctx, 15), fontWeight: FontWeight.w600)),
+                      child: Text(
+                        'Apply',
+                        style: TextStyle(
+                          fontSize: Responsive.sp(ctx, 15),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -203,59 +254,100 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
     final colors = Theme.of(context).extension<AppColors>()!;
     final scheme = Theme.of(context).colorScheme;
     final filtered = _filteredRecords;
-    final monthLabel = DateFormat('MMMM').format(DateTime(_selectedYear, _selectedMonth));
+    final monthLabel = DateFormat(
+      'MMMM',
+    ).format(DateTime(_selectedYear, _selectedMonth));
 
     return Scaffold(
-      backgroundColor: scheme.surface,
-      body: SafeArea(child: Column(
-        children: [
-          _buildFilterBar(monthLabel, colors),
-          Expanded(child: _loading
-              ? ListView(
-                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 80)),
-                  children: List.generate(8, (_) => Padding(
-                    padding: EdgeInsets.only(bottom: Responsive.pad(context, 8)),
-                    child: const _AttendanceSkeletonItem(),
-                  )),
-                )
-              : filtered.isEmpty
+      backgroundColor: AppPalette.iceBlue,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildFilterBar(monthLabel, colors),
+            Expanded(
+              child: _loading
+                  ? ListView(
+                      padding: EdgeInsets.fromLTRB(
+                        Responsive.pad(context, 16),
+                        Responsive.pad(context, 16),
+                        Responsive.pad(context, 16),
+                        Responsive.pad(context, 80),
+                      ),
+                      children: List.generate(
+                        8,
+                        (_) => Padding(
+                          padding: EdgeInsets.only(
+                            bottom: Responsive.pad(context, 8),
+                          ),
+                          child: const _AttendanceSkeletonItem(),
+                        ),
+                      ),
+                    )
+                  : filtered.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(LucideIcons.history, size: Responsive.sp(context, 48), color: const Color(0xFF74777e).withValues(alpha: 0.3)),
+                          Icon(
+                            TablerIcons.history,
+                            size: Responsive.sp(context, 48),
+                            color: const Color(
+                              0xFF7C8698,
+                            ).withValues(alpha: 0.3),
+                          ),
                           SizedBox(height: Responsive.pad(context, 12)),
-                          Text('No records for this month', style: TextStyle(
-                            fontSize: Responsive.sp(context, 14), color: const Color(0xFF74777e).withValues(alpha: 0.6),
-                          )),
+                          Text(
+                            'No records for this month',
+                            style: TextStyle(
+                              fontSize: Responsive.sp(context, 14),
+                              color: const Color(
+                                0xFF7C8698,
+                              ).withValues(alpha: 0.6),
+                            ),
+                          ),
                         ],
                       ),
                     )
-                  : RefreshIndicator(
+                  : LiquidPullToRefresh(
+                      color: const Color(0xFF4A78E0),
+                      backgroundColor: const Color(0xFFF4F6FA),
+                      showChildOpacityTransition: false,
+                      springAnimationDurationInMilliseconds: 700,
                       onRefresh: _load,
                       child: ListView.builder(
                         key: ValueKey('list_$_listKey'),
-                        padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 80)),
+                        padding: EdgeInsets.fromLTRB(
+                          Responsive.pad(context, 16),
+                          Responsive.pad(context, 16),
+                          Responsive.pad(context, 16),
+                          Responsive.pad(context, 80),
+                        ),
                         itemCount: filtered.length,
                         itemBuilder: (_, i) {
                           final r = filtered[i];
                           final date = r['date']?.toString() ?? '';
                           final inTime = r['punch_in_time']?.toString() ?? '';
                           final outTime = r['punch_out_time']?.toString() ?? '';
-                          final hoursWorked = r['hours_worked']?.toString() ?? '';
+                          final hoursWorked =
+                              r['hours_worked']?.toString() ?? '';
 
                           final dt = DateTime.tryParse(date);
                           final day = dt?.day.toString().padLeft(2, '0') ?? '';
-                          final month = dt != null ? DateFormat('MMM').format(dt) : '';
+                          final month = dt != null
+                              ? DateFormat('MMM').format(dt)
+                              : '';
 
                           return _AnimatedListItem(
                             index: i,
                             child: Container(
-                              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 12)),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: Responsive.pad(context, 16),
+                                vertical: Responsive.pad(context, 12),
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: const Color(0xFFE8EAED)),
+
                                 boxShadow: const [
                                   BoxShadow(
                                     color: Color(0x08000000),
@@ -269,42 +361,90 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
                                   Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Text(day, style: GoogleFonts.hankenGrotesk(
-                                        fontSize: Responsive.sp(context, 22), fontWeight: FontWeight.w800, color: scheme.onSurface,
-                                      )),
-                                      Text(month, style: TextStyle(
-                                        fontSize: Responsive.sp(context, 10), fontWeight: FontWeight.w600, color: scheme.outline,
-                                      )),
+                                      Text(
+                                        day,
+                                        style: GoogleFonts.hankenGrotesk(
+                                          fontSize: Responsive.sp(context, 22),
+                                          fontWeight: FontWeight.w800,
+                                          color: scheme.onSurface,
+                                        ),
+                                      ),
+                                      Text(
+                                        month,
+                                        style: TextStyle(
+                                          fontSize: Responsive.sp(context, 10),
+                                          fontWeight: FontWeight.w600,
+                                          color: scheme.outline,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                   SizedBox(width: Responsive.pad(context, 16)),
-                                  Container(width: 1, height: Responsive.pad(context, 40), color: const Color(0xFFE8EAED)),
+                                  Container(
+                                    width: 1,
+                                    height: Responsive.pad(context, 40),
+                                    color: const Color(0xFFF4F6FA),
+                                  ),
                                   SizedBox(width: Responsive.pad(context, 16)),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
                                           children: [
-                                            Text('In ', style: TextStyle(
-                                              fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500, color: scheme.outline,
-                                            )),
                                             Text(
-                                              inTime.isNotEmpty ? _fmtTime(inTime) : '—',
+                                              'In ',
+                                              style: TextStyle(
+                                                fontSize: Responsive.sp(
+                                                  context,
+                                                  12,
+                                                ),
+                                                fontWeight: FontWeight.w500,
+                                                color: scheme.outline,
+                                              ),
+                                            ),
+                                            Text(
+                                              inTime.isNotEmpty
+                                                  ? _fmtTime(inTime)
+                                                  : '—',
                                               style: GoogleFonts.hankenGrotesk(
-                                                fontSize: Responsive.sp(context, 15), fontWeight: FontWeight.w600, color: scheme.onSurface,
+                                                fontSize: Responsive.sp(
+                                                  context,
+                                                  15,
+                                                ),
+                                                fontWeight: FontWeight.w600,
+                                                color: scheme.onSurface,
                                               ),
                                             ),
                                             const Spacer(),
-                                            if (outTime.isNotEmpty || hoursWorked.isNotEmpty) ...[
-                                              Text('Out ', style: TextStyle(
-                                                fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500, color: scheme.outline,
-                                              )),
+                                            if (outTime.isNotEmpty ||
+                                                hoursWorked.isNotEmpty) ...[
                                               Text(
-                                                outTime.isNotEmpty ? _fmtTime(outTime) : '—',
-                                                style: GoogleFonts.hankenGrotesk(
-                                                  fontSize: Responsive.sp(context, 15), fontWeight: FontWeight.w600, color: scheme.onSurface,
+                                                'Out ',
+                                                style: TextStyle(
+                                                  fontSize: Responsive.sp(
+                                                    context,
+                                                    12,
+                                                  ),
+                                                  fontWeight: FontWeight.w500,
+                                                  color: scheme.outline,
                                                 ),
+                                              ),
+                                              Text(
+                                                outTime.isNotEmpty
+                                                    ? _fmtTime(outTime)
+                                                    : '—',
+                                                style:
+                                                    GoogleFonts.hankenGrotesk(
+                                                      fontSize: Responsive.sp(
+                                                        context,
+                                                        15,
+                                                      ),
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: scheme.onSurface,
+                                                    ),
                                               ),
                                             ],
                                           ],
@@ -319,25 +459,37 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
                         },
                       ),
                     ),
-          ),
-        ],
-      )),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildFilterBar(String monthLabel, AppColors colors) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: EdgeInsets.fromLTRB(Responsive.pad(context, 4), Responsive.pad(context, 10), Responsive.pad(context, 4), Responsive.pad(context, 10)),
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pad(context, 4),
+        Responsive.pad(context, 10),
+        Responsive.pad(context, 4),
+        Responsive.pad(context, 10),
+      ),
       decoration: BoxDecoration(
         color: scheme.surface,
-        border: Border(bottom: BorderSide(color: colors.outline.withValues(alpha: 0.15))),
+        border: Border(
+          bottom: BorderSide(color: colors.outline.withValues(alpha: 0.15)),
+        ),
       ),
       child: Row(
         children: [
           IconButton(
             onPressed: _prevMonth,
-            icon: Icon(LucideIcons.chevronLeft, size: Responsive.sp(context, 22), color: scheme.onSurface),
+            icon: Icon(
+              TablerIcons.chevron_left,
+              size: Responsive.sp(context, 22),
+              color: scheme.onSurface,
+            ),
             splashRadius: 20,
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
           ),
@@ -345,10 +497,13 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
             child: GestureDetector(
               onTap: _pickMonthYear,
               child: Container(
-                padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 8)),
+                padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.pad(context, 16),
+                  vertical: Responsive.pad(context, 8),
+                ),
                 decoration: BoxDecoration(
                   color: colors.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(18),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -357,11 +512,17 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
                     Text(
                       '$monthLabel  ${_selectedYear.toString()}',
                       style: GoogleFonts.hankenGrotesk(
-                        fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w600, color: scheme.onSurface,
+                        fontSize: Responsive.sp(context, 14),
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurface,
                       ),
                     ),
                     SizedBox(width: Responsive.pad(context, 6)),
-                    Icon(LucideIcons.maximize2, size: Responsive.sp(context, 16), color: scheme.onSurfaceVariant),
+                    Icon(
+                      TablerIcons.maximize,
+                      size: Responsive.sp(context, 16),
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ],
                 ),
               ),
@@ -369,7 +530,11 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
           ),
           IconButton(
             onPressed: _nextMonth,
-            icon: Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 22), color: scheme.onSurface),
+            icon: Icon(
+              TablerIcons.chevron_right,
+              size: Responsive.sp(context, 22),
+              color: scheme.onSurface,
+            ),
             splashRadius: 20,
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
           ),
@@ -395,45 +560,16 @@ class _AnimatedListItem extends StatefulWidget {
   State<_AnimatedListItem> createState() => _AnimatedListItemState();
 }
 
-class _AnimatedListItemState extends State<_AnimatedListItem>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeAnim;
-  late Animation<Offset> _slideAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 350),
-    );
-    _fadeAnim = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 0.08),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-    Future.delayed(Duration(milliseconds: widget.index * 40), () {
-      if (mounted) _controller.forward();
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
+class _AnimatedListItemState extends State<_AnimatedListItem> {
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _fadeAnim,
-      child: SlideTransition(
-        position: _slideAnim,
-        child: Padding(
-          padding: EdgeInsets.only(bottom: Responsive.pad(context, 8)),
-          child: widget.child,
-        ),
+    return StaggeredReveal(
+      index: widget.index,
+      offsetY: 24,
+      duration: Motion.reveal,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: Responsive.pad(context, 8)),
+        child: widget.child,
       ),
     );
   }
@@ -448,43 +584,79 @@ class _AttendanceSkeletonItem extends StatelessWidget {
       padding: EdgeInsets.only(bottom: Responsive.pad(context, 8)),
       child: SkeletonLoader(
         child: Container(
-          padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 12)),
+          padding: EdgeInsets.symmetric(
+            horizontal: Responsive.pad(context, 16),
+            vertical: Responsive.pad(context, 12),
+          ),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE8EAED)),
           ),
           child: Row(
             children: [
               Column(
                 children: [
-                  SkeletonBlock(width: Responsive.pad(context, 28), height: Responsive.pad(context, 22)),
+                  SkeletonBlock(
+                    width: Responsive.pad(context, 28),
+                    height: Responsive.pad(context, 22),
+                  ),
                   SizedBox(height: Responsive.pad(context, 4)),
-                  SkeletonBlock(width: Responsive.pad(context, 28), height: Responsive.pad(context, 10)),
+                  SkeletonBlock(
+                    width: Responsive.pad(context, 28),
+                    height: Responsive.pad(context, 10),
+                  ),
                 ],
               ),
               SizedBox(width: Responsive.pad(context, 16)),
-              Container(width: 1, height: Responsive.pad(context, 40), color: const Color(0xFFE8EAED)),
+              Container(
+                width: 1,
+                height: Responsive.pad(context, 40),
+                color: const Color(0xFFF4F6FA),
+              ),
               SizedBox(width: Responsive.pad(context, 16)),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [
-                      SkeletonBlock(width: Responsive.pad(context, 13), height: Responsive.pad(context, 13), borderRadius: 6),
-                      SizedBox(width: Responsive.pad(context, 4)),
-                      SkeletonBlock(width: Responsive.pad(context, 16), height: Responsive.pad(context, 10)),
-                      const Spacer(),
-                      SkeletonBlock(width: Responsive.pad(context, 60), height: Responsive.pad(context, 16)),
-                    ]),
+                    Row(
+                      children: [
+                        SkeletonBlock(
+                          width: Responsive.pad(context, 13),
+                          height: Responsive.pad(context, 13),
+                          borderRadius: 6,
+                        ),
+                        SizedBox(width: Responsive.pad(context, 4)),
+                        SkeletonBlock(
+                          width: Responsive.pad(context, 16),
+                          height: Responsive.pad(context, 10),
+                        ),
+                        const Spacer(),
+                        SkeletonBlock(
+                          width: Responsive.pad(context, 60),
+                          height: Responsive.pad(context, 16),
+                        ),
+                      ],
+                    ),
                     SizedBox(height: Responsive.pad(context, 6)),
-                    Row(children: [
-                      SkeletonBlock(width: Responsive.pad(context, 13), height: Responsive.pad(context, 13), borderRadius: 6),
-                      SizedBox(width: Responsive.pad(context, 4)),
-                      SkeletonBlock(width: Responsive.pad(context, 20), height: Responsive.pad(context, 10)),
-                      const Spacer(),
-                      SkeletonBlock(width: Responsive.pad(context, 60), height: Responsive.pad(context, 16)),
-                    ]),
+                    Row(
+                      children: [
+                        SkeletonBlock(
+                          width: Responsive.pad(context, 13),
+                          height: Responsive.pad(context, 13),
+                          borderRadius: 6,
+                        ),
+                        SizedBox(width: Responsive.pad(context, 4)),
+                        SkeletonBlock(
+                          width: Responsive.pad(context, 20),
+                          height: Responsive.pad(context, 10),
+                        ),
+                        const Spacer(),
+                        SkeletonBlock(
+                          width: Responsive.pad(context, 60),
+                          height: Responsive.pad(context, 16),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),

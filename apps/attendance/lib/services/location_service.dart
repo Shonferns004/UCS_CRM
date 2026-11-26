@@ -7,18 +7,24 @@ import '../config.dart';
 /// Resolves the current device location using GPS only,
 /// and reverse geocodes via Geoapify (same as the hr-attend app).
 class LocationService {
-  static Future<Position?> getCurrentLocation({Duration timeout = const Duration(seconds: 15)}) async {
+  static Future<Position?> getCurrentLocation({
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) return null;
       var perm = await Geolocator.checkPermission();
       if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
-        if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return null;
+        if (perm == LocationPermission.denied ||
+            perm == LocationPermission.deniedForever)
+          return null;
       } else if (perm == LocationPermission.deniedForever) {
         return null;
       }
       return await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       ).timeout(timeout);
     } catch (_) {
       return null;
@@ -26,8 +32,11 @@ class LocationService {
   }
 
   /// Reverse geocodes [lat]/[lng] into a full address via Geoapify.
-  static Future<String?> getPlaceName(double lat, double lng,
-      {Duration timeout = const Duration(seconds: 10)}) async {
+  static Future<String?> getPlaceName(
+    double lat,
+    double lng, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
     try {
       final uri = Uri.parse(
         'https://api.geoapify.com/v1/geocode/reverse'

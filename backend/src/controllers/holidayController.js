@@ -29,8 +29,12 @@ export const addHoliday = async (req, res) => {
 export const listHolidays = async (req, res) => {
   try {
     const ngoId = req.user.role === 'super_admin' ? req.query.ngo_id : req.user.ngo_id;
-    const holidays = await getAllHolidays(ngoId);
-    return res.json(holidays);
+    const holidays = await getAllHolidays(req.user.role === 'super_admin' ? ngoId : undefined);
+    // Company-wide holidays (ngo_id null) are visible to every worker.
+    const visible = ngoId && req.user.role !== 'super_admin'
+      ? holidays.filter((h) => !h.ngo_id || h.ngo_id === ngoId)
+      : holidays;
+    return res.json(visible);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

@@ -11,6 +11,9 @@ import { getAllFcmTokens } from '../models/notificationModel.js';
 import { getPendingScheduledNotifications, markNotificationSent } from '../models/notificationAdminModel.js';
 import { getSetting } from '../models/settingsModel.js';
 import { sendPushToMultiple } from './fcmService.js';
+import { notifyNoticeRecipients } from './workerNotifyService.js';
+import { warnTodaysUnauthorizedAbsences } from './absenceWarningService.js';
+import { maybePurgeOldNotifications } from './notificationRetentionService.js';
 import { reverseTransfer } from '../models/froAssignmentModel.js';
 import { closeExpiredLoans } from './followUpLoanService.js';
 import emailConfig from '../config/emailConfig.js';
@@ -18,7 +21,7 @@ import { pollEmailInbox } from './emailImporter.js';
 import { syncAllRazorpayAccounts } from './razorpayWebhook.js';
 import { makeNonOverlap } from '../utils/noOverlap.js';
 
-let lastNoticeCheck = new Date(0).toISOString();
+let lastNoticeCheck = new Date().toISOString();
 let lastAchievementCheck = new Date(0).toISOString();
 let running = false;
 const cronJobs = [];
@@ -36,6 +39,8 @@ const runReportNoOverlap = makeNonOverlap('missed-schedule report', autoReportMi
 const runReturnNoOverlap = makeNonOverlap('auto-return transfers', autoReturnTransfers);
 const runIncentiveNoOverlap = makeNonOverlap('special incentive refresh', runSpecialIncentiveRefresh);
 const runLoanExpiryNoOverlap = makeNonOverlap('follow-up loan expiry', closeExpiredLoans);
+const runAbsenceWarningNoOverlap = makeNonOverlap('unauthorized absence warnings', warnTodaysUnauthorizedAbsences);
+const runNotificationRetentionNoOverlap = makeNonOverlap('notification retention', maybePurgeOldNotifications);
 
 function getDateString(date) {
   const y = date.getFullYear();
@@ -313,19 +318,10 @@ async function sendNoticeNotifications(tokens) {
   for (const ngoId of ngoIds) {
     const notices = await getRecentNotices(ngoId, lastNoticeCheck);
     for (const notice of notices) {
-      const ngoTokens = tokens.filter((t) => t.workers?.ngo_id === ngoId);
-      const notifications = [];
-      for (const t of ngoTokens) {
-        const title = '📢 New Notice';
-        const aiMsg = await generateAiMessage(
-          `Summarize this notice briefly: "${notice.title}: ${notice.content}". Keep it under 100 characters.`
-        );
-        const body = aiMsg || `📢 ${notice.title}`;
-        notifications.push({ workerId: t.worker_id, title, body, type: 'notice', referenceId: notice.id });
-      }
-      if (notifications.length > 0) {
-        await sendPushToMultiple(notifications);
-      }
+      // Dedup inside: notices created through POST /api/notices are delivered
+      // immediately by the controller, so this only catches anything that
+      // slipped through (e.g. a notice inserted directly into the table).
+      await notifyNoticeRecipients(notice);
     }
   }
   lastNoticeCheck = new Date().toISOString();
@@ -357,6 +353,10 @@ async function sendAchievementNotifications(tokens) {
 
 async function runNotificationCycle() {
   try {
+    // Three-month bell/list retention, once per IST day even when this cycle is
+    // triggered by the serverless cron endpoint.
+    await maybePurgeOldNotifications();
+
     const tokens = await getAllFcmTokens();
     if (!tokens || tokens.length === 0) return;
 
@@ -429,6 +429,22 @@ function start() {
   cronJobs.push(cron.schedule('5 */5 * * * *', () => runPunchInNoOverlap()));
 
   cronJobs.push(cron.schedule('15 */5 * * * *', () => runPunchOutNoOverlap()));
+
+  // After the shift: workers with no punch, no approved leave and no proof have
+  // an unauthorized absence, so warn them once for the date (bell + FCM).
+  cronJobs.push(cron.schedule(
+    '0 21 * * *',
+    () => runAbsenceWarningNoOverlap(),
+    { timezone: 'Asia/Kolkata' },
+  ));
+
+  // Notification bell/list retention: keep the last three months, purge the
+  // rest overnight (IST) when the DB is quiet.
+  cronJobs.push(cron.schedule(
+    '15 3 * * *',
+    () => runNotificationRetentionNoOverlap(),
+    { timezone: 'Asia/Kolkata' },
+  ));
 
   if (!process.env.VERCEL) {
     cronJobs.push(cron.schedule('0 0 * * *', () => runResetNoOverlap()));

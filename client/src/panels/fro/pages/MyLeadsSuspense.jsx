@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Trophy, Timer, PhoneOutgoing, Activity, ArrowUp, ArrowDown, Clock, Wallet } from 'lucide-react';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import MyDonors from './MyDonors';
 import FroSuspense from './Suspense';
@@ -9,124 +7,28 @@ import { getMyPerformance } from '../api/donors';
 import { formatDuration } from '../../../utils/formatDuration';
 import { idleColorFor } from '../../../utils/warnTone';
 
-function SectionTitle({ label }) {
+function Metric({ label, value, valueColor, className, style: extraStyle, labelColor }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', height: 34, borderBottom: '1px solid var(--line)', background: '#fbfcfb', flexShrink: 0 }}>
-      <span style={{ width: 4, height: 12, borderRadius: 2, background: 'var(--sage)', display: 'inline-block' }} />
-      <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)' }}>{label}</span>
+    <div className={`metric-cell${className ? ' ' + className : ''}`} style={extraStyle}>
+      <span className="metric-label" style={labelColor ? { color: labelColor } : undefined}>{label}</span>
+      <strong className="metric-value" style={valueColor ? { color: valueColor } : undefined}>{value}</strong>
     </div>
   );
 }
 
-function Arrow({ good }) {
-  return (
-    <span
-      className="metric-arrow"
-      aria-label={good ? 'Above target' : 'Below target'}
-      title={good ? 'Above target' : 'Below target'}
-      style={{
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: 22, height: 22, borderRadius: 999, flexShrink: 0,
-        background: good ? '#ecfdf5' : '#fef2f2',
-        border: `1px solid ${good ? '#bbf7d0' : '#fecaca'}`,
-      }}
-    >
-      {good
-        ? <ArrowUp size={13} strokeWidth={2.6} color="#16a34a" />
-        : <ArrowDown size={13} strokeWidth={2.6} color="#dc2626" />}
-    </span>
-  );
-}
-
-function Metric({ label, value, good, accent, icon, valueColor, className, innerRef, style: extraStyle, labelColor }) {
-  return (
-    <div ref={innerRef} className={`metric-cell${className ? ' ' + className : ''}`} style={{ minWidth: 0, flex: '1 1 0', padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderLeft: '1px solid #eef1f6', ...(extraStyle || {}) }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-        <span style={{ fontSize: 9.5, color: labelColor || '#94a3b8', textTransform: 'uppercase', letterSpacing: '.6px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          <strong style={{ color: valueColor || '#0f172a', fontSize: 16.5, lineHeight: 1.1, fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{value}</strong>
-          {good != null && <Arrow good={good} />}
-        </span>
-      </div>
-      <span style={{ width: 30, height: 30, borderRadius: 9, background: '#f8fafc', border: '1px solid #eef2f7', color: accent || '#94a3b8', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        {icon}
-      </span>
-    </div>
-  );
-}
-
-function IdleMetric({ value, idleSeconds, isIdle }) {
-  const ref = useRef(null);
-  const [rect, setRect] = useState(null);
+function IdleMetric({ value, idleSeconds }) {
   const s = Number(idleSeconds) || 0;
   const idleStyle = idleColorFor(s);
   const show = s > 3600;
-  useEffect(() => {
-    if (!show) { setRect(null); return; }
-    const update = () => {
-      if (ref.current) setRect(ref.current.getBoundingClientRect());
-    };
-    update();
-    window.addEventListener('scroll', update, true);
-    window.addEventListener('resize', update);
-    let ro;
-    if (typeof ResizeObserver !== 'undefined' && ref.current) {
-      ro = new ResizeObserver(update);
-      ro.observe(ref.current);
-    }
-    return () => {
-      window.removeEventListener('scroll', update, true);
-      window.removeEventListener('resize', update);
-      if (ro) ro.disconnect();
-    };
-  }, [show]);
   return (
-    <>
-      <Metric
-        label="Idle"
-        labelColor={show ? idleStyle.color : '#94a3b8'}
-        value={value}
-        good={!(isIdle)}
-        accent={s > 0 ? idleStyle.color : '#64748b'}
-        valueColor={show ? idleStyle.color : undefined}
-        className={show ? 'idle-danger' : ''}
-        icon={<Clock size={16} style={show ? { color: idleStyle.color } : undefined} />}
-        innerRef={ref}
-        style={show ? { background: idleStyle.bg, boxShadow: `inset 0 0 0 1px ${idleStyle.border}` } : undefined}
-      />
-      {show && rect && createPortal(
-        <>
-          <div style={{
-            position: 'fixed',
-            left: rect.left - 3,
-            top: rect.top - 3,
-            width: rect.width + 6,
-            height: rect.height + 6,
-            border: `2px solid ${idleStyle.color}cc`,
-            borderRadius: 0,
-            pointerEvents: 'none',
-            zIndex: 99999,
-            transformOrigin: 'center center',
-            animation: 'idle-ripple 1.6s ease-out infinite',
-          }} />
-          <div style={{
-            position: 'fixed',
-            left: rect.left - 3,
-            top: rect.top - 3,
-            width: rect.width + 6,
-            height: rect.height + 6,
-            border: `2px solid ${idleStyle.color}cc`,
-            borderRadius: 0,
-            pointerEvents: 'none',
-            zIndex: 99999,
-            transformOrigin: 'center center',
-            animation: 'idle-ripple 1.6s ease-out infinite',
-            animationDelay: '.8s',
-          }} />
-        </>,
-        document.body
-      )}
-    </>
+    <Metric
+      label="Idle"
+      labelColor={show ? idleStyle.color : undefined}
+      value={value}
+      valueColor={show ? idleStyle.color : undefined}
+      className={show ? 'idle-danger' : ''}
+      style={show ? { background: idleStyle.bg, boxShadow: `inset 0 0 0 1px ${idleStyle.border}` } : undefined}
+    />
   );
 }
 
@@ -151,73 +53,40 @@ function PersonalPerformance() {
     return () => { cancelled = true; clearInterval(timer); window.removeEventListener('ucs:fro-perf-refresh', onSaved); };
   }, []);
 
-  const levelHigh = data?.level === 'high';
-  const callTarget = 17;
-  // Whose figures these are. Under "work as" the strip paints the person at the
+  // Whose figures these are. Under "work as" the tiles paint the person at the
   // keyboard (Priya covering Riya shows Priya's numbers), while the lead queue
-  // and donors below stay with the account being worked. The name is exposed as a
-  // title rather than a badge, so the strip keeps its five-tile layout.
+  // and suspense stay with the account being worked.
   const figuresOwner = data?.worker?.name || '';
 
-return (
-        <div style={{ display: 'flex', flexWrap: 'nowrap', width: '100%', height: '100%' }} title={figuresOwner ? `Your figures: ${figuresOwner}` : undefined}>
-          <Metric label="Rank" value={data?.rank ? `#${data.rank}` : '—'} accent="#7c3aed" icon={<Trophy size={16} />} style={{ borderLeft: 'none' }} />
-          <Metric label="Worked" value={`${formatDuration(data?.worked_seconds)} / 8h`} good={(data?.worked_seconds ?? 0) >= 8 * 3600} accent="#0891b2" icon={<Timer size={16} />} />
-          <Metric label="Calls" value={(data?.today_calls ?? 0).toString()} good={(data?.today_calls ?? 0) >= callTarget} accent="#2563eb" icon={<PhoneOutgoing size={16} />} />
-          {/* Idle today, including a period still running. The timer in the top
-              bar is what produces it, so this is the FRO's own answer to "how
-              much of my day was actually productive". */}
-          <IdleMetric value={formatDuration(data?.idle_seconds)} idleSeconds={data?.idle_seconds} isIdle={data?.is_idle} />
-<Metric label="Performance" value={`${data?.performance ?? 0}%`} good={levelHigh} accent={levelHigh ? '#16a34a' : '#dc2626'} icon={<Activity size={16} />} />
-          <Metric label="Collections" value={`₹${Number(data?.today_collected ?? 0).toLocaleString('en-IN')}`} accent="#16a34a" valueColor="#16a34a" icon={<Wallet size={16} />} />
-          {/* Live call timer, parked after Performance so it reads as the last
-              tile rather than competing with the five metrics. It sizes to its
-              content instead of flexing like a metric-cell, and CallTimer returns
-              null when no call is up, so the strip is unchanged for the rest of
-              the day - see .perf-timer:empty. */}
-          <div className="perf-timer">
-            <CallTimer />
-          </div>
-        </div>
+  return (
+    <div className="perf-tiles" title={figuresOwner ? `Your figures: ${figuresOwner}` : undefined}>
+      <Metric label="Calls" value={(data?.today_calls ?? 0).toString()} />
+      {/* Idle today, including a period still running. The timer in the top
+          bar is what produces it, so this is the FRO's own answer to "how
+          much of my day was actually productive". */}
+      <IdleMetric value={formatDuration(data?.idle_seconds)} idleSeconds={data?.idle_seconds} />
+      <Metric label="Worked" value={`${formatDuration(data?.worked_seconds)} / 8h`} />
+      <Metric label="Collection" value={`₹${Number(data?.today_collected ?? 0).toLocaleString('en-IN')}`} valueColor="#16a34a" />
+    </div>
   );
 }
 
 export default function MyLeadsSuspense() {
   const isMobile = useIsMobile();
-  const isCompact = useIsMobile(480);
   const shellRef = useRef(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [unclaimedOnly, setUnclaimedOnly] = useState(false);
   const handleDetailStateChange = useCallback((open) => setDetailOpen(!!open), []);
 
   // No padding and no gap: this view is meant to run edge to edge, touching the
   // header above and the sidebar/window edges at the sides. The host's padding is
   // zeroed in index.css via .panel-fro .content-body:has(.my-leads-shell).
   //
-  // Because the three surfaces are flush, they cannot each keep their own border
-  // and radius - adjacent ones would draw a 2px seam and two rounded corners would
-  // meet in the middle. So the dividers are owned by the panes themselves: the
-  // strip carries a bottom rule, and the leads/suspense split is a single line
-  // between them rather than two facing borders.
-  const stripH = isCompact ? 98 : isMobile ? 86 : 68;
-
+  // The right column now carries the compact 2×2 performance tiles above
+  // Suspense, so the leads pane gets the full height on the left and the
+  // leads/suspense split stays a single hairline between the two panes.
   return (
     <div ref={shellRef} className="my-leads-shell" style={{ height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', padding: 0, boxSizing: 'border-box', minHeight: 0 }}>
-      {!detailOpen && (
-        <div className="perf-strip" style={{
-          flex: `0 0 ${stripH}px`,
-          height: stripH,
-          minWidth: 0,
-          position: 'relative',
-          zIndex: 2,
-          background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-          borderBottom: '1px solid #e6eaf2',
-          overflow: 'visible',
-          display: 'flex',
-        }}>
-          <PersonalPerformance />
-        </div>
-      )}
-
       <div className="my-leads-bottom" style={{ flex: '1 1 0', minHeight: isMobile ? 680 : 0, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '3fr 2fr', gap: 0, minWidth: 0 }}>
         <div className="my-leads-pane" style={{
           minWidth: 0, minHeight: 0,
@@ -226,22 +95,33 @@ export default function MyLeadsSuspense() {
           overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
         }}>
-          <SectionTitle label="My Leads" />
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            <MyDonors embedded portalEl={shellRef.current} onDetailStateChange={handleDetailStateChange} />
+            <MyDonors
+              embedded
+              portalEl={shellRef.current}
+              onDetailStateChange={handleDetailStateChange}
+              unclaimedOnly={unclaimedOnly}
+              onToggleUnclaimed={() => setUnclaimedOnly(v => !v)}
+            />
           </div>
         </div>
 
-        <div className="my-leads-pane" style={{
+        <div className="my-leads-pane fro-leads-side" style={{
           minWidth: 0, minHeight: 0,
           position: 'relative',
-          background: '#f8fafc',
-          overflow: 'hidden',
+          gap: 12,
           display: 'flex', flexDirection: 'column',
         }}>
-          <SectionTitle label="Suspense" />
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            <FroSuspense />
+          {!detailOpen && (
+            <div className="fro-side-metrics">
+              <div className="perf-timer">
+                <CallTimer />
+              </div>
+              <PersonalPerformance />
+            </div>
+          )}
+          <div className="fro-suspense-section">
+            <FroSuspense unclaimedOnly={unclaimedOnly} />
           </div>
         </div>
       </div>
@@ -249,32 +129,74 @@ export default function MyLeadsSuspense() {
 <style>{`
         .my-leads-shell { container-type: inline-size; container-name: my-leads; }
         .my-leads-shell > div { min-width: 0; }
-        .perf-strip .metric-cell + .metric-cell { border-left: 1px solid #eef2f7; }
-        /* The call timer is a pill, not a metric-cell, so it gets its own rule
-           rather than the sibling border above. */
-        .perf-timer { flex: 0 0 auto; display: flex; align-items: center; padding: 0 14px; border-left: 1px solid #eef2f7; }
-        /* CallTimer renders null when no call is up, which leaves this wrapper
-           genuinely empty. Without this it would sit at the end of the strip all
-           day drawing a rule and reserving padding for a timer that isn't there. */
-        .perf-timer:empty { display: none; }
-        .metric-arrow { animation: arrow-bob 1.8s ease-in-out infinite; }
-        @keyframes arrow-bob {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(2px); }
+        .fro-side-metrics {
+          flex: 0 0 auto;
+          display: flex;
+          flex-direction: column;
         }
-        /* Idle tile turns red + ripples + heartbeat once idle crosses 1 hour. */
+        .perf-tiles {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+        }
+        .perf-tiles .metric-cell {
+          min-width: 0;
+          min-height: 84px;
+          padding: 13px 15px;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 10px;
+          background: #fff;
+          border: 1px solid #e8edf5;
+          border-radius: 12px;
+          box-shadow: none;
+          transform-origin: center;
+          transition: transform 170ms cubic-bezier(.22, 1, .36, 1), border-color 170ms ease;
+        }
+        .perf-tiles .metric-label {
+          display: block;
+          min-width: 0;
+          font-size: 9.5px;
+          font-weight: 800;
+          letter-spacing: .08em;
+          text-transform: uppercase;
+          color: #8b98a9;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .perf-tiles .metric-value {
+          font-size: 21px;
+          line-height: 1;
+          font-weight: 800;
+          letter-spacing: -.025em;
+          color: #0f172a;
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+        }
+        .perf-tiles .metric-cell:hover {
+          transform: scale(1.015);
+          border-color: #d7e0ec;
+        }
+        .perf-timer {
+          display: flex;
+          align-items: center;
+          margin: 0 0 8px;
+          padding: 8px 12px;
+          background: #fff;
+          border: 1px solid #e8edf5;
+          border-radius: 12px;
+        }
+        /* CallTimer renders null when no call is up, which leaves this wrapper
+           genuinely empty; keep the tiles tight to the top in that case. */
+        .perf-timer:empty { display: none; }
+        /* Idle tile turns red + heartbeats once idle crosses 1 hour. */
         .metric-cell.idle-danger {
           background: #fecaca;
           position: relative;
-          overflow: visible;
           animation: idle-heartbeat 1.1s ease-in-out infinite;
-          z-index: 9999;
-        }
-        /* Ripple is portaled to document.body so it can render above the sticky
-           header; keep only the red tile + heartbeat here. */
-        @keyframes idle-ripple {
-          0% { transform: scale(1); opacity: .9; }
-          100% { transform: scale(1.3); opacity: 0; }
         }
         @keyframes idle-heartbeat {
           0%, 100% { transform: scale(1); }

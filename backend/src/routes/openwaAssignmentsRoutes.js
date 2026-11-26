@@ -213,6 +213,62 @@ router.get('/meta', requireAdmin, async (req, res) => {
   }
 });
 
+// GET /notes — free-text notes for every session, keyed by session id.
+//
+// Declared before the /:sessionId routes so a note route can never be read as a session id.
+router.get('/notes', requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await db
+      .from('whatsapp_session_notes')
+      .select('session_id, notes, updated_by, updated_at');
+    if (error) throw error;
+    const notes = {};
+    for (const row of data || []) {
+      notes[row.session_id] = {
+        notes: row.notes || '',
+        updated_by: row.updated_by || null,
+        updated_at: row.updated_at || null,
+      };
+    }
+    return res.json({ notes });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Could not load session notes' });
+  }
+});
+
+// PUT /notes/:sessionId — save one session's note. An empty note clears it, and clearing removes
+// the row so "no note" stays distinguishable from "an empty note".
+router.put('/notes/:sessionId', requireAdmin, async (req, res) => {
+  const sessionId = String(req.params.sessionId || '').trim();
+  const sessionName = String(req.body?.sessionName || '').trim() || null;
+  const notes = String(req.body?.notes ?? '');
+
+  if (!sessionId) return res.status(400).json({ message: 'sessionId is required' });
+  if (notes.length > 4000) return res.status(400).json({ message: 'A note may not exceed 4000 characters' });
+
+  try {
+    if (notes.trim() === '') {
+      await db.from('whatsapp_session_notes').delete().eq('session_id', sessionId);
+      return res.json({ sessionId, notes: { notes: '' } });
+    }
+
+    await db.from('whatsapp_session_notes').upsert(
+      {
+        session_id: sessionId,
+        session_name: sessionName,
+        notes,
+        updated_by: req.user?.id || null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'session_id' },
+    );
+
+    return res.json({ sessionId, notes: { notes } });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Could not save the session note' });
+  }
+});
+
 // GET / — every session assignment, with the NGO name and the FRO/agent that station belongs to.
 // The Accounts session list shows the latter, so an operator can see who holds each number.
 router.get('/', requireAdmin, async (req, res) => {

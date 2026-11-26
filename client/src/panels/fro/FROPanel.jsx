@@ -20,6 +20,7 @@ import DispositionModal from './components/DispositionModal'
 import { CallProvider, useCall, DISPOSITION_WINDOW, SETTLE_SECONDS } from './CallContext'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
+import SidebarFooter from '../../components/admin-sidebar/SidebarFooter'
 import ToastContainer from '../../components/Toast'
 import Dashboard from './pages/Dashboard'
 import MyLeadsSuspense from './pages/MyLeadsSuspense'
@@ -532,7 +533,7 @@ function WorkAnniversaryPopup() {
   )
 }
 
-function Sidebar({ open, onClose, si }) {
+function Sidebar({ open, onClose, si, onOpenSettings, user }) {
   const location = useLocation()
   const nav = [...NAV_BASE]
   // One sidebar entry for WhatsApp. The assigned numbers are a small switcher inside the
@@ -543,44 +544,48 @@ function Sidebar({ open, onClose, si }) {
     label: 'WhatsApp',
     Icon: WhatsAppIcon,
   })
+
+  const renderItem = (id) => {
+    const n = nav.find(item => item.id === id)
+    if (!n) return null
+    // Station tabs carry session/station in the query; a deep link also adds
+    // ?chat=..., which must not stop the tab from looking active.
+    const [path, query] = n.path.split('?')
+    let active = location.pathname === path
+    if (active && query) {
+      const want = new URLSearchParams(query)
+      const have = new URLSearchParams(location.search)
+      active = [...want.keys()].every(k => have.get(k) === want.get(k))
+    }
+    return (
+      <NavLink key={n.id} to={n.path} end title={n.title}
+        className={`snav-item${active ? ' active' : ''}`}
+        onClick={() => onClose?.()}>
+        <span className="ico"><n.Icon size={18} strokeWidth={2} /></span>
+        <span className="sb-item-body">
+          <span className="sb-item-label">{n.label}</span>
+          {n.id === 'chat' && <ChatNavBadge quiet />}
+        </span>
+      </NavLink>
+    )
+  }
+
   return (
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
       <aside className={`sidebar${open ? ' open' : ''}`}>
-        <div className="sidebar-brand">
-          <div className="brand-mark">U</div>
-          <div><h1>UFS</h1><span>FRO Panel</span></div>
+        <div className="sb-header">
+          <div className="sb-mark">FRO</div>
+          <div className="sb-brand"><h1>UFS</h1></div>
           <button className="sidebar-close" onClick={onClose} aria-label="Close menu">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
-        <nav className="sidebar-nav" style={{ flex: 1 }}>
-          {nav.map(n => {
-            return (
-            <NavLink key={n.id} to={n.path} end title={n.title}
-              className={() => {
-                // Station tabs carry session/station in the query; a deep link also adds
-                // ?chat=..., which must not stop the tab from looking active.
-                const [path, query] = n.path.split('?')
-                if (query) {
-                  const want = new URLSearchParams(query)
-                  const have = new URLSearchParams(location.search)
-                  const same = [...want.keys()].every(k => have.get(k) === want.get(k))
-                  return `snav-item ${location.pathname === path && same ? 'active' : ''}`
-                }
-                return `snav-item ${location.pathname === path ? 'active' : ''}`
-              }}
-              onClick={() => onClose?.()}>
-            <n.Icon size={18} strokeWidth={2} />
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-            <span>{n.label}</span>
-            {n.id === 'chat' && <ChatNavBadge quiet />}
-            </span>
-          </NavLink>
-            );
-          })}
+        <nav className="sidebar-nav" aria-label="FRO navigation">
+          {nav.map((n) => renderItem(n.id))}
         </nav>
         <SidebarIncentive si={si} />
+        <SidebarFooter user={user} onSettings={onOpenSettings} onNavigate={onClose} />
       </aside>
     </>
   )
@@ -1125,7 +1130,7 @@ useEffect(() => onFroAction((action) => {
     <CallProvider userId={user?.id} operatorId={user?.impersonation ? user?.imposter_id : null}>
     <PauseGate />
     <div className="app">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} si={si} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} si={si} user={user} onOpenSettings={() => { setSidebarOpen(false); setShowSettings(true) }} />
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -1198,14 +1203,14 @@ useEffect(() => onFroAction((action) => {
               )}
             </div>
           </div>
-          <SettingsDrawer
-            open={showSettings}
-            onClose={() => setShowSettings(false)}
-            themes={themes}
-            themeName={themeName}
-             onThemeChange={(key) => setThemeName(key)}
-          />
         </header>
+        <SettingsDrawer
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          themes={themes}
+          themeName={themeName}
+          onThemeChange={(key) => setThemeName(key)}
+        />
         <LeadAlertToast
           alert={toastAlert}
           more={toastMore}

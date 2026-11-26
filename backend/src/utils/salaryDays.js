@@ -17,6 +17,26 @@ export function getCompensatoryWorkdays(month) {
   return COMPENSATORY_WORKDAYS[month] || [];
 }
 
+// One-off holiday forfeiture rules, keyed by `YYYY-MM`.
+//
+// Nov 2026: Diwali was declared on 9 and 10 Nov. Anyone who did not come in on
+// 11 Nov (the next working day) forfeits those two paid holiday days too — they
+// count as absent/deducted. This is deliberately month-scoped: no other month
+// is affected unless a rule is added here.
+export const HOLIDAY_FORFEITURE_RULES = {
+  '2026-11': [
+    {
+      holidayDates: ['2026-11-09', '2026-11-10'],
+      triggerDate: '2026-11-11',
+      reason: 'Did not report on 11 Nov after the 9-10 Nov holidays',
+    },
+  ],
+};
+
+export function getHolidayForfeitureRules(year, month) {
+  return HOLIDAY_FORFEITURE_RULES[`${year}-${pad(month + 1)}`] || [];
+}
+
 // Current date in IST as { year, month (0-based), day }.
 export function getISTToday() {
   const IST_OFFSET = 5.5 * 60 * 60 * 1000;
@@ -157,6 +177,8 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
       extraSundayCount: 0,
       freeSundays: 0,
       holidayPaidDays: 0,
+      forfeitedHolidayDates: [],
+      holidayForfeitureApplied: [],
       compensatoryWorkDays: 0,
       compensatedHolidayDays: 0,
       requiredSundayWorkedDays: 0,
@@ -238,6 +260,31 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
   }
   const records2 = [...records, ...fabricated];
 
+  // Month-scoped forfeiture: see HOLIDAY_FORFEITURE_RULES above. If the worker
+  // did not report on the trigger day, the listed holidays are not paid and are
+  // reported as absent too. A real punch on a holiday keeps that day present.
+  const forfeitedHolidayDates = new Set();
+  const appliedHolidayForfeiture = [];
+  for (const rule of getHolidayForfeitureRules(year, month)) {
+    const trigger = String(rule.triggerDate || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trigger)) continue;
+    if (beforeJoinSet.has(trigger)) continue;
+    if (Number(trigger.slice(8, 10)) > viewDay) continue;
+    const triggerRec = records2.find((r) => String(r.date).slice(0, 10) === trigger);
+    const didNotReport = !triggerRec || triggerRec.status === 'absent' || triggerRec.status === 'leave';
+    if (!didNotReport) continue;
+    for (const holiday of rule.holidayDates || []) {
+      const date = String(holiday).slice(0, 10);
+      if (!holidaySet.has(date) || beforeJoinSet.has(date)) continue;
+      const worked = records2.some((r) => String(r.date).slice(0, 10) === date
+        && ['present', 'late', 'half-day'].includes(r.status));
+      if (worked) continue;
+      forfeitedHolidayDates.add(date);
+    }
+    if (forfeitedHolidayDates.size > 0) appliedHolidayForfeiture.push({ ...rule, trigger });
+  }
+  const paidHolidaySet = new Set([...holidaySet].filter((d) => !forfeitedHolidayDates.has(d)));
+
   // Unauthorized absences decide whether the month's free grace survives.
   // Sundays, holidays, pre-join and future dates are excluded inside the
   // detector, matching payroll's own fabrication rules above.
@@ -285,6 +332,12 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
   });
   for (const d of sundayStats.unpaidSundays) deducted.add(d);
   for (const d of sundayStats.extraSundays) deducted.add(d);
+  // Forfeited holidays count as absent days for this month's rule. They are
+  // weekdays (9/10 Nov), so they never inflate the Sunday deduction count.
+  for (const d of forfeitedHolidayDates) {
+    if (new Date(d + 'T00:00:00Z').getUTCDay() === 0) continue;
+    if (!beforeJoinSet.has(d)) deducted.add(d);
+  }
 
   const available = Math.min(daysInMonth, viewDay) - (joinedThisMonth ? (joinDay - 1) : 0);
   const leaveCount = afterJoin.filter(r => r.status === 'leave').length;
@@ -342,7 +395,7 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     : Math.max(0, sundayStats.paidSundays - sundayStats.attendedSundays);
   const holidayPaidDays = includeHolidayPay
     ? monthDays.filter((day) => {
-      if (!holidaySet.has(day.date) || beforeJoinSet.has(day.date) || day.day > viewDay) return false;
+      if (!paidHolidaySet.has(day.date) || beforeJoinSet.has(day.date) || day.day > viewDay) return false;
       const attendance = afterJoin.find((record) => record.date === day.date);
       const compensated = compensationByHolidayDate.get(day.date);
       if (!compensated) return !attendance || attendance.status === 'absent' || attendance.status === 'leave' || attendance.status === 'holiday';
@@ -365,6 +418,10 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
   // the old rules it may also subtract a worked-but-cancelled Sunday. Unpaid
   // and cancelled Sundays are represented by sundayDeductionDays below.
   const grossPresentDays = presentDays + freeSundayDays + holidayPaidDays + sundayDeductionDays;
+  const absentDatesAfterJoin = [...new Set([
+    ...records2.filter(r => r.status === 'absent').map(r => r.date),
+    ...[...forfeitedHolidayDates].filter((d) => !beforeJoinSet.has(d)),
+  ])].sort();
 
   return {
     joinedThisMonth,
@@ -395,7 +452,9 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     sundayDeductionDays,
     deducted,
     deductedCount: deducted.size,
-    absentDatesAfterJoin: records2.filter(r => r.status === 'absent').map(r => r.date),
+    absentDatesAfterJoin,
+    forfeitedHolidayDates: [...forfeitedHolidayDates].sort(),
+    holidayForfeitureApplied: appliedHolidayForfeiture,
     sundayAdd: applyNewSundayRules ? 0 : sundayStats.attendedCancelledDates.length,
     extraSundays: sundayStats.extraSundays,
     clubbedSundays: sundayStats.cancelledSundays.length - sundayStats.extraSundays.length,

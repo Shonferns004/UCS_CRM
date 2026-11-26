@@ -1,11 +1,14 @@
 import 'package:flutter/widgets.dart';
 
 class Responsive {
-  static double width(BuildContext context) => MediaQuery.of(context).size.width;
-  static double height(BuildContext context) => MediaQuery.of(context).size.height;
+  static double width(BuildContext context) =>
+      MediaQuery.of(context).size.width;
+  static double height(BuildContext context) =>
+      MediaQuery.of(context).size.height;
 
   static bool isSmall(BuildContext context) => width(context) < 360;
-  static bool isMedium(BuildContext context) => width(context) >= 360 && width(context) < 600;
+  static bool isMedium(BuildContext context) =>
+      width(context) >= 360 && width(context) < 600;
   static bool isTablet(BuildContext context) => width(context) >= 600;
   static bool isDesktop(BuildContext context) => width(context) >= 1024;
 

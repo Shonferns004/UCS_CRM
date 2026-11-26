@@ -247,6 +247,7 @@ function StationDetailModal({ station, stats, stationInfo, ngoId, onClose }) {
   const [loadingDonors, setLoadingDonors] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -289,18 +290,40 @@ function StationDetailModal({ station, stats, stationInfo, ngoId, onClose }) {
     } finally {
       if (!controller.signal.aborted) setLoadingDonors(false);
     }
-  }, [station]);
+  }, [station, ngoId]);
+
+  // Load the station's full donor list on open so the category split is
+  // visible immediately; the disposition chips below still narrow it.
+  useEffect(() => { fetchDonors(''); }, [fetchDonors]);
+
+  const categoryCounts = useMemo(() => {
+    const counts = new Map();
+    for (const d of donors) {
+      const cat = String(d.data_category || '').trim();
+      if (!cat) continue;
+      counts.set(cat, (counts.get(cat) || 0) + 1);
+    }
+    return counts;
+  }, [donors]);
+  const categories = useMemo(
+    () => [...categoryCounts.keys()].sort(),
+    [categoryCounts],
+  );
 
   const filtered = useMemo(() => {
-    if (!search) return donors;
+    let list = donors;
+    if (categoryFilter) {
+      list = list.filter(d => String(d.data_category || '').trim() === categoryFilter);
+    }
+    if (!search) return list;
     const q = search.toLowerCase();
-    return donors.filter(d =>
+    return list.filter(d =>
       (d.donor_name && d.donor_name.toLowerCase().includes(q)) ||
       (d.donor_mobile && d.donor_mobile.includes(q)) ||
       (d.donor_city && d.donor_city.toLowerCase().includes(q)) ||
       (d.fro_name && d.fro_name.toLowerCase().includes(q))
     );
-  }, [donors, search]);
+  }, [donors, search, categoryFilter]);
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paginated = useMemo(() => {
@@ -308,21 +331,21 @@ function StationDetailModal({ station, stats, stationInfo, ngoId, onClose }) {
     return filtered.slice(start, start + PER_PAGE);
   }, [filtered, page]);
 
-  useEffect(() => { setPage(1); }, [search]);
+  useEffect(() => { setPage(1); }, [search, categoryFilter]);
 
   const handleStatusClick = (status) => {
+    // Clicking the active status again returns to the full station list.
     if (statusFilter === status) {
-      setStatusFilter('');
-      setDonors([]);
+      fetchDonors('');
     } else {
       fetchDonors(status);
     }
   };
 
   const handleClear = () => {
-    setDonors([]);
-    setStatusFilter('');
     setSearch('');
+    setCategoryFilter('');
+    fetchDonors('');
     setPage(1);
   };
 
@@ -2618,7 +2641,18 @@ export default function Dashboard() {
                   {selectedNgoStations.map((st) => {
                     const active = !!st.fro_worker_id;
                     return (
-                      <div key={st.station} title={`${st.station} — ${active ? 'FRO assigned' : 'no FRO'}`} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: active ? '#fff' : 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${active ? 'var(--stations-border, #DCE7F5)' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 12, padding: '8px 9px' }}>
+                      <div key={st.station}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedStation(st.station)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedStation(st.station);
+                          }
+                        }}
+                        title={`${st.station} — ${active ? 'FRO assigned' : 'no FRO'} · open donor categories`}
+                        style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: active ? '#fff' : 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${active ? 'var(--stations-border, #DCE7F5)' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 12, padding: '8px 9px', cursor: 'pointer' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                           <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8, background: active ? 'var(--stations-success-soft, #ecfbf2)' : '#fff', border: `1px solid ${active ? '#cdf3e1' : 'var(--stations-assign-border, #FFDDE3)'}`, color: active ? 'var(--stations-success, #16a765)' : 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }} aria-hidden="true">
                             {active ? '✓' : '✕'}
@@ -2627,6 +2661,7 @@ export default function Dashboard() {
                           <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: active ? 'var(--stations-success, #16a765)' : 'var(--stations-assign, #E52336)', background: active ? 'var(--stations-success-soft, #ecfbf2)' : 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${active ? '#cdf3e1' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 999, padding: '0 6px', lineHeight: 1.5 }}>
                             {active ? 'Active' : 'No FRO'}
                           </span>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--stations-muted, #496487)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }} aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
                         </div>
                       </div>
                     );

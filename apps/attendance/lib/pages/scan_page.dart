@@ -11,7 +11,10 @@ class ScanPage extends StatefulWidget {
   State<ScanPage> createState() => _ScanPageState();
 }
 
-class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {  final MobileScannerController _scannerController = MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
+class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
+  final MobileScannerController _scannerController = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+  );
   final List<PunchLog> _todayLog = [];
   bool _punchedIn = false;
   DateTime? _punchInTime;
@@ -80,7 +83,13 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {  fina
         _resultTitle = 'Punch In Successful!';
         _resultSub = '$timeStr — ${late ? 'Late arrival' : 'On time'}';
         _showResult = true;
-        _todayLog.add(PunchLog(time: timeStr, label: 'Punch In', type: late ? 'late' : 'present'));
+        _todayLog.add(
+          PunchLog(
+            time: timeStr,
+            label: 'Punch In',
+            type: late ? 'late' : 'present',
+          ),
+        );
       });
     } else {
       final mins = now.difference(_punchInTime!).inMinutes;
@@ -107,37 +116,55 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {  fina
 
   Color _statusColor(String type) {
     switch (type) {
-      case 'present': return const Color(0xFF1D7A4F);
-      case 'late': return const Color(0xFFB06A00);
-      case 'out': return const Color(0xFF2355D4);
-      default: return const Color(0xFF72706B);
+      case 'present':
+        return const Color(0xff0f7a5a);
+      case 'late':
+        return const Color(0xFFB06A00);
+      case 'out':
+        return const Color(0xFF4A78E0);
+      default:
+        return const Color(0xFF7C8698);
     }
   }
 
   Color _statusBg(String type) {
     switch (type) {
-      case 'present': return const Color(0xFFE6F6ED);
-      case 'late': return const Color(0xFFFFF3E0);
-      case 'out': return const Color(0xFFEEF2FD);
-      default: return const Color(0xFFF0EFE9);
+      case 'present':
+        return const Color(0xffddf8ee);
+      case 'late':
+        return const Color(0xFFFFF3E0);
+      case 'out':
+        return const Color(0xFFEEF2FD);
+      default:
+        return const Color(0xFFF0EFE9);
     }
   }
 
   String _statusLabel(String type) {
     switch (type) {
-      case 'present': return 'In';
-      case 'late': return 'Late';
-      case 'out': return 'Out';
-      default: return type;
+      case 'present':
+        return 'In';
+      case 'late':
+        return 'Late';
+      case 'out':
+        return 'Out';
+      default:
+        return type;
     }
   }
 
   Widget _punchInfo(String label, String value) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 2),
-        Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF72706B))),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: Color(0xFF7C8698)),
+        ),
       ],
     );
   }
@@ -151,7 +178,7 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {  fina
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(22),
               border: Border.all(color: const Color(0x17000000)),
             ),
             padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
@@ -177,23 +204,47 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {  fina
               margin: const EdgeInsets.only(top: 16),
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: _isSuccess ? const Color(0xFFE6F6ED) : const Color(0xFFFDEAEA),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _isSuccess ? const Color(0xFFA8DFC0) : const Color(0xFFF5B7B0)),
+                color: _isSuccess
+                    ? const Color(0xffddf8ee)
+                    : const Color(0xFFFDEAEA),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: _isSuccess
+                      ? const Color(0xFFA8DFC0)
+                      : const Color(0xFFF5B7B0),
+                ),
               ),
               child: Column(
                 children: [
-                  Icon(_isSuccess ? Icons.check_circle : Icons.error, size: 48, color: _isSuccess ? const Color(0xFF1D7A4F) : const Color(0xFFC0392B)),
+                  Icon(
+                    _isSuccess ? Icons.check_circle : Icons.error,
+                    size: 48,
+                    color: _isSuccess
+                        ? const Color(0xff0f7a5a)
+                        : const Color(0xFFC0392B),
+                  ),
                   const SizedBox(height: 8),
-                  Text(_resultTitle, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                  Text(
+                    _resultTitle,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(height: 4),
-                  Text(_resultSub, style: const TextStyle(fontSize: 14, color: Color(0xFF72706B))),
+                  Text(
+                    _resultSub,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF7C8698),
+                    ),
+                  ),
                 ],
               ),
             ),
           const SizedBox(height: 16),
           ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(22),
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -213,9 +264,19 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {  fina
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.qr_code_scanner, size: 16, color: const Color(0xFF72706B)),
+                        Icon(
+                          Icons.qr_code_scanner,
+                          size: 16,
+                          color: const Color(0xFF7C8698),
+                        ),
                         const SizedBox(width: 8),
-                        Text('Point the camera at the office QR code to punch in/out', style: const TextStyle(fontSize: 13, color: Color(0xFF72706B))),
+                        Text(
+                          'Point the camera at the office QR code to punch in/out',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF7C8698),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -228,14 +289,26 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {  fina
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: const Color(0xFFFFF3E0),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(22),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, size: 18, color: const Color(0xFF7A4900)),
+                Icon(
+                  Icons.info_outline,
+                  size: 18,
+                  color: const Color(0xFF7A4900),
+                ),
                 const SizedBox(width: 10),
-                Expanded(child: Text('If QR camera does not start, allow camera permission when prompted by your browser.', style: TextStyle(fontSize: 13, color: const Color(0xFF7A4900)))),
+                Expanded(
+                  child: Text(
+                    'If QR camera does not start, allow camera permission when prompted by your browser.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: const Color(0xFF7A4900),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -243,38 +316,80 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {  fina
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(22),
               border: Border.all(color: const Color(0x17000000)),
             ),
             padding: const EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Today's log", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF72706B), letterSpacing: 0.6)),
+                Text(
+                  "Today's log",
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: const Color(0xFF7C8698),
+                    letterSpacing: 0.6,
+                  ),
+                ),
                 const SizedBox(height: 12),
                 if (_todayLog.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Text('No punches recorded yet', style: TextStyle(fontSize: 13, color: Color(0xFFA8A69F))),
+                    child: Text(
+                      'No punches recorded yet',
+                      style: TextStyle(fontSize: 13, color: Color(0xFFA8A69F)),
+                    ),
                   )
                 else
-                  ..._todayLog.map((log) => Container(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(border: Border(bottom: BorderSide(color: const Color(0x17000000)))),
-                    child: Row(
-                      children: [
-                        Text(log.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                        const SizedBox(width: 12),
-                        Text(log.time, style: const TextStyle(fontSize: 13, color: Color(0xFFA8A69F))),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(color: _statusBg(log.type), borderRadius: BorderRadius.circular(20)),
-                          child: Text(_statusLabel(log.type), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: _statusColor(log.type))),
+                  ..._todayLog.map(
+                    (log) => Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(color: const Color(0x17000000)),
                         ),
-                      ],
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            log.label,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            log.time,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFFA8A69F),
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _statusBg(log.type),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              _statusLabel(log.type),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: _statusColor(log.type),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  )),
+                  ),
               ],
             ),
           ),
@@ -316,11 +431,21 @@ class _ClockHeaderState extends State<_ClockHeader> {
     final dayStr = DateFormat('EEE, dd MMM yyyy').format(now);
     return Column(
       children: [
-        Text(timeStr, style: const TextStyle(fontSize: 48, fontWeight: FontWeight.w700, color: Color(0xFF2355D4), letterSpacing: -2)),
+        Text(
+          timeStr,
+          style: const TextStyle(
+            fontSize: 48,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF4A78E0),
+            letterSpacing: -2,
+          ),
+        ),
         const SizedBox(height: 4),
-        Text('$ampm — $dayStr', style: const TextStyle(fontSize: 13, color: Color(0xFF72706B))),
+        Text(
+          '$ampm — $dayStr',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF7C8698)),
+        ),
       ],
     );
   }
 }
-

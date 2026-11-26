@@ -13,6 +13,7 @@ import { API_BASE } from '../../../lib/apiBase';
 import { safeImgSrc, signatureSourceLabel, signatureStatusPill } from '../signatureUtils';
 import { isVoluntarySunday, newSundayRulesMonth } from '../../../lib/sundayRules';
 import { lateThresholds, calcLateDeductionDays } from '../../../lib/latePolicy';
+import { getForfeitedHolidayDates } from '../../../lib/holidayForfeiture';
 import EmployeeOverview from './employeeOverview/EmployeeOverview';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
@@ -602,6 +603,16 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   const holidayDates = new Set(
     holidays.filter(h => h.date?.startsWith(monthKey)).map(h => h.date)
   );
+  // Month-scoped rule (Nov 2026): a worker who did not report on 11 Nov also
+  // loses the 9-10 Nov holidays. Those dates are treated as absent below.
+  const forfeitedHolidayDates = new Set(getForfeitedHolidayDates({
+    year: yr,
+    month: mo - 1,
+    holidayDates: [...holidayDates],
+    records: empAttendance.filter(a => a.date?.startsWith(monthKey)),
+    workerCreatedAt: data?.created_at,
+  }));
+  const paidHolidayDates = new Set([...holidayDates].filter(d => !forfeitedHolidayDates.has(d)));
   const daysInMonth = new Date(yr, mo, 0).getDate();
 
   // IST today for current-month cutoff
@@ -649,7 +660,12 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
       absentDates.push(dateStr);
     }
   }
-  const absentDatesAfterJoin = absentDates.filter(d => !joinedThisMonth || d >= joinCutoff);
+  const absentDatesAfterJoin = [
+    ...new Set([
+      ...absentDates.filter(d => !joinedThisMonth || d >= joinCutoff),
+      ...[...forfeitedHolidayDates].filter(d => !joinedThisMonth || d >= joinCutoff),
+    ]),
+  ].sort();
 
   // New-joiner check: ≤ 3 months employed (IST)
   const istNowDate = new Date(Date.now() + IST_OFFSET);
@@ -682,6 +698,11 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
       deducted.add(d);
       deductionNotes.push({ day: d, text: `${label} → absent → deducted: ${label}` });
     }
+  }
+  // Forfeited holidays are part of the absent balance but must not trigger the
+  // Sat/Mon Sunday-clubbing rule (the backend does not club them either).
+  for (const d of forfeitedHolidayDates) {
+    if (!joinedThisMonth || d >= joinCutoff) deducted.add(d);
   }
 
   const availableDays = isCurrentMonth
@@ -717,7 +738,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
     const att = payAttendance.find(a => a.date === dateStr);
     let status = att?.status || null;
     if (holidayDates.has(dateStr) && (!status || status === 'absent' || status === 'leave')) {
-      status = 'holiday';
+      status = paidHolidayDates.has(dateStr) ? 'holiday' : 'absent';
     } else if (!status && d <= viewingToday && dt.getDay() !== 0 && !(joinedThisMonth && dateStr < joinCutoff)) {
       status = 'absent';
     }
@@ -734,7 +755,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   // A declared holiday is a paid day when the worker did not punch in. If the
   // worker did work that day, the present row above already counts it — never
   // double-count the same date.
-  const holidayPaidDays = [...holidayDates].filter(dateStr => {
+  const holidayPaidDays = [...paidHolidayDates].filter(dateStr => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
     if (joinedThisMonth && dateStr < joinCutoff) return false;
     const dayNum = Number(dateStr.slice(8, 10));

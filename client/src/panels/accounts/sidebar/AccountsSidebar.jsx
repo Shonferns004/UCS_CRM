@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { NavLink, useLocation } from 'react-router-dom'
 import { ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import ChatNavBadge from '../../../components/chat/ChatNavBadge'
+import SidebarFooter from '../../../components/admin-sidebar/SidebarFooter'
 import './accountsSidebar.css'
 
 /* Storage keys. The group keys are the same ones the previous implementation
@@ -261,7 +262,7 @@ function NavigationItem({ item, isActive, pathname, rail, onClose, openGroups, o
   )
 }
 
-export default function AccountsSidebar({ sections, isActive, open, onClose }) {
+export default function AccountsSidebar({ sections, isActive, open, onClose, onOpenSettings }) {
   const { pathname } = useLocation()
   const sidebarRef = useRef(null)
   const popoverId = useId()
@@ -367,6 +368,8 @@ export default function AccountsSidebar({ sections, isActive, open, onClose }) {
             </div>
           ))}
         </nav>
+
+        <SidebarFooter onSettings={onOpenSettings} onNavigate={onClose} />
       </aside>
 
       {popoverGroup && createPortal(

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:liquid_pull_to_refresh/liquid_pull_to_refresh.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
 import '../main.dart';
+import '../theme/app_palette.dart';
 import '../widgets/mini_calendar.dart';
+import '../widgets/ui_motion.dart';
 import '../widgets/consistency_bar.dart';
 import '../utils/responsive.dart';
 
@@ -43,6 +46,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    RealtimeService.instance.addListener(_onRealtimeChange);
     _loadData();
   }
 
@@ -67,32 +71,34 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _loadData() async {
-    _worker = await ApiService.getWorkerData();
-
-    // Load cached data instantly
-    final cachedProfile = await ApiService.getCachedProfile();
-    if (cachedProfile != null) {
-      _worker = cachedProfile;
-      await ApiService.saveWorkerData(cachedProfile);
-    }
-    _applyCachedHistory(ApiService.getCachedHistory());
-
-    setState(() => _loading = false);
-
     try {
-      final profile = await ApiService.getMyProfile();
-      _worker = profile;
-      await ApiService.saveWorkerData(profile);
-    } catch (_) {}
+      _worker ??= await ApiService.getWorkerData();
 
-    await _refreshHistoryFromNetwork();
-    _fetchCalendar();
-    _fetchSalaryBreakdown();
-    _fetchPrintProfile();
+      // Cached data lets the network phase start from a warm state, but the
+      // skeleton stays up until every section has its real values.
+      final cachedProfile = await ApiService.getCachedProfile();
+      if (cachedProfile != null) {
+        _worker = cachedProfile;
+        await ApiService.saveWorkerData(cachedProfile);
+      }
+      await _applyCachedHistory(ApiService.getCachedHistory());
 
-    // Listen to realtime updates
-    RealtimeService.instance.addListener(_onRealtimeChange);
-    _fetchLoans();
+      try {
+        final profile = await ApiService.getMyProfile();
+        _worker = profile;
+        await ApiService.saveWorkerData(profile);
+      } catch (_) {}
+
+      await _refreshHistoryFromNetwork();
+      await Future.wait([
+        _fetchCalendar(),
+        _fetchSalaryBreakdown(),
+        _fetchPrintProfile(),
+        _fetchLoans(),
+      ]);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _fetchLoans() async {
@@ -110,32 +116,44 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _fetchSalaryBreakdown({int? year, int? month}) async {
-    final y = year ?? _calYear;
-    final m = month ?? _calMonth;
-    var data = await ApiService.getMySalaryBreakdown(year: y, month: m);
-    if (data != null) {
-      // The server echoes the month it computed. Older servers ignore the
-      // params and always answer with the current month, so only trust those
-      // for the current month.
-      final ry = data['year'];
-      final rm = data['month'];
-      final now = DateTime.now();
-      final ok = (ry is num && rm is num)
-          ? (ry.toInt() == y && rm.toInt() == m)
-          : (y == now.year && m == now.month);
-      if (!ok) data = null;
-    }
-    if (mounted && y == _calYear && m == _calMonth) {
-      setState(() {
-        _salaryBreakdown = data;
-        _breakdownYm = y * 100 + m;
-      });
-    }
+    try {
+      final y = year ?? _calYear;
+      final m = month ?? _calMonth;
+      var data = await ApiService.getMySalaryBreakdown(year: y, month: m);
+      if (data != null) {
+        // The server echoes the month it computed. Older servers ignore the
+        // params and always answer with the current month, so only trust those
+        // for the current month.
+        final ry = data['year'];
+        final rm = data['month'];
+        final now = DateTime.now();
+        final ok = (ry is num && rm is num)
+            ? (ry.toInt() == y && rm.toInt() == m)
+            : (y == now.year && m == now.month);
+        if (!ok) data = null;
+      }
+      if (mounted && y == _calYear && m == _calMonth) {
+        setState(() {
+          _salaryBreakdown = data;
+          _breakdownYm = y * 100 + m;
+        });
+      }
+    } catch (_) {}
   }
 
   Map<String, dynamic>? get _selectedBreakdown {
     if (_breakdownYm != _calYear * 100 + _calMonth) return null;
     return _salaryBreakdown;
+  }
+
+  Set<String> _forfeitedHolidayKeys() {
+    final bd = _selectedBreakdown;
+    if (bd == null) return const {};
+    final dates = bd['forfeitedHolidayDates'];
+    if (dates is List) {
+      return dates.map((d) => d.toString()).where((s) => s.isNotEmpty).toSet();
+    }
+    return const {};
   }
 
   Set<String> _deductedSundayKeys() {
@@ -160,13 +178,15 @@ class _ProfilePageState extends State<ProfilePage> {
   Set<String> _deriveDeductedSundays(Map<String, dynamic> bd) {
     final y = _calYear;
     final m = _calMonth;
-    final daysInMonth = ((bd['daysInMonth'] as num?) ?? DateTime(y, m + 1, 0).day).toInt();
+    final daysInMonth =
+        ((bd['daysInMonth'] as num?) ?? DateTime(y, m + 1, 0).day).toInt();
     String keyOf(DateTime d) =>
         '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
     final sundays = <String>[
       for (var d = 1; d <= daysInMonth; d++)
-        if (DateTime(y, m, d).weekday == DateTime.sunday) keyOf(DateTime(y, m, d)),
+        if (DateTime(y, m, d).weekday == DateTime.sunday)
+          keyOf(DateTime(y, m, d)),
     ];
     if (sundays.isEmpty) return const {};
 
@@ -184,9 +204,12 @@ class _ProfilePageState extends State<ProfilePage> {
       final dt = DateTime.tryParse(d);
       if (dt == null || dt.year != y || dt.month != m) continue;
       DateTime? sun;
-      if (dt.weekday == DateTime.saturday) sun = dt.add(const Duration(days: 1));
-      if (dt.weekday == DateTime.monday) sun = dt.subtract(const Duration(days: 1));
-      if (sun != null && sun.year == y && sun.month == m) deducted.add(keyOf(sun));
+      if (dt.weekday == DateTime.saturday)
+        sun = dt.add(const Duration(days: 1));
+      if (dt.weekday == DateTime.monday)
+        sun = dt.subtract(const Duration(days: 1));
+      if (sun != null && sun.year == y && sun.month == m)
+        deducted.add(keyOf(sun));
     }
 
     // 6+ absences (or a join after the 10th) cancels every Sunday.
@@ -204,10 +227,13 @@ class _ProfilePageState extends State<ProfilePage> {
             r['date'].toString(),
       };
       final freeRaw =
-          (((bd['paidSundayCount'] as num?) ?? 0) - ((bd['attendedSundayCount'] as num?) ?? 0)).toInt();
+          (((bd['paidSundayCount'] as num?) ?? 0) -
+                  ((bd['attendedSundayCount'] as num?) ?? 0))
+              .toInt();
       final free = freeRaw < 0 ? 0 : freeRaw;
-      final eligibleNotWorked =
-          sundays.where((s) => !deducted.contains(s) && !attended.contains(s)).toList();
+      final eligibleNotWorked = sundays
+          .where((s) => !deducted.contains(s) && !attended.contains(s))
+          .toList();
       final unpaidCount = eligibleNotWorked.length - free;
       if (unpaidCount > 0) deducted.addAll(eligibleNotWorked.take(unpaidCount));
     }
@@ -250,17 +276,44 @@ class _ProfilePageState extends State<ProfilePage> {
       final dt = DateTime.tryParse(date.toString());
       if (dt != null) {
         final ym = dt.year * 100 + dt.month;
-        monthlyStats.putIfAbsent(ym, () => {'present': 0, 'absent': 0, 'late': 0, 'leave': 0, 'half-day': 0, 'holiday': 0});
+        monthlyStats.putIfAbsent(
+          ym,
+          () => {
+            'present': 0,
+            'absent': 0,
+            'late': 0,
+            'leave': 0,
+            'half-day': 0,
+            'holiday': 0,
+          },
+        );
         final st = status.toString();
         if (monthlyStats[ym]!.containsKey(st)) {
           monthlyStats[ym]![st] = monthlyStats[ym]![st]! + 1;
         }
       }
-        switch (status) { case 'present': p++; break; case 'absent': a++; break; case 'late': l++; p++; break; case 'leave': lv++; break; }
+      switch (status) {
+        case 'present':
+          p++;
+          break;
+        case 'absent':
+          a++;
+          break;
+        case 'late':
+          l++;
+          p++;
+          break;
+        case 'leave':
+          lv++;
+          break;
+      }
     }
 
     setState(() {
-      _present = p; _absent = a; _late = l; _leave = lv;
+      _present = p;
+      _absent = a;
+      _late = l;
+      _leave = lv;
       _statusByDate = statusMap;
       _historyByDate = detailMap;
       _monthlyStats.clear();
@@ -297,17 +350,44 @@ class _ProfilePageState extends State<ProfilePage> {
         final dt = DateTime.tryParse(date.toString());
         if (dt != null) {
           final ym = dt.year * 100 + dt.month;
-        monthlyStats.putIfAbsent(ym, () => {'present': 0, 'absent': 0, 'late': 0, 'leave': 0, 'half-day': 0, 'holiday': 0});
+          monthlyStats.putIfAbsent(
+            ym,
+            () => {
+              'present': 0,
+              'absent': 0,
+              'late': 0,
+              'leave': 0,
+              'half-day': 0,
+              'holiday': 0,
+            },
+          );
           final st = status.toString();
           if (monthlyStats[ym]!.containsKey(st)) {
             monthlyStats[ym]![st] = monthlyStats[ym]![st]! + 1;
           }
         }
-      switch (status) { case 'present': p++; break; case 'absent': a++; break; case 'late': l++; p++; break; case 'leave': lv++; break; }
+        switch (status) {
+          case 'present':
+            p++;
+            break;
+          case 'absent':
+            a++;
+            break;
+          case 'late':
+            l++;
+            p++;
+            break;
+          case 'leave':
+            lv++;
+            break;
+        }
       }
 
       setState(() {
-        _present = p; _absent = a; _late = l; _leave = lv;
+        _present = p;
+        _absent = a;
+        _late = l;
+        _leave = lv;
         _lateUsed = today['lateUsed'] ?? 0;
         _statusByDate = statusMap;
         _historyByDate = detailMap;
@@ -346,89 +426,233 @@ class _ProfilePageState extends State<ProfilePage> {
     final scheme = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    if (_loading) return const ProfileSkeleton();
-
     final rawName = _worker?['name'] ?? 'Worker';
-    final name = rawName.split(' ').map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}' : '').join(' ');
+    final name = rawName
+        .split(' ')
+        .map(
+          (w) => w.isNotEmpty
+              ? '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}'
+              : '',
+        )
+        .join(' ');
     final loginId = _worker?['login_id'] ?? '';
     final role = _worker?['role'] ?? _worker?['designation'] ?? '';
     final total = _present + _absent + _late + _leave;
     final rate = total > 0 ? (_present + _late) / total : 0.0;
-    final initials = name.split(' ').map((n) => n.isNotEmpty ? n[0] : '').join().toUpperCase();
+    final initials = name
+        .split(' ')
+        .map((n) => n.isNotEmpty ? n[0] : '')
+        .join()
+        .toUpperCase();
 
     final presentFraction = total > 0 ? _present / total : 0.0;
     final absentFraction = total > 0 ? _absent / total : 0.0;
     final leaveFraction = total > 0 ? _leave / total : 0.0;
     final lateFraction = total > 0 ? _late / total : 0.0;
 
-    return Scaffold(
-      backgroundColor: scheme.surface,
+    final content = Scaffold(
+      backgroundColor: AppPalette.iceBlue,
       body: SafeArea(
-        child: ListView(
-          controller: _scrollController,
-          padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 80)),
-          children: [
-            _profileCard(name, loginId, role, initials),
-            SizedBox(height: Responsive.pad(context, 16)),
-            _summaryCardsGrid(colors, scheme),
-            SizedBox(height: Responsive.pad(context, 24)),
-            _lateDeductionCard(colors, scheme, tt),
-            SizedBox(height: Responsive.pad(context, 24)),
-            _attendanceCalendar(
-              presentFraction, absentFraction, leaveFraction, lateFraction,
-              rate, colors, scheme, tt,
+        child: LiquidPullToRefresh(
+          onRefresh: _loadData,
+          color: AppPalette.ocean,
+          backgroundColor: AppPalette.iceBlue,
+          height: 96,
+          showChildOpacityTransition: false,
+          springAnimationDurationInMilliseconds: 700,
+          child: ListView(
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              Responsive.pad(context, 16),
+              Responsive.pad(context, 16),
+              Responsive.pad(context, 16),
+              Responsive.pad(context, 120),
             ),
-            SizedBox(height: Responsive.pad(context, 24)),
-            if (_selectedDateKey != null)
+            children: [
               Padding(
-                padding: EdgeInsets.only(bottom: Responsive.pad(context, 24)),
-                child: _dayDetailCard(colors, scheme, tt),
+                padding: EdgeInsets.only(bottom: Responsive.pad(context, 14)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Profile',
+                      style: GoogleFonts.hankenGrotesk(
+                        fontSize: Responsive.sp(context, 26),
+                        fontWeight: FontWeight.w700,
+                        color: AppPalette.ink,
+                      ),
+                    ),
+                    SizedBox(height: Responsive.pad(context, 2)),
+                    Text(
+                      'Attendance and payroll at a glance',
+                      style: TextStyle(
+                        fontSize: Responsive.sp(context, 12.5),
+                        fontWeight: FontWeight.w500,
+                        color: AppPalette.muted,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-        _loanStatusCard(colors, scheme, tt),
-        SizedBox(height: Responsive.pad(context, 24)),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _confirmLogout,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFba1a1a),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4),
-                side: const BorderSide(color: Color(0xFF7f1d1d), width: 2),
+              StaggeredReveal(
+                index: 0,
+                child: _profileCard(name, loginId, role, initials),
               ),
-            ),
-            icon: Icon(LucideIcons.power, size: Responsive.sp(context, 20)),
-            label: Text('LOGOUT', style: GoogleFonts.hankenGrotesk(
-              fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w800, letterSpacing: Responsive.sp(context, 1.5),
-            )),
+              SizedBox(height: Responsive.pad(context, 16)),
+              StaggeredReveal(
+                index: 1,
+                child: _surfaceCard(_summaryCardsGrid(colors, scheme)),
+              ),
+              SizedBox(height: Responsive.pad(context, 16)),
+              StaggeredReveal(
+                index: 2,
+                child: Container(
+                  padding: EdgeInsets.all(Responsive.pad(context, 18)),
+                  decoration: BoxDecoration(
+                    color: Color.alphaBlend(
+                      _lateTierColor.withValues(alpha: 0.12),
+                      AppPalette.white,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: AppPalette.lift(0.45),
+                  ),
+                  child: _lateDeductionCard(colors, scheme, tt),
+                ),
+              ),
+              SizedBox(height: Responsive.pad(context, 16)),
+              StaggeredReveal(
+                index: 3,
+                child: _surfaceCard(
+                  _attendanceCalendar(
+                    presentFraction,
+                    absentFraction,
+                    leaveFraction,
+                    lateFraction,
+                    rate,
+                    colors,
+                    scheme,
+                    tt,
+                  ),
+                ),
+              ),
+              SizedBox(height: Responsive.pad(context, 16)),
+              StaggeredReveal(
+                index: 5,
+                child: _surfaceCard(_loanStatusCard(colors, scheme, tt)),
+              ),
+              SizedBox(height: Responsive.pad(context, 24)),
+              StaggeredReveal(
+                index: 6,
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _confirmLogout,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppPalette.error,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: EdgeInsets.symmetric(
+                        vertical: Responsive.pad(context, 16),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    icon: Icon(
+                      TablerIcons.power,
+                      size: Responsive.sp(context, 20),
+                    ),
+                    label: Text(
+                      'LOGOUT',
+                      style: GoogleFonts.hankenGrotesk(
+                        fontSize: Responsive.sp(context, 14),
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: Responsive.sp(context, 1.5),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(height: Responsive.pad(context, 16)),
+            ],
           ),
-        ),
-        SizedBox(height: Responsive.pad(context, 16)),
-          ],
         ),
       ),
     );
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 480),
+      switchInCurve: Curves.easeInOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeInOutCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.02),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+      child: _loading
+          ? KeyedSubtree(
+              key: const ValueKey('profile-skeleton'),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeInOut,
+                builder: (_, value, child) =>
+                    Opacity(opacity: value, child: child),
+                child: const ProfileSkeleton(),
+              ),
+            )
+          : KeyedSubtree(
+              key: const ValueKey('profile-content'),
+              child: content,
+            ),
+    );
   }
 
-  Widget _profileCard(String name, String loginId, String role, String initials) {
+  Widget _surfaceCard(Widget child) {
+    return Container(
+      padding: EdgeInsets.all(Responsive.pad(context, 18)),
+      decoration: BoxDecoration(
+        color: AppPalette.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: AppPalette.lift(0.45),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _profileCard(
+    String name,
+    String loginId,
+    String role,
+    String initials,
+  ) {
     final sc = Theme.of(context).colorScheme;
-    final colors = Theme.of(context).extension<AppColors>()!;
     return GestureDetector(
       onTap: () {
-        showModalBottomSheet(
+        showSpringSheet(
           context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
           builder: (_) => SizedBox(
             height: MediaQuery.of(context).size.height * 0.90,
             child: Container(
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(32),
+                ),
               ),
+              clipBehavior: Clip.antiAlias,
               child: EditProfilePage(worker: _worker!),
             ),
           ),
@@ -437,53 +661,78 @@ class _ProfilePageState extends State<ProfilePage> {
         });
       },
       child: Container(
-        padding: EdgeInsets.all(Responsive.pad(context, 16)),
+        padding: EdgeInsets.all(Responsive.pad(context, 20)),
         decoration: BoxDecoration(
-          color: sc.surface,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: colors.outline),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppPalette.ocean, AppPalette.oceanDeep],
+          ),
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: AppPalette.ocean.withValues(alpha: 0.28),
+              blurRadius: 30,
+              offset: const Offset(0, 14),
+            ),
+          ],
         ),
         child: Row(
           children: [
             Stack(
               children: [
                 Container(
-                  width: Responsive.pad(context, 80), height: Responsive.pad(context, 110),
+                  width: Responsive.pad(context, 88),
+                  height: Responsive.pad(context, 88),
                   decoration: BoxDecoration(
-                    color: colors.primaryFixed,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: sc.primary, width: 4),
+                    color: Colors.white.withValues(alpha: 0.16),
+                    shape: BoxShape.circle,
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: _worker?['photo_url'] != null && (_worker!['photo_url'] as String).isNotEmpty
+                  child:
+                      _worker?['photo_url'] != null &&
+                          (_worker!['photo_url'] as String).isNotEmpty
                       ? Transform.scale(
                           scale: 1.2,
                           child: Image.network(
                             _worker!['photo_url'],
                             fit: BoxFit.cover,
-                            width: Responsive.pad(context, 80), height: Responsive.pad(context, 110),
-                            cacheWidth: 400, cacheHeight: 440,
-                            errorBuilder: (_, __, ___) => Center(child: Text(initials,
-                              style: GoogleFonts.hankenGrotesk(
-                                fontSize: Responsive.sp(context, 28), fontWeight: FontWeight.w800, color: sc.primary,
+                            width: Responsive.pad(context, 88),
+                            height: Responsive.pad(context, 88),
+                            cacheWidth: 400,
+                            cacheHeight: 440,
+                            errorBuilder: (_, __, ___) => Center(
+                              child: Text(
+                                initials,
+                                style: GoogleFonts.hankenGrotesk(
+                                  fontSize: Responsive.sp(context, 30),
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
                               ),
-                            )),
+                            ),
                           ),
                         )
-                      : Center(child: Text(initials,
-                          style: GoogleFonts.hankenGrotesk(
-                            fontSize: Responsive.sp(context, 28), fontWeight: FontWeight.w800, color: sc.primary,
+                      : Center(
+                          child: Text(
+                            initials,
+                            style: GoogleFonts.hankenGrotesk(
+                              fontSize: Responsive.sp(context, 30),
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
                           ),
-                        )),
+                        ),
                 ),
                 Positioned(
-                  right: 0, bottom: 0,
+                  right: 0,
+                  bottom: 0,
                   child: Container(
-                    width: Responsive.pad(context, 20), height: Responsive.pad(context, 20),
-                    decoration: BoxDecoration(
-                      color: sc.secondary,
+                    width: Responsive.pad(context, 18),
+                    height: Responsive.pad(context, 18),
+                    decoration: const BoxDecoration(
+                      color: AppPalette.success,
                       shape: BoxShape.circle,
-                      border: Border.all(color: sc.surface, width: 2),
                     ),
                   ),
                 ),
@@ -494,37 +743,68 @@ class _ProfilePageState extends State<ProfilePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name,
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.hankenGrotesk(
-                      fontSize: Responsive.sp(context, 20), fontWeight: FontWeight.w600, color: sc.onSurface,
+                      fontSize: Responsive.sp(context, 22),
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
                     ),
                   ),
-                  SizedBox(height: Responsive.pad(context, 2)),
-                  Text(role.isNotEmpty ? role : (_worker?['department'] ?? 'Employee'),
-                  style: TextStyle(
-                    fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w400, color: sc.onSurfaceVariant,
+                  SizedBox(height: Responsive.pad(context, 3)),
+                  Text(
+                    role.isNotEmpty
+                        ? role
+                        : (_worker?['department'] ?? 'Employee'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: Responsive.sp(context, 13.5),
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white.withValues(alpha: 0.74),
+                    ),
                   ),
-                ),
-                SizedBox(height: Responsive.pad(context, 2)),
-                Text('Employee ID: #$loginId',
-                  style: TextStyle(
-                    fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w400, color: sc.outline,
+                  SizedBox(height: Responsive.pad(context, 6)),
+                  Row(
+                    children: [
+                      Icon(
+                        TablerIcons.id_badge,
+                        size: Responsive.sp(context, 13),
+                        color: Colors.white.withValues(alpha: 0.55),
+                      ),
+                      SizedBox(width: Responsive.pad(context, 5)),
+                      Text(
+                        'ID #$loginId',
+                        style: TextStyle(
+                          fontSize: Responsive.sp(context, 11.5),
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white.withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                SizedBox(height: Responsive.pad(context, 8)),
-                _documentsTag(sc),
-              ],
+                  SizedBox(height: Responsive.pad(context, 12)),
+                  _documentsTag(sc, onDark: true),
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _documentsTag(ColorScheme sc) {
+  Widget _documentsTag(ColorScheme sc, {bool onDark = false}) {
     final profile = _printProfile?['profile'] as Map<String, dynamic>?;
-    const docKeys = ['aadhar_front_url', 'aadhar_back_url', 'pan_card_url', 'bank_proof_url', 'light_bill_url'];
+    const docKeys = [
+      'aadhar_front_url',
+      'aadhar_back_url',
+      'pan_card_url',
+      'bank_proof_url',
+      'light_bill_url',
+    ];
     final uploaded = profile == null
         ? 0
         : docKeys.where((k) {
@@ -534,21 +814,37 @@ class _ProfilePageState extends State<ProfilePage> {
     // Source of truth is the worker's documents_submitted flag (set by HR);
     // fall back to any document URL present in the print-profile payload.
     final complete = _worker?['documents_submitted'] == true || uploaded > 0;
-    final color = complete ? const Color(0xFF1D7A4F) : const Color(0xFFba1a1a);
+    final color = complete ? const Color(0xff0f7a5a) : const Color(0xFFba1a1a);
+    final tagColor = onDark
+        ? (complete ? AppPalette.accentOnDark : const Color(0xFFFFB4AB))
+        : color;
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 4)),
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.pad(context, 10),
+        vertical: Responsive.pad(context, 5),
+      ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: onDark
+            ? Colors.white.withValues(alpha: 0.14)
+            : color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(complete ? LucideIcons.badgeCheck : LucideIcons.fileWarning, size: Responsive.sp(context, 14), color: color),
+          Icon(
+            complete ? TablerIcons.badge : TablerIcons.file_alert,
+            size: Responsive.sp(context, 14),
+            color: tagColor,
+          ),
           const SizedBox(width: 6),
           Text(
             complete ? 'Documents: Submitted' : 'Documents: Missing',
-            style: TextStyle(fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w700, color: color),
+            style: TextStyle(
+              fontSize: Responsive.sp(context, 11.5),
+              fontWeight: FontWeight.w700,
+              color: onDark ? Colors.white : color,
+            ),
           ),
         ],
       ),
@@ -557,7 +853,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   int get _lateGrace {
     final t = _salaryBreakdown?['lateThresholds'];
-    if (t is Map && (t['grace'] as num?) != null) return (t['grace'] as num).toInt();
+    if (t is Map && (t['grace'] as num?) != null)
+      return (t['grace'] as num).toInt();
     final g = _salaryBreakdown?['lateGraceMinutes'];
     if (g is num) return g.toInt();
     return 180;
@@ -565,13 +862,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
   int get _lateHalf {
     final t = _salaryBreakdown?['lateThresholds'];
-    if (t is Map && (t['half'] as num?) != null) return (t['half'] as num).toInt();
+    if (t is Map && (t['half'] as num?) != null)
+      return (t['half'] as num).toInt();
     return (240 * (_lateGrace / 180)).round();
   }
 
   int get _lateFull {
     final t = _salaryBreakdown?['lateThresholds'];
-    if (t is Map && (t['full'] as num?) != null) return (t['full'] as num).toInt();
+    if (t is Map && (t['full'] as num?) != null)
+      return (t['full'] as num).toInt();
     return (480 * (_lateGrace / 180)).round();
   }
 
@@ -580,8 +879,9 @@ class _ProfilePageState extends State<ProfilePage> {
   // backend/src/utils/latePolicy.js.
   bool get _graceForfeited => _selectedBreakdown?['graceForfeited'] == true;
 
-  double get _lateEffectiveMinutes =>
-      _graceForfeited ? (_selectedLateMinutes + _lateGrace).toDouble() : _selectedLateMinutes.toDouble();
+  double get _lateEffectiveMinutes => _graceForfeited
+      ? (_selectedLateMinutes + _lateGrace).toDouble()
+      : _selectedLateMinutes.toDouble();
 
   double get _lateTier {
     final used = _lateEffectiveMinutes;
@@ -593,41 +893,31 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Color get _lateTierColor {
     switch (_lateTier) {
-      case 0: return const Color(0xFF2a6a4b);
-      case 1: return const Color(0xFFe67e22);
-      case 2: return const Color(0xFFd35400);
-      case 3: return const Color(0xFFba1a1a);
-      default: return const Color(0xFFc28228);
-    }
-  }
-
-  Color get _lateTierBg {
-    switch (_lateTier) {
-      case 0: return const Color(0xFFf0f9f4);
-      case 1: return const Color(0xFFfff8f0);
-      case 2: return const Color(0xFFfff3eb);
-      case 3: return const Color(0xFFfff5f5);
-      default: return const Color(0xFFf0f4f8);
-    }
-  }
-
-  Color get _lateTierBorder {
-    switch (_lateTier) {
-      case 0: return const Color(0xFF2a6a4b);
-      case 1: return const Color(0xFFe67e22);
-      case 2: return const Color(0xFFd35400);
-      case 3: return const Color(0xFFba1a1a);
-      default: return const Color(0xFFc3c6ce);
+      case 0:
+        return const Color(0xff1f6b52);
+      case 1:
+        return const Color(0xFFe67e22);
+      case 2:
+        return const Color(0xFFd35400);
+      case 3:
+        return const Color(0xFFba1a1a);
+      default:
+        return const Color(0xFFc28228);
     }
   }
 
   String get _lateTierLabel {
     switch (_lateTier) {
-      case 0: return 'No deduction';
-      case 1: return 'Half-day deduction';
-      case 2: return 'One-day deduction';
-      case 3: return 'Proportional deduction';
-      default: return '';
+      case 0:
+        return 'No deduction';
+      case 1:
+        return 'Half-day deduction';
+      case 2:
+        return 'One-day deduction';
+      case 3:
+        return 'Proportional deduction';
+      default:
+        return '';
     }
   }
 
@@ -638,11 +928,16 @@ class _ProfilePageState extends State<ProfilePage> {
           '(eff = $used + $_lateGrace), then the normal tiers apply. An admin can roll it back from the admin app.';
     }
     switch (_lateTier) {
-      case 0: return '$used min used — within the $_lateGrace min grace period. No expense deduction for lateness.';
-      case 1: return '$used min used — exceeds grace limit. Half-day (0.5 day) will be deducted from expenses.';
-      case 2: return '$used min used — exceeds half-day threshold. The $_lateGrace free minutes are charged too (added once): ($used + $_lateGrace) ÷ $_lateFull, rounded to the nearest half day.';
-      case 3: return '$used min used — exceeds $_lateFull min. Proportional deduction (($used + $_lateGrace) ÷ $_lateFull, grace charged once), rounded to the nearest half day.';
-      default: return '';
+      case 0:
+        return '$used min used — within the $_lateGrace min grace period. No expense deduction for lateness.';
+      case 1:
+        return '$used min used — exceeds grace limit. Half-day (0.5 day) will be deducted from expenses.';
+      case 2:
+        return '$used min used — exceeds half-day threshold. The $_lateGrace free minutes are charged too (added once): ($used + $_lateGrace) ÷ $_lateFull, rounded to the nearest half day.';
+      case 3:
+        return '$used min used — exceeds $_lateFull min. Proportional deduction (($used + $_lateGrace) ÷ $_lateFull, grace charged once), rounded to the nearest half day.';
+      default:
+        return '';
     }
   }
 
@@ -694,10 +989,14 @@ class _ProfilePageState extends State<ProfilePage> {
   // Latest run of working days that are all "late" (weekends have no rows,
   // leave rows are skipped). UI-only indicator — payroll maths is untouched.
   int get _continuousLateDays {
-    final working = _statusByDate.entries
-        .where((e) => ['present', 'late', 'half-day', 'absent'].contains(e.value))
-        .toList()
-      ..sort((a, b) => b.key.compareTo(a.key));
+    final working =
+        _statusByDate.entries
+            .where(
+              (e) =>
+                  ['present', 'late', 'half-day', 'absent'].contains(e.value),
+            )
+            .toList()
+          ..sort((a, b) => b.key.compareTo(a.key));
     var streak = 0;
     for (final e in working) {
       if (e.value == 'late') {
@@ -709,31 +1008,39 @@ class _ProfilePageState extends State<ProfilePage> {
     return streak;
   }
 
-  Widget _lateDeductionCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
-    return Container(
-      padding: EdgeInsets.all(Responsive.pad(context, 16)),
-      decoration: BoxDecoration(
-        color: _lateTierBg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _lateTierBorder.withValues(alpha: 0.4)),
-      ),
+  Widget _lateDeductionCard(
+    AppColors colors,
+    ColorScheme scheme,
+    TextTheme tt,
+  ) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 4)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(LucideIcons.clock, size: Responsive.sp(context, 16), color: _lateTierColor),
+              Icon(
+                TablerIcons.clock,
+                size: Responsive.sp(context, 16),
+                color: _lateTierColor,
+              ),
               SizedBox(width: Responsive.pad(context, 8)),
-              Text('Late Deduction Status',
+              Text(
+                'Late Deduction Status',
                 style: GoogleFonts.hankenGrotesk(
-                  fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: const Color(0xFF171c1f),
+                  fontSize: Responsive.sp(context, 16),
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF5A6473),
                 ),
               ),
               const Spacer(),
               Text(
                 DateFormat('MMMM yyyy').format(DateTime(_calYear, _calMonth)),
                 style: GoogleFonts.hankenGrotesk(
-                  fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w600, color: const Color(0xFF74777e),
+                  fontSize: Responsive.sp(context, 11),
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF7C8698),
                 ),
               ),
             ],
@@ -748,12 +1055,15 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               decoration: BoxDecoration(
                 color: const Color(0xFFFFF3E0),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFFFFD59E)),
+                borderRadius: BorderRadius.circular(14),
               ),
               child: Row(
                 children: [
-                  Icon(LucideIcons.alertTriangle, size: Responsive.sp(context, 14), color: const Color(0xFFB45309)),
+                  Icon(
+                    TablerIcons.alert_triangle,
+                    size: Responsive.sp(context, 14),
+                    color: const Color(0xFFB45309),
+                  ),
                   SizedBox(width: Responsive.pad(context, 8)),
                   Expanded(
                     child: Text(
@@ -773,7 +1083,10 @@ class _ProfilePageState extends State<ProfilePage> {
           Row(
             children: [
               Container(
-                padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 6)),
+                padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.pad(context, 10),
+                  vertical: Responsive.pad(context, 6),
+                ),
                 decoration: BoxDecoration(
                   color: _lateTierColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(6),
@@ -781,7 +1094,9 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: Text(
                   '${_selectedLateMinutes} min',
                   style: GoogleFonts.hankenGrotesk(
-                    fontSize: Responsive.sp(context, 24), fontWeight: FontWeight.w800, color: _lateTierColor,
+                    fontSize: Responsive.sp(context, 24),
+                    fontWeight: FontWeight.w800,
+                    color: _lateTierColor,
                   ),
                 ),
               ),
@@ -791,14 +1106,19 @@ class _ProfilePageState extends State<ProfilePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 8), vertical: Responsive.pad(context, 3)),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: Responsive.pad(context, 8),
+                        vertical: Responsive.pad(context, 3),
+                      ),
                       decoration: BoxDecoration(
                         color: _lateTierColor.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(3),
                       ),
-                      child: Text(_lateTierLabel,
+                      child: Text(
+                        _lateTierLabel,
                         style: TextStyle(
-                          fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700,
+                          fontSize: Responsive.sp(context, 11),
+                          fontWeight: FontWeight.w700,
                           color: _lateTierColor,
                         ),
                       ),
@@ -807,7 +1127,9 @@ class _ProfilePageState extends State<ProfilePage> {
                     Text(
                       _lateTierDesc,
                       style: TextStyle(
-                        fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant, height: 1.4,
+                        fontSize: Responsive.sp(context, 11),
+                        color: scheme.onSurfaceVariant,
+                        height: 1.4,
                       ),
                     ),
                   ],
@@ -825,37 +1147,62 @@ class _ProfilePageState extends State<ProfilePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Deduction rules',
+                Text(
+                  'Deduction rules',
                   style: TextStyle(
-                    fontSize: Responsive.sp(context, 10), fontWeight: FontWeight.w700, letterSpacing: 0.05,
-                    color: const Color(0xFF74777e),
+                    fontSize: Responsive.sp(context, 10),
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.05,
+                    color: const Color(0xFF7C8698),
                   ),
                 ),
                 SizedBox(height: Responsive.pad(context, 6)),
                 _ruleRow('0 – $_lateGrace min', 'No deduction', _lateTier == 0),
-                _ruleRow('${_lateGrace + 1} – $_lateHalf min', 'Half-day deduction', _lateTier == 1),
-                _ruleRow('${_lateHalf + 1} – $_lateFull min', 'One-day deduction', _lateTier == 2),
-                _ruleRow('> $_lateFull min', 'Proportional deduction', _lateTier == 3),
+                _ruleRow(
+                  '${_lateGrace + 1} – $_lateHalf min',
+                  'Half-day deduction',
+                  _lateTier == 1,
+                ),
+                _ruleRow(
+                  '${_lateHalf + 1} – $_lateFull min',
+                  'One-day deduction',
+                  _lateTier == 2,
+                ),
+                _ruleRow(
+                  '> $_lateFull min',
+                  'Proportional deduction',
+                  _lateTier == 3,
+                ),
               ],
             ),
           ),
           if (_joinedThisMonth) ...[
             SizedBox(height: Responsive.pad(context, 10)),
             Container(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 8)),
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 10),
+                vertical: Responsive.pad(context, 8),
+              ),
               decoration: BoxDecoration(
                 color: const Color(0xFFf3e8ff).withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.3)),
+                borderRadius: BorderRadius.circular(14),
               ),
               child: Row(
                 children: [
-                  Icon(LucideIcons.info, size: Responsive.sp(context, 14), color: const Color(0xFF8B5CF6)),
+                  Icon(
+                    TablerIcons.info_circle,
+                    size: Responsive.sp(context, 14),
+                    color: const Color(0xFF4A78E0),
+                  ),
                   SizedBox(width: Responsive.pad(context, 8)),
                   Expanded(
                     child: Text(
                       'First month joining: 1.5 days deducted from expenses (new joiner policy).',
-                      style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant, height: 1.3),
+                      style: TextStyle(
+                        fontSize: Responsive.sp(context, 11),
+                        color: scheme.onSurfaceVariant,
+                        height: 1.3,
+                      ),
                     ),
                   ),
                 ],
@@ -873,31 +1220,40 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Row(
         children: [
           Container(
-            width: 8, height: 8,
+            width: 8,
+            height: 8,
             decoration: BoxDecoration(
-              color: active ? const Color(0xFF2a6a4b) : const Color(0xFFdfe3e7),
+              color: active ? const Color(0xff1f6b52) : const Color(0xFFDDE3EC),
               shape: BoxShape.circle,
             ),
           ),
           SizedBox(width: Responsive.pad(context, 8)),
-          Text(range,
+          Text(
+            range,
             style: TextStyle(
-              fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w600,
-              color: active ? const Color(0xFF171c1f) : const Color(0xFF74777e),
+              fontSize: Responsive.sp(context, 11),
+              fontWeight: FontWeight.w600,
+              color: active ? const Color(0xFF5A6473) : const Color(0xFF7C8698),
             ),
           ),
           SizedBox(width: Responsive.pad(context, 8)),
-          Text('→',
+          Text(
+            '→',
             style: TextStyle(
-              fontSize: Responsive.sp(context, 11), color: const Color(0xFFc3c6ce),
+              fontSize: Responsive.sp(context, 11),
+              color: const Color(0xFFC9D0DB),
             ),
           ),
           SizedBox(width: Responsive.pad(context, 8)),
           Expanded(
-            child: Text(desc,
+            child: Text(
+              desc,
               style: TextStyle(
-                fontSize: Responsive.sp(context, 11), fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                color: active ? const Color(0xFF171c1f) : const Color(0xFF74777e),
+                fontSize: Responsive.sp(context, 11),
+                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                color: active
+                    ? const Color(0xFF5A6473)
+                    : const Color(0xFF7C8698),
               ),
             ),
           ),
@@ -933,12 +1289,15 @@ class _ProfilePageState extends State<ProfilePage> {
     final ym = _calYear * 100 + _calMonth;
     final monthStats = _monthlyStats[ym] ?? {};
     final bd = _selectedBreakdown;
-    final hasBd = bd != null && bd['hasSalary'] == true && bd['records'] is List;
+    final hasBd =
+        bd != null && bd['hasSalary'] == true && bd['records'] is List;
     final bdRecords = hasBd ? (bd['records'] as List) : const [];
 
     // Same values the HR salary sheet prints (computePaidDays output).
     final presentCount = hasBd
-        ? bdRecords.where((r) => r['status'] == 'present' || r['status'] == 'late').length
+        ? bdRecords
+              .where((r) => r['status'] == 'present' || r['status'] == 'late')
+              .length
         : (monthStats['present'] ?? 0) + (monthStats['late'] ?? 0);
     // Approved leave is still an absence from work — the day is paid as neither
     // present nor worked — so it belongs in the Absence total. A leave date with
@@ -948,7 +1307,8 @@ class _ProfilePageState extends State<ProfilePage> {
     final leaveCount = hasBd
         ? bdRecords.where((r) => r['status'] == 'leave').length
         : (monthStats['leave'] ?? 0);
-    final absentCount = (hasBd
+    final absentCount =
+        (hasBd
             ? (((bd['absentCount'] as num?) ?? 0).toInt())
             : (monthStats['absent'] ?? 0)) +
         leaveCount;
@@ -958,21 +1318,59 @@ class _ProfilePageState extends State<ProfilePage> {
     final lateDeduction = hasBd
         ? ((bd['lateDeductionDays'] as num?) ?? 0)
         : _fallbackLateDeductionDays;
-    final sundayDeducted = hasBd ? ((bd['sundayDeductionDays'] as num?) ?? 0) : 0;
+    final sundayDeducted = hasBd
+        ? ((bd['sundayDeductionDays'] as num?) ?? 0)
+        : 0;
     final trainingDeduction = hasBd
         ? ((bd['joiningDeduction'] as num?) ?? 0)
         : (_joinedThisMonth ? 1.5 : 0);
     final netPaidDays = hasBd ? ((bd['finalPaidDays'] as num?) ?? 0) : null;
 
     final tiles = <Widget>[
-      _summaryTile('Present (incl. Late)', '$presentCount', LucideIcons.calendarCheck, const Color(0xFF1D7A4F)),
-      _summaryTile('Absence', '$absentCount', LucideIcons.calendarX, const Color(0xFFba1a1a)),
-      _summaryTile('Half-day', _fmtDays(halfDay), LucideIcons.sun, const Color(0xFF7c3aed)),
-      _summaryTile('Late Deduction Days', _fmtDays(lateDeduction), LucideIcons.clock, const Color(0xFFc28228)),
-      _summaryTile('Sunday Deducted', _fmtDays(sundayDeducted), LucideIcons.calendarOff, const Color(0xFF2563eb)),
-      _summaryTile('Training Deduction', _fmtDays(trainingDeduction), LucideIcons.graduationCap, const Color(0xFF8B5CF6)),
+      _summaryTile(
+        'Present',
+        '$presentCount',
+        TablerIcons.calendar_check,
+        const Color(0xff0f7a5a),
+      ),
+      _summaryTile(
+        'Absence',
+        '$absentCount',
+        TablerIcons.calendar_x,
+        const Color(0xFFba1a1a),
+      ),
+      _summaryTile(
+        'Half-day',
+        _fmtDays(halfDay),
+        TablerIcons.sun,
+        const Color(0xFF7E22CE),
+      ),
+      _summaryTile(
+        'Late Deduction Days',
+        _fmtDays(lateDeduction),
+        TablerIcons.clock,
+        const Color(0xFFc28228),
+      ),
+      _summaryTile(
+        'Sunday Deducted',
+        _fmtDays(sundayDeducted),
+        TablerIcons.calendar_off,
+        const Color(0xFFB45309),
+      ),
+      if (_joinedThisMonth || trainingDeduction > 0)
+        _summaryTile(
+          'Training Deduction',
+          _fmtDays(trainingDeduction),
+          TablerIcons.school,
+          const Color(0xFF6C7686),
+        ),
       if (netPaidDays != null)
-        _summaryTile('Net Paid Days', _fmtDays(netPaidDays), LucideIcons.wallet, const Color(0xFF0f766e)),
+        _summaryTile(
+          'Net Paid Days',
+          _fmtDays(netPaidDays),
+          TablerIcons.wallet,
+          AppPalette.success,
+        ),
     ];
 
     return Column(
@@ -980,16 +1378,21 @@ class _ProfilePageState extends State<ProfilePage> {
       children: [
         Row(
           children: [
-            Text('My Attendance',
+            Text(
+              'My Attendance',
               style: GoogleFonts.hankenGrotesk(
-                fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: scheme.onSurface,
+                fontSize: Responsive.sp(context, 16),
+                fontWeight: FontWeight.w600,
+                color: scheme.onSurface,
               ),
             ),
             const Spacer(),
             Text(
               DateFormat('MMMM yyyy').format(DateTime(_calYear, _calMonth)),
               style: GoogleFonts.hankenGrotesk(
-                fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w600, color: const Color(0xFF74777e),
+                fontSize: Responsive.sp(context, 11),
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF7C8698),
               ),
             ),
           ],
@@ -999,7 +1402,9 @@ class _ProfilePageState extends State<ProfilePage> {
           children: [
             for (var i = 0; i < tiles.length; i += 2)
               Padding(
-                padding: EdgeInsets.only(bottom: i + 2 < tiles.length ? Responsive.pad(context, 8) : 0),
+                padding: EdgeInsets.only(
+                  bottom: i + 2 < tiles.length ? Responsive.pad(context, 8) : 0,
+                ),
                 child: Row(
                   children: [
                     Expanded(child: tiles[i]),
@@ -1018,33 +1423,44 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _summaryTile(String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 8)),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.pad(context, 4),
+        vertical: Responsive.pad(context, 7),
       ),
       child: Row(
         children: [
-          Icon(icon, size: Responsive.sp(context, 14), color: color),
-          SizedBox(width: Responsive.pad(context, 8)),
+          Container(
+            width: Responsive.sp(context, 34),
+            height: Responsive.sp(context, 34),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: Responsive.sp(context, 16), color: color),
+          ),
+          SizedBox(width: Responsive.pad(context, 9)),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(value,
+                Text(
+                  value,
                   style: GoogleFonts.hankenGrotesk(
-                    fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w800, color: color,
+                    fontSize: Responsive.sp(context, 17),
+                    fontWeight: FontWeight.w800,
+                    color: color,
                   ),
                 ),
-                Text(label,
+                Text(
+                  label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: Responsive.sp(context, 9), fontWeight: FontWeight.w600,
-                    color: const Color(0xFF43474d),
+                    fontSize: Responsive.sp(context, 9.5),
+                    fontWeight: FontWeight.w600,
+                    color: AppPalette.muted,
                   ),
                 ),
               ],
@@ -1056,29 +1472,33 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _attendanceCalendar(
-    double presentFrac, double absentFrac, double leaveFrac, double lateFrac,
-    double rate, AppColors colors, ColorScheme scheme, TextTheme tt,
+    double presentFrac,
+    double absentFrac,
+    double leaveFrac,
+    double lateFrac,
+    double rate,
+    AppColors colors,
+    ColorScheme scheme,
+    TextTheme tt,
   ) {
     final now = DateTime.now();
     final minMonth = DateTime(now.year, now.month - 1);
     final atMinMonth = _calYear == minMonth.year && _calMonth == minMonth.month;
     final atCurrentMonth = _calYear == now.year && _calMonth == now.month;
-    return Container(
-      padding: EdgeInsets.all(Responsive.pad(context, 16)),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.outline),
-      ),
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 4)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Attendance Calendar',
+              Text(
+                'Attendance Calendar',
                 style: GoogleFonts.hankenGrotesk(
-                  fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
+                  fontSize: Responsive.sp(context, 18),
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface,
                 ),
               ),
             ],
@@ -1087,16 +1507,22 @@ class _ProfilePageState extends State<ProfilePage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Monthly Consistency',
+              Text(
+                'Monthly Consistency',
                 style: TextStyle(
-                  fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w600, letterSpacing: 0.05,
-                  color: const Color(0xFF43474d),
+                  fontSize: Responsive.sp(context, 12),
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.05,
+                  color: const Color(0xFF6C7686),
                 ),
               ),
-              Text('${(rate * 100).round()}%',
+              Text(
+                '${(rate * 100).round()}%',
                 style: TextStyle(
-                  fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w600, letterSpacing: 0.05,
-                  color: const Color(0xFF2a6a4b),
+                  fontSize: Responsive.sp(context, 12),
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.05,
+                  color: const Color(0xff1f6b52),
                 ),
               ),
             ],
@@ -1114,7 +1540,15 @@ class _ProfilePageState extends State<ProfilePage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
-                icon: const Icon(LucideIcons.chevronLeft),
+                icon: const Icon(TablerIcons.chevron_left, size: 18),
+                style: IconButton.styleFrom(
+                  backgroundColor: AppPalette.iceSoft,
+                  foregroundColor: AppPalette.ocean,
+                  disabledBackgroundColor: AppPalette.iceSoft.withValues(
+                    alpha: 0.5,
+                  ),
+                  minimumSize: const Size(38, 38),
+                ),
                 tooltip: 'Previous month',
                 onPressed: atMinMonth
                     ? null
@@ -1135,11 +1569,21 @@ class _ProfilePageState extends State<ProfilePage> {
               Text(
                 DateFormat('MMMM yyyy').format(DateTime(_calYear, _calMonth)),
                 style: GoogleFonts.hankenGrotesk(
-                  fontSize: Responsive.sp(context, 15), fontWeight: FontWeight.w700, color: scheme.onSurface,
+                  fontSize: Responsive.sp(context, 15),
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface,
                 ),
               ),
               IconButton(
-                icon: const Icon(LucideIcons.chevronRight),
+                icon: const Icon(TablerIcons.chevron_right, size: 18),
+                style: IconButton.styleFrom(
+                  backgroundColor: AppPalette.iceSoft,
+                  foregroundColor: AppPalette.ocean,
+                  disabledBackgroundColor: AppPalette.iceSoft.withValues(
+                    alpha: 0.5,
+                  ),
+                  minimumSize: const Size(38, 38),
+                ),
                 tooltip: 'Next month',
                 onPressed: atCurrentMonth
                     ? null
@@ -1166,19 +1610,19 @@ class _ProfilePageState extends State<ProfilePage> {
             selectedDate: _selectedDateKey,
             calendarDates: _calendarDates,
             deductedSundays: _deductedSundayKeys(),
-            onDateSelected: (key) => setState(() {
-              _selectedDateKey = _selectedDateKey == key ? null : key;
-            }),
+            forfeitedHolidays: _forfeitedHolidayKeys(),
+            onDateSelected: _showDayDetailSheet,
           ),
           SizedBox(height: Responsive.pad(context, 16)),
           Wrap(
-            spacing: 16, runSpacing: 8,
+            spacing: 16,
+            runSpacing: 8,
             children: [
-              _legendDot('Present', const Color(0xFFaff1ca)),
+              _legendDot('Present', const Color(0xFFBBE3CC)),
               _legendDot('Absent', const Color(0xFFffdad6)),
-              _legendDot('Leave', const Color(0xFFd1e4ff)),
+              _legendDot('Leave', const Color(0xFFE4EBFB)),
               _legendDot('Late', const Color(0xFFffddb8)),
-              _legendDot('Half-day', const Color(0xFFe8d5f5)),
+              _legendDot('Half-day', const Color(0xFFF3E8FF)),
             ],
           ),
         ],
@@ -1188,24 +1632,35 @@ class _ProfilePageState extends State<ProfilePage> {
 
   void _confirmLogout() {
     final sc = Theme.of(context).colorScheme;
-    showDialog(
+    showSpringDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         backgroundColor: sc.surface,
-        title: Text('Logout',
+        title: Text(
+          'Logout',
           style: GoogleFonts.hankenGrotesk(
-            fontSize: Responsive.sp(context, 20), fontWeight: FontWeight.w600, color: sc.onSurface,
+            fontSize: Responsive.sp(context, 20),
+            fontWeight: FontWeight.w600,
+            color: sc.onSurface,
           ),
         ),
-        content: Text('Are you sure you want to logout?',
-          style: TextStyle(fontSize: Responsive.sp(context, 14), color: sc.onSurfaceVariant),
+        content: Text(
+          'Are you sure you want to logout?',
+          style: TextStyle(
+            fontSize: Responsive.sp(context, 14),
+            color: sc.onSurfaceVariant,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel',
-              style: TextStyle(fontWeight: FontWeight.w600, color: sc.onSurfaceVariant),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: sc.onSurfaceVariant,
+              ),
             ),
           ),
           TextButton(
@@ -1213,7 +1668,8 @@ class _ProfilePageState extends State<ProfilePage> {
               Navigator.pop(ctx);
               widget.onLogout?.call();
             },
-            child: Text('Logout',
+            child: Text(
+              'Logout',
               style: TextStyle(fontWeight: FontWeight.w600, color: sc.error),
             ),
           ),
@@ -1224,44 +1680,66 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _loanStatusCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
     final expanded = _expandedCards.contains('loan');
-    final activeLoans = _loans.where((l) => l['status'] == 'approved' || l['status'] == 'pending').toList();
-    return Container(
-      padding: EdgeInsets.all(Responsive.pad(context, 16)),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.outline),
-      ),
+    final activeLoans = _loans
+        .where((l) => l['status'] == 'approved' || l['status'] == 'pending')
+        .toList();
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 4)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           GestureDetector(
             onTap: () => setState(() {
-              if (expanded) { _expandedCards.remove('loan'); } else { _expandedCards.add('loan'); }
+              if (expanded) {
+                _expandedCards.remove('loan');
+              } else {
+                _expandedCards.add('loan');
+              }
             }),
             behavior: HitTestBehavior.opaque,
             child: Row(
               children: [
-                Icon(LucideIcons.wallet, size: Responsive.sp(context, 18), color: scheme.primary),
+                Icon(
+                  TablerIcons.wallet,
+                  size: Responsive.sp(context, 18),
+                  color: scheme.primary,
+                ),
                 SizedBox(width: Responsive.pad(context, 8)),
                 Expanded(
-                  child: Text('Loan Status',
+                  child: Text(
+                    'Loan Status',
                     style: GoogleFonts.hankenGrotesk(
-                      fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
+                      fontSize: Responsive.sp(context, 18),
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
                     ),
                   ),
                 ),
                 if (activeLoans.isNotEmpty)
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: Responsive.pad(context, 6),
+                      vertical: Responsive.pad(context, 2),
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFc28228).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(18),
                     ),
-                    child: Text('${activeLoans.length}', style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, color: const Color(0xFFc28228))),
+                    child: Text(
+                      '${activeLoans.length}',
+                      style: TextStyle(
+                        fontSize: Responsive.sp(context, 11),
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFFc28228),
+                      ),
+                    ),
                   ),
                 SizedBox(width: Responsive.pad(context, 8)),
-                Icon(expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
+                Icon(
+                  expanded ? TablerIcons.chevron_up : TablerIcons.chevron_down,
+                  size: Responsive.sp(context, 18),
+                  color: scheme.onSurfaceVariant,
+                ),
               ],
             ),
           ),
@@ -1269,9 +1747,17 @@ class _ProfilePageState extends State<ProfilePage> {
             SizedBox(height: Responsive.pad(context, 16)),
             if (activeLoans.isEmpty)
               Padding(
-                padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
+                padding: EdgeInsets.symmetric(
+                  vertical: Responsive.pad(context, 16),
+                ),
                 child: Center(
-                  child: Text('No active loans', style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
+                  child: Text(
+                    'No active loans',
+                    style: TextStyle(
+                      fontSize: Responsive.sp(context, 13),
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
               )
             else
@@ -1280,7 +1766,13 @@ class _ProfilePageState extends State<ProfilePage> {
               Padding(
                 padding: EdgeInsets.only(top: Responsive.pad(context, 8)),
                 child: Center(
-                  child: Text('+${activeLoans.length - 3} more', style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
+                  child: Text(
+                    '+${activeLoans.length - 3} more',
+                    style: TextStyle(
+                      fontSize: Responsive.sp(context, 11),
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
               ),
           ],
@@ -1296,10 +1788,21 @@ class _ProfilePageState extends State<ProfilePage> {
     final Color statusColor;
     final String statusLabel;
     switch (status) {
-      case 'pending': statusColor = const Color(0xFFc28228); statusLabel = 'Pending'; break;
-      case 'approved': statusColor = const Color(0xFF1D7A4F); statusLabel = 'Approved'; break;
-      case 'rejected': statusColor = const Color(0xFFba1a1a); statusLabel = 'Rejected'; break;
-      default: statusColor = scheme.onSurfaceVariant; statusLabel = status;
+      case 'pending':
+        statusColor = const Color(0xFFc28228);
+        statusLabel = 'Pending';
+        break;
+      case 'approved':
+        statusColor = const Color(0xff0f7a5a);
+        statusLabel = 'Approved';
+        break;
+      case 'rejected':
+        statusColor = const Color(0xFFba1a1a);
+        statusLabel = 'Rejected';
+        break;
+      default:
+        statusColor = scheme.onSurfaceVariant;
+        statusLabel = status;
     }
     return Padding(
       padding: EdgeInsets.only(bottom: Responsive.pad(context, 12)),
@@ -1307,8 +1810,7 @@ class _ProfilePageState extends State<ProfilePage> {
         padding: EdgeInsets.all(Responsive.pad(context, 12)),
         decoration: BoxDecoration(
           color: colors.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: colors.outline.withValues(alpha: 0.5)),
+          borderRadius: BorderRadius.circular(22),
         ),
         child: Row(
           children: [
@@ -1316,28 +1818,89 @@ class _ProfilePageState extends State<ProfilePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('\u20B9$total',
-                    style: TextStyle(fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                  Text(
+                    '\u20B9$total',
+                    style: TextStyle(
+                      fontSize: Responsive.sp(context, 14),
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurface,
+                    ),
+                  ),
                   SizedBox(height: Responsive.pad(context, 2)),
                   if (status == 'approved')
-                    Text('\u20B9$remaining remaining',
-                      style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
+                    Text(
+                      '\u20B9$remaining remaining',
+                      style: TextStyle(
+                        fontSize: Responsive.sp(context, 11),
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
                 ],
               ),
             ),
             Container(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 8), vertical: Responsive.pad(context, 3)),
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 8),
+                vertical: Responsive.pad(context, 3),
+              ),
               decoration: BoxDecoration(
                 color: statusColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: BorderRadius.circular(14),
               ),
-              child: Text(statusLabel, style: TextStyle(fontSize: Responsive.sp(context, 10), fontWeight: FontWeight.w700, color: statusColor)),
+              child: Text(
+                statusLabel,
+                style: TextStyle(
+                  fontSize: Responsive.sp(context, 10),
+                  fontWeight: FontWeight.w700,
+                  color: statusColor,
+                ),
+              ),
             ),
           ],
         ),
       ),
     );
   }
+
+  void _showDayDetailSheet(String key) {
+    setState(() => _selectedDateKey = key);
+    showSpringSheet(
+      context: context,
+      builder: (_) =>
+          _DayDetailSheet(dateKey: key, detail: _historyByDate[key]),
+    );
+  }
+
+  Widget _legendDot(String label, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        SizedBox(width: Responsive.pad(context, 6)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: Responsive.sp(context, 12),
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DayDetailSheet extends StatelessWidget {
+  final String dateKey;
+  final Map<String, dynamic>? detail;
+
+  const _DayDetailSheet({required this.dateKey, this.detail});
 
   String _fmtTime(dynamic ts) {
     if (ts == null) return '—';
@@ -1349,129 +1912,227 @@ class _ProfilePageState extends State<ProfilePage> {
     return DateFormat('hh:mm a').format(t.toLocal());
   }
 
-  Widget _dayDetailCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
-    final detail = _historyByDate[_selectedDateKey];
-    if (detail == null) {
-    return Container(
-        padding: EdgeInsets.all(Responsive.pad(context, 16)),
-        decoration: BoxDecoration(
-        color: Theme.of(context).extension<AppColors>()!.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(8),
+  (Color, String, IconData) _statusMeta(String status) {
+    switch (status) {
+      case 'present':
+        return (AppPalette.success, 'Present', TablerIcons.circle_check);
+      case 'absent':
+        return (const Color(0xFFB42318), 'Absent', TablerIcons.circle_x);
+      case 'late':
+        return (const Color(0xFFB45309), 'Late', TablerIcons.clock);
+      case 'leave':
+        return (AppPalette.ocean, 'Leave', TablerIcons.calendar_check);
+      case 'half-day':
+        return (const Color(0xFF7E22CE), 'Half Day', TablerIcons.sun);
+      default:
+        return (AppPalette.muted, 'No status', TablerIcons.circle);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = detail?['status']?.toString() ?? '';
+    final (statusColor, statusLabel, statusIcon) = _statusMeta(status);
+    final lateMinutes = detail?['late_minutes'];
+    final dt = DateTime.tryParse(dateKey);
+    final dateLabel = dt != null
+        ? DateFormat('EEEE, d MMMM yyyy').format(dt)
+        : dateKey;
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: EdgeInsets.fromLTRB(
+          Responsive.pad(context, 20),
+          Responsive.pad(context, 12),
+          Responsive.pad(context, 20),
+          Responsive.pad(context, 24),
         ),
-        child: Row(
+        decoration: const BoxDecoration(
+          color: AppPalette.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Icon(LucideIcons.info, size: Responsive.sp(context, 18), color: const Color(0xFF74777e)),
-            SizedBox(width: Responsive.pad(context, 10)),
-            Text('No record for this date', style: TextStyle(fontSize: Responsive.sp(context, 14), color: const Color(0xFF74777e))),
-        ],
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppPalette.iceDeep,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            SizedBox(height: Responsive.pad(context, 18)),
+            Row(
+              children: [
+                Container(
+                  width: Responsive.sp(context, 46),
+                  height: Responsive.sp(context, 46),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Icon(
+                    statusIcon,
+                    size: Responsive.sp(context, 22),
+                    color: statusColor,
+                  ),
+                ),
+                SizedBox(width: Responsive.pad(context, 12)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        dateLabel,
+                        style: GoogleFonts.hankenGrotesk(
+                          fontSize: Responsive.sp(context, 16.5),
+                          fontWeight: FontWeight.w700,
+                          color: AppPalette.ink,
+                        ),
+                      ),
+                      SizedBox(height: Responsive.pad(context, 3)),
+                      Text(
+                        detail == null ? 'No attendance record' : statusLabel,
+                        style: TextStyle(
+                          fontSize: Responsive.sp(context, 12),
+                          fontWeight: FontWeight.w600,
+                          color: detail == null
+                              ? AppPalette.muted
+                              : statusColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: Responsive.pad(context, 18)),
+            if (detail == null)
+              Container(
+                padding: EdgeInsets.all(Responsive.pad(context, 16)),
+                decoration: BoxDecoration(
+                  color: AppPalette.iceSoft,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      TablerIcons.calendar_off,
+                      size: 20,
+                      color: AppPalette.muted,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'No punch-in or punch-out was recorded for this day.',
+                        style: TextStyle(
+                          fontSize: Responsive.sp(context, 12.5),
+                          color: AppPalette.muted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: _timeBlock(
+                      context,
+                      'IN',
+                      _fmtTime(detail!['punch_in_time']),
+                      TablerIcons.login,
+                      AppPalette.aquaDeep,
+                    ),
+                  ),
+                  SizedBox(width: Responsive.pad(context, 12)),
+                  Expanded(
+                    child: _timeBlock(
+                      context,
+                      'OUT',
+                      _fmtTime(detail!['punch_out_time']),
+                      TablerIcons.logout,
+                      AppPalette.ocean,
+                    ),
+                  ),
+                ],
+              ),
+              if (lateMinutes is num && lateMinutes > 0) ...[
+                SizedBox(height: Responsive.pad(context, 12)),
+                Row(
+                  children: [
+                    const Icon(
+                      TablerIcons.clock,
+                      size: 15,
+                      color: Color(0xFFB45309),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Late by ${lateMinutes.toInt()} min',
+                      style: TextStyle(
+                        fontSize: Responsive.sp(context, 12),
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFFB45309),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ],
+        ),
       ),
     );
-    }
+  }
 
-    final status = detail['status']?.toString() ?? '';
-    final punchIn = detail['punch_in_time'];
-    final punchOut = detail['punch_out_time'];
-    final lateMinutes = detail['late_minutes'];
-
-    Color statusColor;
-    IconData statusIcon;
-    switch (status) {
-      case 'present': statusColor = const Color(0xFF2a6a4b); statusIcon = LucideIcons.circleCheck; break;
-      case 'absent': statusColor = const Color(0xFFba1a1a); statusIcon = LucideIcons.circleX; break;
-      case 'late': statusColor = const Color(0xFFc28228); statusIcon = LucideIcons.clock; break;
-      case 'leave': statusColor = const Color(0xFF7a92b0); statusIcon = LucideIcons.calendarCheck; break;
-      case 'half-day': statusColor = const Color(0xFF7c3aed); statusIcon = LucideIcons.sun; break;
-      default: statusColor = const Color(0xFF74777e); statusIcon = LucideIcons.circleHelp;
-    }
-
-    final dateStr = _selectedDateKey ?? '';
-    final dt = DateTime.tryParse(dateStr);
-    final formattedDate = dt != null ? DateFormat('EEEE, d MMMM yyyy').format(dt) : dateStr;
-
+  Widget _timeBlock(
+    BuildContext context,
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
-      padding: EdgeInsets.all(Responsive.pad(context, 16)),
+      padding: EdgeInsets.all(Responsive.pad(context, 14)),
       decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.outline),
+        color: AppPalette.iceSoft,
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(statusIcon, size: Responsive.sp(context, 18), color: statusColor),
-              SizedBox(width: Responsive.pad(context, 8)),
-              Expanded(
-                child: Text(formattedDate, style: GoogleFonts.hankenGrotesk(
-                  fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: scheme.onSurface,
-                )),
-              ),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 4)),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(4),
+              Icon(icon, size: Responsive.sp(context, 15), color: color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: Responsive.sp(context, 10.5),
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: AppPalette.muted,
                 ),
-                child: Text(status.toUpperCase(), style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, color: statusColor)),
               ),
             ],
           ),
-          SizedBox(height: Responsive.pad(context, 16)),
-          Row(
-            children: [
-              Expanded(child: _detailBox(LucideIcons.scanLine, 'Punch In', _fmtTime(punchIn))),
-              SizedBox(width: Responsive.pad(context, 8)),
-              Expanded(child: _detailBox(LucideIcons.power, 'Punch Out', _fmtTime(punchOut))),
-            ],
-          ),
-          if (lateMinutes != null && (lateMinutes as num) > 0) ...[
-            SizedBox(height: Responsive.pad(context, 10)),
-            Row(
-              children: [
-                Icon(LucideIcons.clock, size: Responsive.sp(context, 14), color: const Color(0xFFc28228)),
-                SizedBox(width: Responsive.pad(context, 4)),
-                Text('Late by ${lateMinutes} min', style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, color: const Color(0xFFc28228))),
-              ],
+          SizedBox(height: Responsive.pad(context, 8)),
+          Text(
+            value,
+            style: GoogleFonts.hankenGrotesk(
+              fontSize: Responsive.sp(context, 19),
+              fontWeight: FontWeight.w800,
+              color: AppPalette.ink,
             ),
-          ],
+          ),
         ],
       ),
     );
   }
-
-  Widget _detailBox(IconData icon, String label, String value) {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 10), horizontal: Responsive.pad(context, 8)),
-      decoration: BoxDecoration(
-        color: Theme.of(context).extension<AppColors>()!.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: Responsive.sp(context, 16), color: const Color(0xFF43474d)),
-          SizedBox(height: Responsive.pad(context, 4)),
-          Text(label, style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w600,
-            color: const Color(0xFF74777e))),
-          SizedBox(height: Responsive.pad(context, 2)),
-          Text(value, style: TextStyle(fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w700, color: const Color(0xFF171c1f))),
-        ],
-      ),
-    );
-  }
-
-  Widget _legendDot(String label, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(width: 12, height: 12, decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(3),
-        )),
-        SizedBox(width: Responsive.pad(context, 6)),
-        Text(label, style: TextStyle(fontSize: Responsive.sp(context, 12), color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      ],
-    );
-  }
-
 }

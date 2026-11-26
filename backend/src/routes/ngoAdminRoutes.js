@@ -25,6 +25,21 @@ import {
   bulkAddSsReplyLeads,
 } from '../controllers/ssLeadAdminController.js';
 import {
+  previewUniqueDonors,
+  addUniqueDonorsToBsct,
+  listUniqueDonorAdditions,
+  restoreUniqueDonorAddition,
+} from '../controllers/uniqueDonorController.js';
+import {
+  previewStationTransfer,
+  transferStationLeads,
+  previewMultiStationTransfer,
+  transferMultiStationLeads,
+  listStationTransfers,
+  listStationTransferDonors,
+  restoreStationTransfer,
+} from '../controllers/stationTransferController.js';
+import {
   getFroWorkers,
   getAccessibleNgos,
   getAssignments,
@@ -270,6 +285,22 @@ router.post('/high-tier-move', authenticateRole('admin', 'super_admin'), highTie
 router.get('/transfers', getTransferHistory);
 router.get('/transfers/:id/donors', getTransferDonors);
 router.post('/transfers/:id/return-early', returnTransferEarly);
+// Permanent station-to-station lead transfer with category filters, history
+// and one-click restore. Same-NGO only; no duplicate (donor, ngo, station).
+router.get('/stations/:station/transfer-preview', previewStationTransfer);
+router.post('/stations/:station/transfer-permanent', transferStationLeads);
+router.get('/lead-transfers', listStationTransfers);
+router.get('/lead-transfers/:id/donors', listStationTransferDonors);
+router.post('/lead-transfers/:id/restore', restoreStationTransfer);
+// Multiple source stations -> multiple target stations, equal split.
+router.get('/station-transfers/preview', previewMultiStationTransfer);
+router.post('/station-transfers/permanent', transferMultiStationLeads);
+// AFLF/MANN donors who have no BOD assignment yet: preview by category and add
+// them to a BSCT station (existing BFD/PS assignment is moved, not duplicated).
+router.get('/unique-donors/preview', previewUniqueDonors);
+router.post('/unique-donors/add', addUniqueDonorsToBsct);
+router.get('/unique-donor-additions', listUniqueDonorAdditions);
+router.post('/unique-donor-additions/:id/restore', restoreUniqueDonorAddition);
 
 router.get('/data-overview', getDataOverview);
 

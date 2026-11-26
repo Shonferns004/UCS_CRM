@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:liquid_pull_to_refresh/liquid_pull_to_refresh.dart';
+import '../widgets/app_toast.dart';
+import '../widgets/ui_motion.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
@@ -45,9 +48,15 @@ class _RequestsPageState extends State<RequestsPage> {
   }
 
   Future<void> _refresh() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final results = await Future.wait([ApiService.getAllLeaves(), ApiService.getPendingLoans()]);
+      final results = await Future.wait([
+        ApiService.getAllLeaves(),
+        ApiService.getPendingLoans(),
+      ]);
       if (mounted) {
         setState(() {
           _leaves = results[0];
@@ -81,17 +90,16 @@ class _RequestsPageState extends State<RequestsPage> {
 
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? const Color(0xFFba1a1a) : const Color(0xFF1D7A4F),
-      ),
-    );
+    if (isError) {
+      AppToast.error(message);
+    } else {
+      AppToast.success(message);
+    }
   }
 
   Future<String?> _promptRemark(String title) async {
     final ctrl = TextEditingController();
-    final result = await showDialog<String>(
+    final result = await showSpringDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
@@ -101,7 +109,10 @@ class _RequestsPageState extends State<RequestsPage> {
           decoration: const InputDecoration(hintText: 'Remark (optional)'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, ctrl.text.trim()),
             child: const Text('Submit'),
@@ -115,7 +126,7 @@ class _RequestsPageState extends State<RequestsPage> {
 
   Future<double?> _promptDeduction(double totalAmount) async {
     final ctrl = TextEditingController();
-    final result = await showDialog<double>(
+    final result = await showSpringDialog<double>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Monthly Deduction'),
@@ -128,16 +139,16 @@ class _RequestsPageState extends State<RequestsPage> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () {
               final value = double.tryParse(ctrl.text.trim());
               if (value == null || value <= 0 || value > totalAmount) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Enter a valid amount between 1 and ${totalAmount.toStringAsFixed(0)}'),
-                    backgroundColor: const Color(0xFFba1a1a),
-                  ),
+                AppToast.warning(
+                  'Enter a valid amount between 1 and ${totalAmount.toStringAsFixed(0)}',
                 );
                 return;
               }
@@ -187,9 +198,16 @@ class _RequestsPageState extends State<RequestsPage> {
     }
     setState(() => _processingId = id);
     try {
-      await ApiService.decideLoan(id, status, monthlyDeduction: monthlyDeduction, remark: remark);
+      await ApiService.decideLoan(
+        id,
+        status,
+        monthlyDeduction: monthlyDeduction,
+        remark: remark,
+      );
       setState(() => _loans.removeWhere((l) => l['id'].toString() == id));
-      _showSnack(status == 'approved' ? 'Advance approved' : 'Advance rejected');
+      _showSnack(
+        status == 'approved' ? 'Advance approved' : 'Advance rejected',
+      );
     } catch (e) {
       _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
     } finally {
@@ -209,34 +227,49 @@ class _RequestsPageState extends State<RequestsPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 8)),
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 16),
+                vertical: Responsive.pad(context, 8),
+              ),
               child: Row(
                 children: [
-                  Text('Requests', style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.primary)),
+                  Text(
+                    'Requests',
+                    style: tt.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.primary,
+                    ),
+                  ),
                   const Spacer(),
-                  IconButton(icon: const Icon(LucideIcons.refreshCw), onPressed: _refresh, tooltip: 'Refresh'),
+                  IconButton(
+                    icon: const Icon(TablerIcons.refresh),
+                    onPressed: _refresh,
+                    tooltip: 'Refresh',
+                  ),
                 ],
               ),
             ),
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 16),
+              ),
               child: Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
                   color: colors.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(18),
                 ),
                 child: Row(
                   children: [
                     _SegmentButton(
                       label: 'Leave',
-                      icon: LucideIcons.calendarDays,
+                      icon: TablerIcons.calendar_event,
                       isActive: _segment == 'leave',
                       onTap: () => setState(() => _segment = 'leave'),
                     ),
                     _SegmentButton(
                       label: 'Advance',
-                      icon: LucideIcons.wallet,
+                      icon: TablerIcons.wallet,
                       isActive: _segment == 'advance',
                       onTap: () => setState(() => _segment = 'advance'),
                     ),
@@ -247,7 +280,9 @@ class _RequestsPageState extends State<RequestsPage> {
             const SizedBox(height: 8),
             if (_segment == 'leave') ...[
               Padding(
-                padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+                padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.pad(context, 16),
+                ),
                 child: Row(
                   children: [
                     _LeaveTabButton(
@@ -269,12 +304,19 @@ class _RequestsPageState extends State<RequestsPage> {
             Expanded(
               child: _loading
                   ? const ListSkeleton()
-                  : _error != null && (_segment == 'leave' ? _leaves.isEmpty : _loans.isEmpty)
-                      ? _buildError(scheme, tt)
-                      : RefreshIndicator(
-                          onRefresh: _refresh,
-                          child: _segment == 'leave' ? _buildLeaveList(tt) : _buildLoanList(tt),
-                        ),
+                  : _error != null &&
+                        (_segment == 'leave' ? _leaves.isEmpty : _loans.isEmpty)
+                  ? _buildError(scheme, tt)
+                  : LiquidPullToRefresh(
+                      color: const Color(0xFF4A78E0),
+                      backgroundColor: const Color(0xFFF4F6FA),
+                      showChildOpacityTransition: false,
+                      springAnimationDurationInMilliseconds: 700,
+                      onRefresh: _refresh,
+                      child: _segment == 'leave'
+                          ? _buildLeaveList(tt)
+                          : _buildLoanList(tt),
+                    ),
             ),
           ],
         ),
@@ -287,9 +329,16 @@ class _RequestsPageState extends State<RequestsPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(LucideIcons.cloudOff, size: Responsive.sp(context, 40), color: scheme.outline),
+          Icon(
+            TablerIcons.cloud_off,
+            size: Responsive.sp(context, 40),
+            color: scheme.outline,
+          ),
           const SizedBox(height: 12),
-          Text(_error ?? 'Failed to load requests', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            _error ?? 'Failed to load requests',
+            style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           const SizedBox(height: 12),
           OutlinedButton(onPressed: _refresh, child: const Text('Retry')),
         ],
@@ -298,30 +347,58 @@ class _RequestsPageState extends State<RequestsPage> {
   }
 
   Widget _buildLeaveList(TextTheme tt) {
-    final activeLeaves = _leaves.where((l) => l['status']?.toString() == 'pending').toList();
-    final historyLeaves = _leaves.where((l) => l['status']?.toString() != 'pending').toList();
+    final activeLeaves = _leaves
+        .where((l) => l['status']?.toString() == 'pending')
+        .toList();
+    final historyLeaves = _leaves
+        .where((l) => l['status']?.toString() != 'pending')
+        .toList();
     final displayLeaves = _leaveTab == 'active' ? activeLeaves : historyLeaves;
 
     if (displayLeaves.isEmpty) {
-      return _empty(tt, LucideIcons.calendarDays, _leaveTab == 'active' ? 'No pending leave requests' : 'No leave history');
+      return _empty(
+        tt,
+        TablerIcons.calendar_event,
+        _leaveTab == 'active'
+            ? 'No pending leave requests'
+            : 'No leave history',
+      );
     }
     return ListView.builder(
       controller: widget.scrollController,
-      padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 40)),
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pad(context, 16),
+        Responsive.pad(context, 8),
+        Responsive.pad(context, 16),
+        Responsive.pad(context, 40),
+      ),
       itemCount: displayLeaves.length,
-      itemBuilder: (context, i) => _leaveCard(displayLeaves[i], tt),
+      itemBuilder: (context, i) => StaggeredReveal(
+        index: i,
+        offsetY: 24,
+        child: _leaveCard(displayLeaves[i], tt),
+      ),
     );
   }
 
   Widget _buildLoanList(TextTheme tt) {
     if (_loans.isEmpty) {
-      return _empty(tt, LucideIcons.wallet, 'No pending advance requests');
+      return _empty(tt, TablerIcons.wallet, 'No pending advance requests');
     }
     return ListView.builder(
       controller: widget.scrollController,
-      padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 40)),
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pad(context, 16),
+        Responsive.pad(context, 8),
+        Responsive.pad(context, 16),
+        Responsive.pad(context, 40),
+      ),
       itemCount: _loans.length,
-      itemBuilder: (context, i) => _loanCard(_loans[i], tt),
+      itemBuilder: (context, i) => StaggeredReveal(
+        index: i,
+        offsetY: 24,
+        child: _loanCard(_loans[i], tt),
+      ),
     );
   }
 
@@ -335,9 +412,18 @@ class _RequestsPageState extends State<RequestsPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: Responsive.sp(context, 40), color: Theme.of(context).colorScheme.outline),
+                Icon(
+                  icon,
+                  size: Responsive.sp(context, 40),
+                  color: Theme.of(context).colorScheme.outline,
+                ),
                 const SizedBox(height: 12),
-                Text(message, style: tt.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                Text(
+                  message,
+                  style: tt.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ),
@@ -348,7 +434,8 @@ class _RequestsPageState extends State<RequestsPage> {
 
   String _workerName(Map<String, dynamic> row) {
     final workers = row['workers'];
-    if (workers is Map && workers['name'] != null) return workers['name'].toString();
+    if (workers is Map && workers['name'] != null)
+      return workers['name'].toString();
     return 'Worker';
   }
 
@@ -358,10 +445,7 @@ class _RequestsPageState extends State<RequestsPage> {
     return DateFormat('dd MMM, hh:mm a').format(dt.toLocal());
   }
 
-  Widget _card({
-    required Widget child,
-    required ColorScheme scheme,
-  }) {
+  Widget _card({required Widget child, required ColorScheme scheme}) {
     final colors = Theme.of(context).extension<AppColors>()!;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -369,7 +453,13 @@ class _RequestsPageState extends State<RequestsPage> {
       decoration: BoxDecoration(
         color: colors.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(Responsive.radius(context, 12)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: child,
     );
@@ -389,9 +479,11 @@ class _RequestsPageState extends State<RequestsPage> {
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFFba1a1a),
               side: const BorderSide(color: Color(0xFFba1a1a)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
             ),
-            icon: const Icon(LucideIcons.x, size: 16),
+            icon: const Icon(TablerIcons.x, size: 16),
             label: const Text('Reject'),
           ),
         ),
@@ -400,12 +492,14 @@ class _RequestsPageState extends State<RequestsPage> {
           child: FilledButton.icon(
             onPressed: processing ? null : onApprove,
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF1D7A4F),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              backgroundColor: const Color(0xff0f7a5a),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
             ),
             icon: processing
                 ? const ButtonSkeleton(size: 16)
-                : const Icon(LucideIcons.check, size: 16),
+                : const Icon(TablerIcons.check, size: 16),
             label: const Text('Approve'),
           ),
         ),
@@ -415,22 +509,24 @@ class _RequestsPageState extends State<RequestsPage> {
 
   Widget _leaveCard(dynamic raw, TextTheme tt) {
     final scheme = Theme.of(context).colorScheme;
-    final colors = Theme.of(context).extension<AppColors>()!;
     final leave = raw as Map<String, dynamic>;
     final type = leave['type']?.toString() ?? '';
     final status = leave['status']?.toString() ?? 'pending';
-    final typeLabel = {
-      'full_day': 'Full Day',
-      'half_day': 'Half Day',
-      'vacational': 'Vacational',
-      'emergency': 'Emergency',
-    }[type] ?? type;
+    final typeLabel =
+        {
+          'full_day': 'Full Day',
+          'half_day': 'Half Day',
+          'vacational': 'Vacational',
+          'emergency': 'Emergency',
+        }[type] ??
+        type;
 
     String dateInfo;
     if (leave['leave_date'] != null) {
       dateInfo = leave['leave_date'].toString();
       if (type == 'half_day' && leave['half_start_time'] != null) {
-        dateInfo += ' · ${leave['half_start_time']} - ${leave['half_end_time']}';
+        dateInfo +=
+            ' · ${leave['half_start_time']} - ${leave['half_end_time']}';
       }
     } else if (leave['start_date'] != null && leave['end_date'] != null) {
       dateInfo = '${leave['start_date']} → ${leave['end_date']}';
@@ -438,16 +534,20 @@ class _RequestsPageState extends State<RequestsPage> {
       dateInfo = '';
     }
 
-    final statusColor = {
-      'pending': const Color(0xFFCA8A04),
-      'approved': const Color(0xFF16A34A),
-      'rejected': const Color(0xFFEF4444),
-    }[status] ?? Colors.grey;
-    final statusLabel = {
-      'pending': 'Pending',
-      'approved': 'Approved',
-      'rejected': 'Rejected',
-    }[status] ?? status;
+    final statusColor =
+        {
+          'pending': const Color(0xFFCA8A04),
+          'approved': const Color(0xff17a97f),
+          'rejected': const Color(0xFFEF4444),
+        }[status] ??
+        Colors.grey;
+    final statusLabel =
+        {
+          'pending': 'Pending',
+          'approved': 'Approved',
+          'rejected': 'Rejected',
+        }[status] ??
+        status;
 
     return GestureDetector(
       onTap: () => _showLeaveDetail(leave),
@@ -459,31 +559,63 @@ class _RequestsPageState extends State<RequestsPage> {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: scheme.primary.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Text(typeLabel, style: tt.labelSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
+                  child: Text(
+                    typeLabel,
+                    style: tt.labelSmall?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
                 const Spacer(),
-                Icon(LucideIcons.user, size: 14, color: scheme.onSurfaceVariant),
+                Icon(
+                  TablerIcons.user,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
                 const SizedBox(width: 4),
-                Text(_workerName(leave), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                Text(
+                  _workerName(leave),
+                  style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                ),
               ],
             ),
             const SizedBox(height: 8),
             Row(
               children: [
                 if (dateInfo.isNotEmpty)
-                  Expanded(child: Text(dateInfo, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600))),
+                  Expanded(
+                    child: Text(
+                      dateInfo,
+                      style: tt.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Text(statusLabel, style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w700)),
+                  child: Text(
+                    statusLabel,
+                    style: tt.labelSmall?.copyWith(
+                      color: statusColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -499,25 +631,32 @@ class _RequestsPageState extends State<RequestsPage> {
     final type = leave['type']?.toString() ?? '';
     final status = leave['status']?.toString() ?? 'pending';
     final days = leave['days'] ?? 1;
-    final typeLabel = {
-      'full_day': 'Full Day',
-      'half_day': 'Half Day',
-      'vacational': 'Vacational',
-      'emergency': 'Emergency',
-    }[type] ?? type;
+    final typeLabel =
+        {
+          'full_day': 'Full Day',
+          'half_day': 'Half Day',
+          'vacational': 'Vacational',
+          'emergency': 'Emergency',
+        }[type] ??
+        type;
 
-    final statusColor = {
-      'pending': const Color(0xFFF59E0B),
-      'approved': const Color(0xFF16A34A),
-      'rejected': const Color(0xFFEF4444),
-    }[status] ?? Colors.grey;
-    final statusLabel = {
-      'pending': 'Pending',
-      'approved': 'Approved',
-      'rejected': 'Rejected',
-    }[status] ?? status;
+    final statusColor =
+        {
+          'pending': const Color(0xFFF59E0B),
+          'approved': const Color(0xff17a97f),
+          'rejected': const Color(0xFFEF4444),
+        }[status] ??
+        Colors.grey;
+    final statusLabel =
+        {
+          'pending': 'Pending',
+          'approved': 'Approved',
+          'rejected': 'Rejected',
+        }[status] ??
+        status;
 
-    final startDate = leave['leave_date']?.toString() ?? leave['start_date']?.toString();
+    final startDate =
+        leave['leave_date']?.toString() ?? leave['start_date']?.toString();
     final endDate = leave['end_date']?.toString();
     final halfStart = leave['half_start_time']?.toString();
     final halfEnd = leave['half_end_time']?.toString();
@@ -529,10 +668,8 @@ class _RequestsPageState extends State<RequestsPage> {
       return DateFormat('dd MMM').format(dt);
     }
 
-    showModalBottomSheet(
+    showSpringSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (ctx) => DraggableScrollableSheet(
         initialChildSize: 0.75,
         minChildSize: 0.4,
@@ -541,7 +678,7 @@ class _RequestsPageState extends State<RequestsPage> {
         builder: (ctx, scrollCtrl) => Container(
           decoration: BoxDecoration(
             color: scheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
           ),
           child: ListView(
             controller: scrollCtrl,
@@ -549,9 +686,13 @@ class _RequestsPageState extends State<RequestsPage> {
             children: [
               Center(
                 child: Container(
-                  width: 36, height: 4,
+                  width: 36,
+                  height: 4,
                   margin: const EdgeInsets.only(top: 12, bottom: 8),
-                  decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
 
@@ -563,19 +704,38 @@ class _RequestsPageState extends State<RequestsPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Leave Request', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                          Text(
+                            'Leave Request',
+                            style: tt.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                           const SizedBox(height: 2),
-                          Text(_workerName(leave), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                          Text(
+                            _workerName(leave),
+                            style: tt.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
                         ],
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 5,
+                      ),
                       decoration: BoxDecoration(
                         color: statusColor.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: Text(statusLabel, style: tt.labelMedium?.copyWith(color: statusColor, fontWeight: FontWeight.w700)),
+                      child: Text(
+                        statusLabel,
+                        style: tt.labelMedium?.copyWith(
+                          color: statusColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -594,12 +754,27 @@ class _RequestsPageState extends State<RequestsPage> {
                   children: [
                     Row(
                       children: [
-                        _infoChip(LucideIcons.tag, typeLabel, scheme.primary, tt),
+                        _infoChip(
+                          TablerIcons.tag,
+                          typeLabel,
+                          scheme.primary,
+                          tt,
+                        ),
                         const SizedBox(width: 8),
-                        _infoChip(LucideIcons.calendarDays, '$days day${days == 1 ? '' : 's'}', scheme.onSurface, tt),
+                        _infoChip(
+                          TablerIcons.calendar_event,
+                          '$days day${days == 1 ? '' : 's'}',
+                          scheme.onSurface,
+                          tt,
+                        ),
                         if (type == 'half_day' && halfStart != null) ...[
                           const SizedBox(width: 8),
-                          _infoChip(LucideIcons.clock, '$halfStart - $halfEnd', scheme.onSurface, tt),
+                          _infoChip(
+                            TablerIcons.clock,
+                            '$halfStart - $halfEnd',
+                            scheme.onSurface,
+                            tt,
+                          ),
                         ],
                       ],
                     ),
@@ -607,27 +782,44 @@ class _RequestsPageState extends State<RequestsPage> {
                 ),
               ),
 
-              if (type == 'vacational' && startDate != null && endDate != null) ...[
+              if (type == 'vacational' &&
+                  startDate != null &&
+                  endDate != null) ...[
                 const SizedBox(height: 12),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(
                     children: [
                       Expanded(
-                        child: _dateBlock('Start', fmtShort(startDate), const Color(0xFF1D7A4F), tt),
+                        child: _dateBlock(
+                          'Start',
+                          fmtShort(startDate),
+                          const Color(0xff0f7a5a),
+                          tt,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Container(
-                        width: 36, height: 36,
+                        width: 36,
+                        height: 36,
                         decoration: BoxDecoration(
                           color: scheme.surfaceContainerHighest,
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(LucideIcons.arrowRight, size: 16, color: scheme.onSurfaceVariant),
+                        child: Icon(
+                          TablerIcons.arrow_right,
+                          size: 16,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: _dateBlock('End', fmtShort(endDate), const Color(0xFFEF4444), tt),
+                        child: _dateBlock(
+                          'End',
+                          fmtShort(endDate),
+                          const Color(0xFFEF4444),
+                          tt,
+                        ),
                       ),
                     ],
                   ),
@@ -636,7 +828,12 @@ class _RequestsPageState extends State<RequestsPage> {
                 const SizedBox(height: 12),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: _dateBlock('Date', fmtShort(startDate), scheme.primary, tt),
+                  child: _dateBlock(
+                    'Date',
+                    fmtShort(startDate),
+                    scheme.primary,
+                    tt,
+                  ),
                 ),
               ],
 
@@ -647,18 +844,32 @@ class _RequestsPageState extends State<RequestsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Reason', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant, fontSize: 11)),
+                    Text(
+                      'Reason',
+                      style: tt.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 11,
+                      ),
+                    ),
                     const SizedBox(height: 6),
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: scheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(10),
+                        color: scheme.surfaceContainerHighest.withValues(
+                          alpha: 0.3,
+                        ),
+                        borderRadius: BorderRadius.circular(18),
                       ),
                       child: Text(
-                        leave['reason']?.toString().isNotEmpty == true ? leave['reason'].toString() : 'No reason provided',
-                        style: tt.bodyMedium?.copyWith(color: scheme.onSurface, height: 1.4),
+                        leave['reason']?.toString().isNotEmpty == true
+                            ? leave['reason'].toString()
+                            : 'No reason provided',
+                        style: tt.bodyMedium?.copyWith(
+                          color: scheme.onSurface,
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ],
@@ -672,10 +883,17 @@ class _RequestsPageState extends State<RequestsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Attachment', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant, fontSize: 11)),
+                      Text(
+                        'Attachment',
+                        style: tt.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 11,
+                        ),
+                      ),
                       const SizedBox(height: 6),
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(22),
                         child: Image.network(
                           leave['photo_url'].toString(),
                           width: double.infinity,
@@ -687,9 +905,14 @@ class _RequestsPageState extends State<RequestsPage> {
                             height: 100,
                             decoration: BoxDecoration(
                               color: scheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(22),
                             ),
-                            child: Center(child: Icon(LucideIcons.imageOff, color: scheme.outline)),
+                            child: Center(
+                              child: Icon(
+                                TablerIcons.photo_off,
+                                color: scheme.outline,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -698,23 +921,39 @@ class _RequestsPageState extends State<RequestsPage> {
                 ),
               ],
 
-              if (leave['admin_remark']?.toString().isNotEmpty == true && status != 'pending') ...[
+              if (leave['admin_remark']?.toString().isNotEmpty == true &&
+                  status != 'pending') ...[
                 const SizedBox(height: 16),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Admin Remark', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant, fontSize: 11)),
+                      Text(
+                        'Admin Remark',
+                        style: tt.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 11,
+                        ),
+                      ),
                       const SizedBox(height: 6),
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: scheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(10),
+                          color: scheme.surfaceContainerHighest.withValues(
+                            alpha: 0.3,
+                          ),
+                          borderRadius: BorderRadius.circular(18),
                         ),
-                        child: Text(leave['admin_remark'].toString(), style: tt.bodyMedium?.copyWith(color: scheme.onSurface, height: 1.4)),
+                        child: Text(
+                          leave['admin_remark'].toString(),
+                          style: tt.bodyMedium?.copyWith(
+                            color: scheme.onSurface,
+                            height: 1.4,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -735,12 +974,20 @@ class _RequestsPageState extends State<RequestsPage> {
                           },
                           style: OutlinedButton.styleFrom(
                             foregroundColor: const Color(0xFFba1a1a),
-                            side: const BorderSide(color: Color(0xFFba1a1a), width: 1.5),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            side: const BorderSide(
+                              color: Color(0xFFba1a1a),
+                              width: 1.5,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(22),
+                            ),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
-                          icon: const Icon(LucideIcons.x, size: 18),
-                          label: const Text('Reject', style: TextStyle(fontWeight: FontWeight.w600)),
+                          icon: const Icon(TablerIcons.x, size: 18),
+                          label: const Text(
+                            'Reject',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -751,12 +998,17 @@ class _RequestsPageState extends State<RequestsPage> {
                             _decideLeave(leave, 'approved');
                           },
                           style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF1D7A4F),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            backgroundColor: const Color(0xff0f7a5a),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(22),
+                            ),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
-                          icon: const Icon(LucideIcons.check, size: 18),
-                          label: const Text('Approve', style: TextStyle(fontWeight: FontWeight.w600)),
+                          icon: const Icon(TablerIcons.check, size: 18),
+                          label: const Text(
+                            'Approve',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
                         ),
                       ),
                     ],
@@ -775,33 +1027,51 @@ class _RequestsPageState extends State<RequestsPage> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(22),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 13, color: color),
           const SizedBox(width: 5),
-          Text(label, style: tt.labelSmall?.copyWith(color: color, fontWeight: FontWeight.w600)),
+          Text(
+            label,
+            style: tt.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
   }
 
   Widget _dateBlock(String label, String date, Color accent, TextTheme tt) {
-    final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: accent.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: accent.withValues(alpha: 0.15)),
       ),
       child: Column(
         children: [
-          Text(label, style: tt.labelSmall?.copyWith(color: accent, fontWeight: FontWeight.w600, fontSize: 10)),
+          Text(
+            label,
+            style: tt.labelSmall?.copyWith(
+              color: accent,
+              fontWeight: FontWeight.w600,
+              fontSize: 10,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text(date, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: accent)),
+          Text(
+            date,
+            style: tt.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
         ],
       ),
     );
@@ -823,24 +1093,47 @@ class _RequestsPageState extends State<RequestsPage> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1D7A4F).withValues(alpha: 0.12),
+                  color: const Color(0xff0f7a5a).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: Text('Advance', style: tt.labelSmall?.copyWith(color: const Color(0xFF1D7A4F), fontWeight: FontWeight.w700)),
+                child: Text(
+                  'Advance',
+                  style: tt.labelSmall?.copyWith(
+                    color: const Color(0xff0f7a5a),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
               const Spacer(),
-              Icon(LucideIcons.user, size: 16, color: scheme.onSurfaceVariant),
+              Icon(TablerIcons.user, size: 16, color: scheme.onSurfaceVariant),
               const SizedBox(width: 4),
-              Text(_workerName(loan), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+              Text(
+                _workerName(loan),
+                style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
             ],
           ),
           const SizedBox(height: 8),
-          Text('₹${total.toStringAsFixed(0)}', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800, color: scheme.primary)),
+          Text(
+            '₹${total.toStringAsFixed(0)}',
+            style: tt.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: scheme.primary,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text(loan['reason']?.toString() ?? '', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant), maxLines: 3, overflow: TextOverflow.ellipsis),
+          Text(
+            loan['reason']?.toString() ?? '',
+            style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
           if (_formatTime(loan['applied_at']?.toString()).isNotEmpty) ...[
             const SizedBox(height: 4),
-            Text('Applied ${_formatTime(loan['applied_at']?.toString())}', style: tt.bodySmall?.copyWith(color: scheme.outline)),
+            Text(
+              'Applied ${_formatTime(loan['applied_at']?.toString())}',
+              style: tt.bodySmall?.copyWith(color: scheme.outline),
+            ),
           ],
           const SizedBox(height: 12),
           _actionButtons(
@@ -879,12 +1172,16 @@ class _SegmentButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: isActive ? scheme.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(22),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 18, color: isActive ? scheme.onPrimary : scheme.onSurfaceVariant),
+              Icon(
+                icon,
+                size: 18,
+                color: isActive ? scheme.onPrimary : scheme.onSurfaceVariant,
+              ),
               const SizedBox(width: 6),
               Text(
                 label,
@@ -923,7 +1220,7 @@ class _LeaveTabButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: isActive ? scheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(22),
           border: isActive ? null : Border.all(color: scheme.outlineVariant),
         ),
         child: Text(

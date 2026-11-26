@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 
 class MenuItem extends StatelessWidget {
   final IconData icon;
@@ -22,12 +22,10 @@ class MenuItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sc = Theme.of(context).colorScheme;
-    final effectiveIconColor = iconColor ?? (isDestructive
-        ? sc.error
-        : sc.onSurfaceVariant);
-    final effectiveLabelColor = labelColor ?? (isDestructive
-        ? sc.error
-        : sc.onSurface);
+    final effectiveIconColor =
+        iconColor ?? (isDestructive ? sc.error : sc.onSurfaceVariant);
+    final effectiveLabelColor =
+        labelColor ?? (isDestructive ? sc.error : sc.onSurface);
 
     return InkWell(
       onTap: onTap,
@@ -47,11 +45,7 @@ class MenuItem extends StatelessWidget {
                 ),
               ),
             ),
-            Icon(
-              LucideIcons.chevronRight,
-              size: 20,
-              color: sc.outlineVariant,
-            ),
+            Icon(TablerIcons.chevron_right, size: 20, color: sc.outlineVariant),
           ],
         ),
       ),

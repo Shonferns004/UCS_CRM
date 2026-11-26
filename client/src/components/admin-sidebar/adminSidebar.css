@@ -1,0 +1,4127 @@
+/* ==========================================================================
+   CRM sidebar — one compact light rail
+   --------------------------------------------------------------------------
+   Used by Super Admin, NGO Admin, HR, Recruiter, FRO and Event Head. The
+   selectors are scoped to those panel roots, so Accounts (which owns its own
+   rail file), the documentation rail and the embedded sub-apps are untouched.
+
+   System
+   - 224px expanded, 68px icon rail on desktop
+   - 40px rows, 8px radius, 18px line icons
+   - quiet uppercase section labels above each group
+   - neutral filled active pill, muted resting rows
+   - rows lift 1px on hover, settle 1px on press
+   - labels disappear and the rail narrows below 821px only
+   ========================================================================== */
+
+.panel-sa {
+  --rail-w: 224px;
+  --rail-w-rail: 68px;
+  --rail-bg: var(--bg-card);
+  --rail-line: var(--border);
+  --rail-ink: var(--text);
+  --rail-muted: var(--text-soft);
+  --rail-accent: var(--primary);
+  --rail-hover: color-mix(in srgb, var(--rail-accent) 7%, var(--rail-bg));
+  --rail-active: color-mix(in srgb, var(--rail-accent) 15%, var(--rail-bg));
+  --rail-item-h: 40px;
+  --rail-radius: 8px;
+  --rail-ease: 200ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.panel-ngo-admin {
+  --rail-w: 224px;
+  --rail-w-rail: 68px;
+  --rail-bg: var(--card-bg);
+  --rail-line: var(--line);
+  --rail-ink: var(--ink);
+  --rail-muted: var(--ink-soft);
+  --rail-accent: var(--sage);
+  --rail-hover: color-mix(in srgb, var(--rail-accent) 7%, var(--rail-bg));
+  --rail-active: color-mix(in srgb, var(--rail-accent) 15%, var(--rail-bg));
+  --rail-item-h: 40px;
+  --rail-radius: 8px;
+  --rail-ease: 200ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.panel-hr,
+.panel-recruiter,
+.panel-fro,
+.panel-event-head {
+  --rail-w: 224px;
+  --rail-w-rail: 68px;
+  --rail-bg: var(--card-bg);
+  --rail-line: var(--line);
+  --rail-ink: var(--ink);
+  --rail-muted: var(--ink-soft);
+  --rail-accent: var(--sage);
+  --rail-hover: color-mix(in srgb, var(--rail-accent) 7%, var(--rail-bg));
+  --rail-active: color-mix(in srgb, var(--rail-accent) 15%, var(--rail-bg));
+  --rail-item-h: 40px;
+  --rail-radius: 8px;
+  --rail-ease: 200ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* HR and Recruiter sit on the paper token; the other panels use their card. */
+.panel-hr,
+.panel-recruiter {
+  --rail-bg: var(--paper);
+}
+
+/* Event Manager carries its own blue identity, so the rail follows it. */
+.panel-event-head {
+  --rail-accent: var(--eh-primary, #2036bd);
+}
+
+
+
+/* ── Surface ─────────────────────────────────────────────────────────────── */
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) {
+  width: var(--rail-w);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: var(--rail-bg);
+  color: var(--rail-ink);
+  border-right: 1px solid var(--rail-line);
+  overflow: hidden;
+  /* transform is here for the phone drawer; width is for the desktop rail. */
+  transition: width var(--rail-ease), transform 250ms ease;
+  z-index: 40;
+}
+
+.panel-ngo-admin .app > .sidebar {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* This panel is fixed, not flex, so its content offset has to follow the rail. */
+.panel-ngo-admin .app > .main {
+  margin-left: var(--rail-w);
+  transition: margin-left var(--rail-ease);
+}
+
+.panel-ngo-admin .app > .main > .topbar {
+  left: var(--rail-w);
+  transition: left var(--rail-ease);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rail-line);
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-mark {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--rail-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-brand {
+  min-width: 0;
+  flex: 1;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-brand h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--rail-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-brand span {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--rail-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* In-flow, not absolutely positioned, so it can never overlap the brand or be
+   clipped by the header border. */
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--rail-muted);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-collapse:hover {
+  background: var(--rail-hover);
+  border-color: var(--rail-line);
+  color: var(--rail-ink);
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-collapse:active {
+  transform: translateY(1px);
+}
+
+/* ── Navigation ──────────────────────────────────────────────────────────── */
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 2px;
+  padding: 10px 12px 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-section {
+  margin: 16px 0 6px;
+  padding: 0 12px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--rail-muted);
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-section:first-child {
+  margin-top: 2px;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .snav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--rail-item-h);
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--rail-radius);
+  background: transparent;
+  color: var(--rail-muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .snav-item:hover {
+  background: var(--rail-hover);
+  color: var(--rail-ink);
+  transform: translateY(-1px);
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .snav-item:active {
+  transform: translateY(1px);
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .snav-item.active,
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .snav-item[aria-current='page'] {
+  background: var(--rail-active);
+  color: var(--rail-accent);
+  font-weight: 600;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--rail-muted);
+  transition: color 150ms ease;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .ico svg {
+  display: block;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .snav-item:hover .ico {
+  color: var(--rail-ink);
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .snav-item.active .ico,
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .snav-item[aria-current='page'] .ico {
+  color: var(--rail-accent);
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-item-body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .sb-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .snav-item .chat-nav-badge {
+  margin-left: auto;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) .snav-item .chat-nav-badge {
+  background: #ef4444;
+  color: #fff;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar,
+  .panel-accounts .app > .sidebar
+) .sb-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px 14px;
+  border-top: 1px solid var(--rail-line);
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar,
+  .panel-accounts .app > .sidebar
+) .sb-footer .snav-item {
+  width: 100%;
+}
+
+.panel-accounts .app > .sidebar .sidebar-nav .sb-section {
+  display: none;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar,
+  .panel-accounts .app > .sidebar
+) .sb-user {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 6px 10px;
+  margin-top: 6px;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar,
+  .panel-accounts .app > .sidebar
+) .sb-avatar {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--rail-ink) 8%, var(--rail-bg));
+  color: var(--rail-ink);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.sb-user .sb-item-body {
+  flex: 0 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  text-align: left;
+}
+
+/* The initials stay visible in the 64px rail; the name only appears when the
+   rail is open. */
+.panel-fro .app > .sidebar:not(:is(.rail-hover, .rail-pinned)) .sb-user {
+  justify-content: center;
+  padding: 5px;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar,
+  .panel-accounts .app > .sidebar
+) .sb-user-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar,
+  .panel-accounts .app > .sidebar
+) .sb-user-text strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rail-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar,
+  .panel-accounts .app > .sidebar
+) .sb-user-text span {
+  font-size: 10px;
+  color: var(--rail-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Small pin control beside the mark: toggles the rail open without hovering. */
+.sb-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid var(--rail-line, var(--line));
+  border-radius: 5px;
+  background: transparent;
+  color: var(--rail-muted, var(--ink-soft));
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.sb-pin:hover {
+  background: var(--rail-hover, var(--bg));
+  border-color: var(--rail-accent, var(--sage));
+  color: var(--rail-ink, var(--ink));
+}
+
+.sb-pin:active {
+  transform: translateY(1px);
+}
+
+/* ── Focus ───────────────────────────────────────────────────────────────── */
+
+:is(
+  .panel-sa .app > .sa-sidebar,
+  .panel-ngo-admin .app > .sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar
+) :focus-visible {
+  outline: 2px solid var(--rail-accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ── Collapsed icon rail (desktop only) ─────────────────────────────────── */
+
+@media (min-width: 821px) {
+  .panel-sa .app.nav-collapsed > .sa-sidebar,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar {
+    width: var(--rail-w-rail);
+  }
+
+  .panel-ngo-admin .app.nav-collapsed > .main {
+    margin-left: var(--rail-w-rail);
+  }
+
+  .panel-ngo-admin .app.nav-collapsed > .main > .topbar {
+    left: var(--rail-w-rail);
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-header,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-header {
+    padding: 10px 6px;
+    gap: 4px;
+    justify-content: center;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-brand,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-brand {
+    display: none;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-mark,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    font-size: 10px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-collapse,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-collapse {
+    width: 24px;
+    height: 24px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sidebar-nav,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sidebar-nav {
+    padding: 10px 8px 8px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-section,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-section {
+    margin: 0;
+    height: 0;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-footer,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-footer {
+    padding: 10px 8px 14px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .snav-item,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .snav-item {
+    justify-content: center;
+    padding: 0;
+    gap: 0;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .snav-item:hover,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .snav-item:hover {
+    transform: none;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-item-body,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-item-body {
+    display: none;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-user,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-user {
+    justify-content: center;
+    padding: 10px 0 0;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-user-text,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-user-text {
+    display: none;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .ico,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .ico {
+    width: 20px;
+    height: 20px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .snav-item .chat-nav-badge,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .snav-item .chat-nav-badge {
+    position: absolute;
+    top: 3px;
+    right: 6px;
+    margin-left: 0;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 9px;
+  }
+}
+
+/* Event Head has its own calendar-route collapse class, so mirror the rail
+   treatment there as well. */
+@media (min-width: 821px) {
+  .panel-event-head .app.sidebar-collapsed > .sidebar .sb-header {
+    padding: 10px 6px;
+    justify-content: center;
+  }
+
+  .panel-event-head .app.sidebar-collapsed > .sidebar .sb-brand,
+  .panel-event-head .app.sidebar-collapsed > .sidebar .sb-section,
+  .panel-event-head .app.sidebar-collapsed > .sidebar .sb-item-body {
+    display: none;
+  }
+
+  .panel-event-head .app.sidebar-collapsed > .sidebar .snav-item {
+    justify-content: center;
+    padding: 0;
+    gap: 0;
+  }
+
+  .panel-event-head .app.sidebar-collapsed > .sidebar .ico {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+@media (min-width: 821px) {
+  .panel-accounts .sidebar.nav-collapsed .sb-user {
+    justify-content: center;
+    padding: 10px 0 0;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .panel-accounts .sidebar.nav-collapsed .sb-user-text {
+    display: none;
+  }
+
+  .panel-accounts .sidebar.nav-collapsed .sb-footer .snav-item {
+    justify-content: center;
+    padding: 0;
+    gap: 0;
+  }
+
+  .panel-accounts .sidebar.nav-collapsed .sb-footer .sb-item-body {
+    display: none;
+  }
+}
+
+/* ── Developer & Social panels ───────────────────────────────────────────── */
+/* These two shells paint their own inline layout; the links use this shared
+   skin so the active row and hover match the rest of the CRM. */
+
+.panel-dev .panel-side-aside {
+  --side-accent: #5B6B4E;
+  --side-bg: var(--card-bg);
+  --side-ink: var(--ink);
+  --side-muted: var(--ink-soft);
+}
+
+.panel-dev .panel-side-aside .panel-side-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  margin: 1px 12px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--side-muted);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.panel-dev .panel-side-aside .panel-side-link:hover {
+  background: color-mix(in srgb, var(--side-accent) 8%, var(--side-bg));
+  color: var(--side-ink);
+  transform: translateY(-1px);
+}
+
+.panel-dev .panel-side-aside .panel-side-link:active {
+  transform: translateY(1px);
+}
+
+.panel-dev .panel-side-aside .panel-side-link.active {
+  background: color-mix(in srgb, var(--side-accent) 15%, var(--side-bg));
+  color: var(--side-accent);
+  font-weight: 600;
+}
+
+.panel-dev .panel-side-aside .panel-side-link.active svg {
+  color: var(--side-accent);
+}
+
+.panel-dev .panel-side-aside .panel-side-link .chat-nav-badge {
+  margin-left: auto;
+  background: #ef4444;
+  color: #fff;
+}
+
+.panel-dev .panel-side-aside.is-collapsed .panel-side-link {
+  justify-content: center;
+  margin: 1px 8px;
+  padding: 0;
+  gap: 0;
+}
+
+.panel-dev .panel-side-aside.is-collapsed .panel-side-link:hover {
+  transform: none;
+}
+
+.panel-dev .panel-side-aside .sb-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.panel-dev .panel-side-aside .sb-footer .snav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.panel-dev .panel-side-aside .sb-footer .snav-item:hover {
+  background: color-mix(in srgb, var(--side-accent) 7%, var(--side-bg));
+  color: var(--ink);
+}
+
+.panel-dev .panel-side-aside .sb-footer .ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.panel-dev .panel-side-aside .sb-footer .sb-item-body {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.panel-dev .panel-side-aside .sb-footer .sb-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-dev .panel-side-aside.is-collapsed .sb-footer .snav-item {
+  justify-content: center;
+  padding: 0;
+  gap: 0;
+}
+
+.panel-dev .panel-side-aside.is-collapsed .sb-footer .sb-item-body {
+  display: none;
+}
+
+/* ── Phone: the sidebar is a drawer, never a rail ─────────────────────────── */
+
+@media (max-width: 820px) {
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-sa .app.nav-collapsed > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-ngo-admin .app.nav-collapsed > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) {
+    width: var(--rail-w);
+  }
+
+  /* The drawer has to sit above its own backdrop. */
+  .panel-sa .app > .sa-sidebar,
+  .panel-sa .app.nav-collapsed > .sa-sidebar,
+  .panel-hr .app > .sidebar,
+  .panel-recruiter .app > .sidebar,
+  .panel-fro .app > .sidebar,
+  .panel-event-head .app > .sidebar {
+    z-index: 100;
+  }
+
+  .panel-ngo-admin .app > .sidebar,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar {
+    z-index: 1100;
+  }
+
+  .panel-ngo-admin .app > .main,
+  .panel-ngo-admin .app.nav-collapsed > .main {
+    margin-left: 0;
+  }
+
+  .panel-ngo-admin .app > .main > .topbar,
+  .panel-ngo-admin .app.nav-collapsed > .main > .topbar {
+    left: 0;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-header,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-header {
+    padding: 12px 14px;
+    gap: 10px;
+    justify-content: flex-start;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-brand,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-brand {
+    display: block;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-mark,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    font-size: 12px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-collapse,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-collapse {
+    display: none;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sidebar-nav,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sidebar-nav {
+    padding: 10px 12px 8px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-footer,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-footer {
+    padding: 10px 12px 14px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-section,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-section {
+    margin: 16px 0 6px;
+    height: auto;
+    padding: 0 12px;
+    opacity: 0.85;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .snav-item,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .snav-item {
+    justify-content: flex-start;
+    padding: 0 12px;
+    gap: 12px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-item-body,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-item-body {
+    display: flex;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-user,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-user {
+    justify-content: flex-start;
+    padding: 8px 10px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .sb-user-text,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .sb-user-text {
+    display: flex;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .ico,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .ico {
+    width: 18px;
+    height: 18px;
+  }
+
+  .panel-sa .app.nav-collapsed > .sa-sidebar .snav-item .chat-nav-badge,
+  .panel-ngo-admin .app.nav-collapsed > .sidebar .snav-item .chat-nav-badge {
+    position: static;
+    margin-left: auto;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .panel-accounts .sidebar .sb-user,
+  .panel-accounts .sidebar.nav-collapsed .sb-user {
+    justify-content: flex-start;
+    padding: 8px 10px;
+  }
+
+  .panel-accounts .sidebar .sb-user-text,
+  .panel-accounts .sidebar.nav-collapsed .sb-user-text {
+    display: flex;
+  }
+
+  .panel-accounts .sidebar .sb-footer .snav-item,
+  .panel-accounts .sidebar.nav-collapsed .sb-footer .snav-item {
+    justify-content: flex-start;
+    padding: 0 10px;
+    gap: 10px;
+  }
+
+  .panel-accounts .sidebar .sb-footer .sb-item-body,
+  .panel-accounts .sidebar.nav-collapsed .sb-footer .sb-item-body {
+    display: flex;
+  }
+}
+
+/* ── Desktop: no global nav bar ─────────────────────────────────────────── */
+/* The page title and its controls stay, but the bar chrome is gone: the header
+   sits on the page surface instead of looking like a separate navigation bar. */
+@media (min-width: 821px) {
+  .panel-sa .topbar,
+  .panel-ngo-admin .main > .topbar,
+  .panel-hr .topbar,
+  .panel-recruiter .topbar,
+  .panel-fro .topbar,
+  .panel-event-head .topbar,
+  .panel-accounts .topbar,
+  .panel-dev .panel-dev-topbar {
+    display: none !important;
+    position: static !important;
+    background: transparent !important;
+    border-bottom: 0 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .panel-ngo-admin .main {
+    padding-top: 0 !important;
+  }
+
+  .panel-ngo-admin .main > .topbar {
+    height: auto !important;
+  }
+
+  .panel-dev .panel-dev-topbar {
+    background: transparent !important;
+    border-bottom: 0 !important;
+  }
+
+  .sim-app .sim-topbar {
+    position: static !important;
+    background: transparent !important;
+    border-bottom: 0 !important;
+  }
+}
+
+/* ── Hover-expand rail ───────────────────────────────────────────────────── */
+/* Rest: a 64px icon rail. Hover: it opens over the page, the content never
+   shifts. The same behaviour is repeated for Accounts, Dev/Social and SIM
+   because those three paint their own sidebar shells. */
+@media (min-width: 821px) {
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) {
+    position: fixed !important;
+    top: 12px !important;
+    left: 12px !important;
+    bottom: 12px !important;
+    height: auto !important;
+    width: 64px !important;
+    z-index: 1200 !important;
+    overflow: hidden !important;
+    border: 1px solid var(--rail-line) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.10) !important;
+    transition: width 550ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 550ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) {
+    width: 210px !important;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16) !important;
+  }
+
+  .panel-sa .main,
+  .panel-hr .main,
+  .panel-recruiter .main,
+  .panel-fro .main,
+  .panel-event-head .main,
+  .panel-accounts .main,
+  .panel-ngo-admin .app > .main {
+    margin-left: 88px !important;
+    transition: margin-left 550ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  }
+
+  .panel-sa .sa-sidebar:hover ~ .main,
+  .panel-hr .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-recruiter .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-fro .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-event-head .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-ngo-admin .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main {
+    margin-left: 234px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-header {
+    justify-content: center !important;
+    padding: 10px 0 !important;
+    gap: 0 !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) .sb-header {
+    justify-content: flex-start !important;
+    padding: 10px 12px !important;
+    gap: 9px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-brand {
+    display: none !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) .sb-brand {
+    display: block !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-mark {
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 8px !important;
+    font-size: 10px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) .sb-mark {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 11px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-brand h1 {
+    font-size: 13px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-brand span {
+    font-size: 9px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-collapse {
+    display: none !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sidebar-nav {
+    padding: 8px 6px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) .sidebar-nav {
+    padding: 8px 10px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .snav-item {
+    justify-content: center !important;
+    min-height: 36px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    font-size: 12px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) .snav-item {
+    justify-content: flex-start !important;
+    padding: 0 10px !important;
+    gap: 9px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-item-body {
+    position: absolute !important;
+    right: 4px !important;
+    top: 2px !important;
+    width: auto !important;
+    display: flex !important;
+    flex: 0 0 auto !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) .sb-item-body {
+    position: static !important;
+    width: auto !important;
+    flex: 1 !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-item-label {
+    display: none !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) .sb-item-label {
+    display: inline !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .ico {
+    width: 16px !important;
+    height: 16px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-footer {
+    padding: 8px 6px 10px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) .sb-footer {
+    padding: 8px 10px 12px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .snav-item .chat-nav-badge {
+    position: absolute !important;
+    top: 2px !important;
+    right: 2px !important;
+    margin-left: 0 !important;
+    min-width: 15px !important;
+    height: 15px !important;
+    padding: 0 3px !important;
+    font-size: 8px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) .snav-item .chat-nav-badge {
+    position: static !important;
+    margin-left: auto !important;
+    min-width: 18px !important;
+    height: 18px !important;
+    padding: 0 5px !important;
+    font-size: 10px !important;
+  }
+
+  /* Accounts owns its own shell; force the same hover rail. */
+  .panel-accounts .app > .sidebar {
+    position: fixed !important;
+    top: 12px !important;
+    left: 12px !important;
+    bottom: 12px !important;
+    height: auto !important;
+    width: 64px !important;
+    z-index: 1200 !important;
+    overflow: hidden !important;
+    border: 1px solid var(--rail-line) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.10) !important;
+    transition: width 550ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 550ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) {
+    width: 210px !important;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16) !important;
+  }
+
+  .panel-accounts .app > .sidebar .sb-header {
+    justify-content: center !important;
+    padding: 10px 0 !important;
+    gap: 0 !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .sb-header {
+    justify-content: flex-start !important;
+    padding: 10px 12px !important;
+    gap: 9px !important;
+  }
+
+  .panel-accounts .app > .sidebar .sb-brand {
+    display: none !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .sb-brand {
+    display: block !important;
+  }
+
+  .panel-accounts .app > .sidebar .sb-mark {
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 8px !important;
+    font-size: 10px !important;
+  }
+
+  .panel-accounts .app > .sidebar .sb-collapse {
+    display: none !important;
+  }
+
+  .panel-accounts .app > .sidebar .sidebar-nav {
+    padding: 8px 6px !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .sidebar-nav {
+    padding: 8px 10px !important;
+  }
+
+  .panel-accounts .app > .sidebar .snav-item {
+    justify-content: center !important;
+    min-height: 36px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    font-size: 12px !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .snav-item {
+    justify-content: flex-start !important;
+    padding: 0 10px !important;
+    gap: 9px !important;
+  }
+
+  .panel-accounts .app > .sidebar .sb-item-body {
+    position: absolute !important;
+    right: 4px !important;
+    top: 2px !important;
+    width: auto !important;
+    display: flex !important;
+    flex: 0 0 auto !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .sb-item-body {
+    position: static !important;
+    width: auto !important;
+    flex: 1 !important;
+  }
+
+  .panel-accounts .app > .sidebar .sb-item-label {
+    display: none !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .sb-item-label {
+    display: inline !important;
+  }
+
+  .panel-accounts .app > .sidebar .snav-chevron {
+    display: none !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .snav-chevron {
+    display: inline-flex !important;
+  }
+
+  /* In the collapsed rail the group keeps its icon; once the label appears the
+     icon is redundant, so the header reads as a quieter section row. */
+  .panel-accounts .app > .sidebar .snav-group-header .ico {
+    display: inline-flex !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .snav-group-header .ico {
+    display: none !important;
+  }
+
+  .panel-accounts .app > .sidebar .snav-group-items {
+    display: none !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .snav-group-items:not(.collapsed) {
+    display: flex !important;
+  }
+
+  .panel-accounts .app > .sidebar .sb-footer {
+    padding: 8px 6px 10px !important;
+  }
+
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .sb-footer {
+    padding: 8px 10px 12px !important;
+  }
+
+  /* Dev / Social inline shells. */
+  .panel-dev .panel-side-aside {
+    position: fixed !important;
+    top: 12px !important;
+    left: 12px !important;
+    bottom: 12px !important;
+    height: auto !important;
+    width: 64px !important;
+    z-index: 1200 !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.10) !important;
+    transition: width 550ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 550ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  }
+
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) {
+    width: 210px !important;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16) !important;
+  }
+
+  .panel-dev main {
+    margin-left: 88px !important;
+    transition: margin-left 550ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  }
+
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) ~ main {
+    margin-left: 234px !important;
+  }
+
+  .panel-dev .panel-side-aside > div:first-child {
+    padding: 10px 0 !important;
+    justify-content: center !important;
+  }
+
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) > div:first-child {
+    padding: 10px 12px !important;
+    justify-content: flex-start !important;
+  }
+
+  .panel-dev .panel-side-aside > div:first-child > div:nth-child(2) {
+    display: none !important;
+  }
+
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) > div:first-child > div:nth-child(2) {
+    display: block !important;
+  }
+
+  .panel-dev .panel-side-aside .panel-side-link {
+    justify-content: center !important;
+    min-height: 36px !important;
+    margin: 1px 4px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    font-size: 12px !important;
+  }
+
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) .panel-side-link {
+    justify-content: flex-start !important;
+    margin: 1px 8px !important;
+    padding: 0 10px !important;
+    gap: 9px !important;
+  }
+
+  .panel-dev .panel-side-aside .panel-side-label {
+    display: none !important;
+  }
+
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) .panel-side-label {
+    display: inline !important;
+  }
+
+  .panel-dev .panel-side-aside .sb-footer {
+    padding: 8px 4px 10px !important;
+  }
+
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) .sb-footer {
+    padding: 8px 10px 12px !important;
+  }
+
+  .panel-dev .panel-side-aside .sb-footer .snav-item {
+    justify-content: center !important;
+    min-height: 36px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    font-size: 12px !important;
+  }
+
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) .sb-footer .snav-item {
+    justify-content: flex-start !important;
+    padding: 0 10px !important;
+    gap: 9px !important;
+  }
+
+  .panel-dev .panel-side-aside .sb-footer .sb-item-label {
+    display: none !important;
+  }
+
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) .sb-footer .sb-item-label {
+    display: inline !important;
+  }
+
+  .panel-dev .panel-side-aside .sb-user {
+    justify-content: center;
+    padding: 6px 0;
+  }
+
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) .sb-user {
+    justify-content: flex-start;
+    padding: 6px 10px;
+  }
+
+  /* SIM card shell. */
+  .sim-sidebar {
+    position: fixed !important;
+    top: 12px !important;
+    left: 12px !important;
+    bottom: 12px !important;
+    height: auto !important;
+    width: 64px !important;
+    z-index: 1200 !important;
+    border: 1px solid var(--sim-line) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.10) !important;
+    transition: width 550ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 550ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  }
+
+  .sim-sidebar:is(.rail-hover, .rail-pinned) {
+    width: 210px !important;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16) !important;
+  }
+
+  .sim-main {
+    margin-left: 88px !important;
+    transition: margin-left 550ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  }
+
+  .sim-sidebar:is(.rail-hover, .rail-pinned) ~ .sim-main {
+    margin-left: 234px !important;
+  }
+
+  .sim-sidebar .sim-brand {
+    padding: 10px 0 !important;
+    justify-content: center !important;
+  }
+
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-brand {
+    padding: 10px 12px !important;
+    justify-content: flex-start !important;
+  }
+
+  .sim-sidebar .sim-brand h1,
+  .sim-sidebar .sim-brand span,
+  .sim-sidebar .sim-side-label,
+  .sim-sidebar .sim-nav a span,
+  .sim-sidebar .sim-sidebar-footer .u,
+  .sim-sidebar .sim-sidebar-footer .logout-btn {
+    display: none !important;
+  }
+
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-brand h1,
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-brand span,
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-side-label,
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-nav a span,
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-sidebar-footer .u,
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-sidebar-footer .logout-btn {
+    display: block !important;
+  }
+
+  .sim-sidebar .sim-nav a {
+    justify-content: center !important;
+    min-height: 36px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    font-size: 12px !important;
+  }
+
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-nav a {
+    justify-content: flex-start !important;
+    padding: 0 10px !important;
+    gap: 9px !important;
+  }
+
+  .sim-sidebar .sim-sidebar-footer {
+    padding: 8px 6px 10px !important;
+  }
+
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-sidebar-footer {
+    padding: 8px 12px 10px !important;
+  }
+}
+
+/* Keep the icon and header anchored while the width eases open; only the
+   labels and brand fade in, so the rail never jumps. */
+@media (min-width: 821px) {
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-header,
+  .panel-accounts .app > .sidebar .sb-header {
+    position: relative !important;
+    justify-content: flex-start !important;
+    padding: 10px 18px !important;
+    gap: 9px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-mark,
+  .panel-accounts .app > .sidebar .sb-mark {
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 8px !important;
+    font-size: 10px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-brand,
+  .panel-accounts .app > .sidebar .sb-brand,
+  .panel-dev .panel-side-aside > div:first-child > div:nth-child(2) {
+    display: block !important;
+    flex: 1 !important;
+    min-width: 0 !important;
+    padding-right: 20px !important;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 180ms ease 80ms;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned) .sb-brand,
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) .sb-brand,
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) > div:first-child > div:nth-child(2) {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sidebar-nav,
+  .panel-accounts .app > .sidebar .sidebar-nav {
+    padding: 8px 6px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .snav-item,
+  .panel-accounts .app > .sidebar .snav-item {
+    justify-content: flex-start !important;
+    padding: 0 18px !important;
+    gap: 9px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-footer,
+  .panel-accounts .app > .sidebar .sb-footer {
+    padding: 8px 6px 10px !important;
+  }
+
+  .panel-dev .panel-side-aside > div:first-child {
+    position: relative !important;
+    justify-content: flex-start !important;
+    padding: 10px 18px !important;
+    gap: 9px !important;
+  }
+
+  .panel-dev .panel-side-aside > div:first-child > div:first-child,
+  .sim-sidebar .sim-brand .mark {
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 8px !important;
+    font-size: 10px !important;
+  }
+
+  .panel-dev .panel-side-aside .panel-side-link,
+  .sim-sidebar .sim-nav a {
+    justify-content: flex-start !important;
+    margin: 1px 4px !important;
+    padding: 0 20px !important;
+    gap: 9px !important;
+  }
+
+  .panel-dev .panel-side-aside .sb-footer {
+    padding: 8px 4px 10px !important;
+  }
+
+  .panel-dev .panel-side-aside .sb-footer .snav-item {
+    justify-content: flex-start !important;
+    padding: 0 20px !important;
+    gap: 9px !important;
+  }
+
+  .sim-sidebar .sim-brand {
+    position: relative !important;
+    justify-content: flex-start !important;
+    padding: 10px 18px !important;
+    gap: 9px !important;
+  }
+
+  .sim-sidebar .sim-brand > div:nth-child(2) {
+    flex: 1 !important;
+    min-width: 0 !important;
+    padding-right: 20px !important;
+  }
+
+  .sim-sidebar .sim-brand h1,
+  .sim-sidebar .sim-brand span {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 180ms ease 80ms;
+  }
+
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-brand h1,
+  .sim-sidebar:is(.rail-hover, .rail-pinned) .sim-brand span {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .sb-pin {
+    position: absolute !important;
+    top: 10px !important;
+    right: 2px !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  /* Opening is a slower ease-in-out; leaving uses the base ease-out. */
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ):is(.rail-hover, .rail-pinned),
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned),
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned),
+  .sim-sidebar:is(.rail-hover, .rail-pinned) {
+    transition: width 430ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 430ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  .panel-sa .sa-sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-hr .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-recruiter .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-fro .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-event-head .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-accounts .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-ngo-admin .app > .sidebar:is(.rail-hover, .rail-pinned) ~ .main,
+  .panel-dev .panel-side-aside:is(.rail-hover, .rail-pinned) ~ main,
+  .sim-sidebar:is(.rail-hover, .rail-pinned) ~ .sim-main {
+    transition: margin-left 430ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+}
+
+/* Phone: hover is unavailable, so restore the full drawer layout. */
+@media (max-width: 820px) {
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ),
+  .panel-accounts .app > .sidebar {
+    width: 224px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-brand,
+  .panel-accounts .app > .sidebar .sb-brand {
+    display: block !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-item-body,
+  .panel-accounts .app > .sidebar .sb-item-body {
+    position: static !important;
+    display: flex !important;
+    width: auto !important;
+    flex: 1 !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-item-label,
+  .panel-accounts .app > .sidebar .sb-item-label {
+    display: inline !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .snav-item,
+  .panel-accounts .app > .sidebar .snav-item {
+    justify-content: flex-start !important;
+    padding: 0 12px !important;
+    gap: 12px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-header,
+  .panel-accounts .app > .sidebar .sb-header {
+    justify-content: flex-start !important;
+    padding: 12px 14px !important;
+    gap: 10px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sidebar-nav,
+  .panel-accounts .app > .sidebar .sidebar-nav {
+    padding: 10px 12px 8px !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-footer,
+  .panel-accounts .app > .sidebar .sb-footer {
+    padding: 10px 12px 14px !important;
+  }
+
+  .panel-sa .main,
+  .panel-hr .main,
+  .panel-recruiter .main,
+  .panel-fro .main,
+  .panel-event-head .main,
+  .panel-accounts .main,
+  .panel-ngo-admin .app > .main {
+    margin-left: 0 !important;
+  }
+
+  .panel-dev .panel-side-aside,
+  .sim-sidebar {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    bottom: auto !important;
+    height: 100vh !important;
+    width: 224px !important;
+    box-shadow: none !important;
+  }
+
+  .panel-dev main,
+  .sim-main {
+    margin-left: 0 !important;
+  }
+
+  .panel-dev .panel-side-aside .panel-side-link,
+  .sim-sidebar .sim-nav a {
+    justify-content: flex-start !important;
+    margin: 1px 8px !important;
+    padding: 0 10px !important;
+    gap: 9px !important;
+  }
+
+  .panel-dev .panel-side-aside .panel-side-label,
+  .panel-dev .panel-side-aside .sb-footer .sb-item-label,
+  .sim-sidebar .sim-brand h1,
+  .sim-sidebar .sim-brand span,
+  .sim-sidebar .sim-side-label,
+  .sim-sidebar .sim-nav a span,
+  .sim-sidebar .sim-sidebar-footer .u,
+  .sim-sidebar .sim-sidebar-footer .logout-btn {
+    display: block !important;
+  }
+
+  .panel-dev .panel-side-aside > div:first-child,
+  .sim-sidebar .sim-brand {
+    justify-content: flex-start !important;
+    padding: 12px 14px !important;
+  }
+
+  .panel-dev .panel-side-aside > div:first-child > div:nth-child(2) {
+    display: block !important;
+  }
+}
+
+/* ── Page ground: faint graph paper behind the floating rail ─────────────── */
+/* The card and the content cards sit on this, so the grid only shows in the
+   gaps and around the floating rail, exactly like the reference. */
+.panel-sa .app,
+.panel-ngo-admin .app,
+.panel-hr .app,
+.panel-recruiter .app,
+.panel-fro .app,
+.panel-event-head .app,
+.panel-accounts .app {
+  background: var(--bg, #f4f7fb) !important;
+}
+
+.panel-dev > div:first-child {
+  background: var(--bg, #f7f9fb) !important;
+}
+
+.sim-app {
+  background: var(--sim-bg, #f4f7fb) !important;
+}
+
+/* Plain page ground; the cards and the dark floating rail provide the depth. */
+.content-body {
+  background: var(--bg, #f4f7fb) !important;
+}
+
+/* Every role panel shares the FRO page ground so the rail and white cards sit
+   on the same surface across the suite. */
+:is(
+  .panel-sa,
+  .panel-ngo-admin,
+  .panel-hr,
+  .panel-recruiter,
+  .panel-fro,
+  .panel-event-head,
+  .panel-accounts,
+  .panel-dev,
+  .panel-social
+) {
+  --bg: #f4f7fb;
+  --surface: #f4f7fb;
+}
+
+:is(
+  .panel-sa,
+  .panel-ngo-admin,
+  .panel-hr,
+  .panel-recruiter,
+  .panel-fro,
+  .panel-event-head,
+  .panel-accounts,
+  .panel-dev
+) .content-body,
+.panel-sa .sa-content-body {
+  background: #f4f7fb !important;
+}
+
+/* Dev and Social use their own aside rather than the shared .sidebar, so the
+   footer user block needs the same base chrome there. */
+.panel-dev .panel-side-aside .sb-user {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 6px 10px;
+  margin-top: 6px;
+}
+
+.panel-dev .panel-side-aside .sb-avatar {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--side-ink, #0f172a) 8%, #fff);
+  color: var(--side-ink, #0f172a);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.panel-dev .panel-side-aside.is-collapsed .sb-user {
+  justify-content: center;
+  padding: 5px;
+}
+
+/* Full-height working panes should let the ground through; their cards keep
+   their own white surfaces. */
+/* FRO dashboard: the bento from the wireframe — three KPI cards, then a
+   3-column block with a stacked left rail, a wide middle and a tall right. */
+.panel-fro .fro-dash-bento {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: auto repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-height: 600px;
+  margin-bottom: 14px;
+  align-items: stretch;
+}
+
+.panel-fro .fro-dash-row {
+  display: contents !important;
+}
+
+/* Four compact KPIs fill the nine columns before the tall Notices rail. */
+.panel-fro .fro-dash-top {
+  display: grid !important;
+  grid-column: 1 / 10;
+  grid-row: 1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px !important;
+  justify-content: stretch;
+  align-content: start;
+  margin-bottom: 0 !important;
+}
+
+.panel-fro .fro-dash-top > .card,
+.panel-fro .fro-dash-row > .card {
+  margin-bottom: 0 !important;
+}
+
+.panel-fro .dash-connected { grid-column: 1 / span 2; grid-row: 2; }
+.panel-fro .dash-collection { grid-column: 3 / span 2; grid-row: 2; }
+.panel-fro .dash-donors { grid-column: 1 / span 2; grid-row: 3; }
+
+.panel-fro .fro-donor-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: var(--bg);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+/* My Leads: search plus every filter on one line. The old segmented pills are
+   now soft white dropdowns with a layered menu, so the row reads as one calm
+   control strip instead of two competing button groups. */
+.panel-fro .fro-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.panel-fro .fro-filter-search {
+  position: relative;
+  flex: 1 1 160px;
+  min-width: 120px;
+  max-width: 280px;
+}
+
+.panel-fro .fro-filter-search > .material-symbols-outlined {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.panel-fro .fro-filter-search input {
+  width: 100%;
+  height: 36px;
+  padding: 0 32px 0 33px;
+  border: 1px solid #e6ebf3;
+  border-radius: 11px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  outline: none;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  box-sizing: border-box;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.panel-fro .fro-filter-search input::placeholder {
+  color: #9aa7b8;
+}
+
+.panel-fro .fro-filter-search input:focus {
+  border-color: color-mix(in srgb, var(--sage) 48%, #fff);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sage) 13%, transparent);
+}
+
+.panel-fro .fro-filter-search-clear {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.panel-fro .fro-filter-search-clear .material-symbols-outlined {
+  font-size: 14px;
+}
+
+.panel-fro .fro-filter-search-clear:hover {
+  background: #f1f5f9;
+  color: var(--ink);
+}
+
+.panel-fro .fro-filter-bar .dropdown {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 76px;
+  max-width: 148px;
+}
+
+.panel-fro .fro-filter-bar .dropdown-trigger {
+  position: relative;
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 27px 0 11px;
+  border: 1px solid #e6ebf3;
+  border-radius: 11px;
+  background: #fff;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+  outline: none;
+  white-space: nowrap;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+.panel-fro .fro-filter-bar .dropdown-trigger:hover {
+  border-color: #d7e0ec;
+  background: #fcfdff;
+  box-shadow: 0 5px 14px -10px rgba(16, 24, 40, .28);
+}
+
+.panel-fro .fro-filter-bar .dropdown.open .dropdown-trigger,
+.panel-fro .fro-filter-bar .dropdown-trigger:focus-visible {
+  border-color: color-mix(in srgb, var(--sage) 48%, #fff);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sage) 13%, transparent);
+}
+
+.panel-fro .fro-filter-bar .dropdown-trigger > svg {
+  position: absolute;
+  right: 10px;
+  width: 12px;
+  height: 12px;
+  opacity: .5;
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.panel-fro .fro-filter-bar .dropdown.open .dropdown-trigger > svg {
+  transform: rotate(180deg);
+  opacity: .8;
+}
+
+.panel-fro .fro-filter-bar .dropdown-menu {
+  top: calc(100% + 7px);
+  left: 0;
+  right: auto;
+  width: max-content;
+  min-width: max(100%, 168px);
+  max-width: 240px;
+  max-height: 280px;
+  padding: 5px;
+  border: 1px solid #e9eef6;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 18px 44px -18px rgba(15, 23, 42, .34), 0 2px 6px rgba(15, 23, 42, .05);
+  z-index: 5000;
+  overflow-y: auto;
+  animation: fro-filter-pop 150ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.panel-fro .fro-filter-bar .fro-dd-end .dropdown-menu {
+  left: auto;
+  right: 0;
+}
+
+@keyframes fro-filter-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.panel-fro .fro-filter-bar .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.panel-fro .fro-filter-bar .dropdown-item:hover {
+  background: #f4f7fb;
+  color: var(--ink);
+}
+
+.panel-fro .fro-filter-bar .dropdown-item.active {
+  background: color-mix(in srgb, var(--sage) 11%, #fff);
+  color: var(--sage);
+  font-weight: 800;
+}
+
+.panel-fro .fro-filter-bar .dropdown-item.active::after {
+  content: '✓';
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.panel-fro .fro-dd-opt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-fro .fro-dd-opt-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-fro .fro-dd-badge {
+  min-width: 18px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #eef2f7;
+  color: #64748b;
+  font-size: 9.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.panel-fro .fro-dd-badge.is-danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.panel-fro .dropdown-item.active .fro-dd-badge {
+  background: color-mix(in srgb, var(--sage) 14%, #fff);
+  color: var(--sage);
+}
+
+.panel-fro .fro-filter-action {
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid #e6ebf3;
+  border-radius: 11px;
+  background: #fff;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.panel-fro .fro-filter-action:hover {
+  border-color: #d7e0ec;
+  color: var(--ink);
+  box-shadow: 0 5px 14px -10px rgba(16, 24, 40, .28);
+}
+
+.panel-fro .fro-filter-action.is-on {
+  border-color: var(--sage);
+  background: var(--sage);
+  color: #fff;
+}
+
+/* Premium lead rows: a quiet white surface with a soft layered shadow, a
+   restrained lift on hover, and a hairline accent that only appears when the
+   row is actually being considered. */
+.panel-fro .fro-lead-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.panel-fro .fro-lead-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.panel-fro .fro-lead-card {
+  position: relative;
+  background: #fff;
+  border: 1px solid #e8edf5;
+  border-radius: 16px;
+  cursor: pointer;
+  box-shadow: none;
+  transition: transform 170ms cubic-bezier(.22, 1, .36, 1), border-color 170ms ease;
+}
+
+.panel-fro .fro-lead-card:hover {
+  transform: scale(1.01);
+  border-color: color-mix(in srgb, var(--sage) 30%, #e8edf5);
+}
+
+.panel-fro .fro-lead-card:active {
+  transform: translateY(0);
+}
+
+.panel-fro .fro-lead-avatar {
+  background: #2563eb;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .22);
+  letter-spacing: -.02em;
+}
+
+.panel-fro .fro-lead-avatar.is-disposed {
+  background: #eef2f7;
+  box-shadow: inset 0 0 0 1px rgba(100, 116, 139, .12);
+}
+
+.panel-fro .fro-lead-name {
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -.012em;
+}
+
+.panel-fro .fro-lead-station {
+  color: #8492a6;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+
+.panel-fro .fro-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 8.5px;
+  font-weight: 800;
+  line-height: 1.55;
+  letter-spacing: .015em;
+  white-space: nowrap;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .045);
+}
+
+.panel-fro .fro-lead-phone {
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .015em;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-fro .fro-lead-card .fro-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  letter-spacing: .045em;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .05);
+}
+
+.panel-fro .fro-lead-card .fro-status-pill::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .75;
+  flex-shrink: 0;
+}
+
+.panel-fro .fro-lead-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #f4f7fb;
+  color: var(--sage);
+  box-shadow: inset 0 0 0 1px #e9eef6;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.panel-fro .fro-lead-card:hover .fro-lead-chevron {
+  background: var(--sage);
+  color: #fff;
+  box-shadow: 0 5px 12px -6px color-mix(in srgb, var(--sage) 65%, transparent);
+}
+
+/* The leads pane is only 3/5 of the shell, so below this viewport width the
+   strip cannot honestly stay one line: fold it into a search row plus evenly
+   sized dropdowns. */
+@media (max-width: 1180px) {
+  .panel-fro .fro-filter-bar {
+    flex-wrap: wrap;
+  }
+
+  .panel-fro .fro-filter-search {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  .panel-fro .fro-filter-bar .dropdown {
+    flex: 1 1 calc(33.333% - 5px);
+    max-width: none;
+  }
+
+  .panel-fro .fro-filter-action {
+    flex: 1 1 auto;
+  }
+}
+
+.panel-fro .fro-donor-tabs::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.panel-fro .fro-donor-tab {
+  flex: 1 1 0;
+  min-width: 34px;
+  padding: 4px 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+}
+
+.panel-fro .fro-donor-tab:hover {
+  background: #fff;
+  color: var(--ink);
+}
+
+.panel-fro .fro-donor-tab.is-active {
+  background: var(--sage);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .18);
+}
+.panel-fro .dash-assigned { grid-column: 3 / span 2; grid-row: 3; }
+.panel-fro .fro-dash-center { grid-column: 10 / span 3; grid-row: 1 / span 3; min-width: 0; display: flex; }
+.panel-fro .fro-dash-calendar { grid-column: 5 / span 5; grid-row: 2 / span 2; min-width: 0; }
+
+.panel-fro .fro-dash-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.panel-fro .fro-dash-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--sage);
+}
+
+.panel-fro .fro-dash-title {
+  margin: 4px 0 2px;
+  font-size: 24px;
+  line-height: 1.1;
+  letter-spacing: -.03em;
+  color: var(--ink);
+}
+
+.panel-fro .fro-dash-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.panel-fro .fro-dash-head-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.panel-fro .fro-status-pill,
+.panel-fro .fro-date-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.panel-fro .fro-status-pill.is-live {
+  border-color: color-mix(in srgb, var(--sage) 35%, var(--line));
+  background: color-mix(in srgb, var(--sage) 8%, #fff);
+  color: var(--sage);
+}
+
+.panel-fro .fro-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.panel-fro .fro-dash-bento .card,
+.panel-fro .fro-dash-bento .fro-dash-calendar {
+  height: 100%;
+  background: #fff !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px -22px rgba(16, 24, 40, 0.22) !important;
+  padding: 16px 18px !important;
+  overflow: hidden;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.panel-fro .fro-dash-bento .card > div:first-child > svg:not(.lucide) {
+  width: 34px;
+  height: 34px;
+  padding: 8px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 4%, #fff);
+  flex-shrink: 0;
+}
+
+/* Compact KPI cards: label on the left, icon on the right, value underneath. */
+.panel-fro .fro-dash-bento .fro-kpi {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px !important;
+}
+
+.panel-fro .fro-kpi-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.panel-fro .fro-kpi-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.panel-fro .fro-kpi-value {
+  display: block;
+  margin-top: auto;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.panel-fro .fro-kpi-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.panel-fro .fro-kpi-value-row .fro-kpi-value {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-fro .dash-active {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  overflow: visible !important;
+}
+
+/* Shared segmented tab control for every FRO card. */
+.panel-fro .fro-seg {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  padding: 2px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.panel-fro .fro-seg-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+
+.panel-fro .dash-assigned .fro-seg-btn,
+.panel-fro .dash-donors .fro-seg-btn {
+  font-size: 9px;
+}
+
+.panel-fro .fro-seg-btn:hover {
+  background: #fff;
+  color: var(--ink);
+}
+
+.panel-fro .fro-seg-btn.is-active {
+  background: var(--sage);
+  color: #fff;
+}
+
+.panel-fro .fro-donor-tabs .fro-seg-btn {
+  flex: 1 0 34px;
+}
+
+.panel-fro .fro-cat-window {
+  width: 100px;
+  flex: 0 0 auto;
+}
+
+.panel-fro .fro-cat-window .dropdown-trigger {
+  height: 24px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.panel-fro .fro-cat-window .dropdown-trigger svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: .55;
+}
+
+.panel-fro .fro-cat-window .dropdown-menu {
+  z-index: 6000;
+  border-radius: 8px;
+}
+
+.panel-fro .fro-cat-window .dropdown-item {
+  padding: 6px 9px;
+  font-size: 11px;
+}
+
+.panel-fro .fro-cat-window.open .dropdown-trigger,
+.panel-fro .fro-cat-window .dropdown-trigger:focus-visible {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+
+/* The top KPIs are buttons/links in practice, so keep their focus ring on the
+   card itself instead of letting the default outline disappear into the grid. */
+.panel-fro .dash-collected {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.panel-fro .dash-collected:hover,
+.panel-fro .dash-collected:focus-visible {
+  transform: translateY(-2px);
+  border-color: transparent !important;
+  box-shadow: 0 2px 4px rgba(16, 24, 40, 0.05), 0 18px 36px -20px rgba(16, 24, 40, 0.28) !important;
+}
+
+.panel-fro .dash-collected:focus-visible {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+}
+
+/* The four small KPI tiles get their height from the calendar row they sit
+   beside. Anchor the number and caption to the bottom edge so the tiles read as
+   one column of facts instead of four cards with drifted-empty bottoms. */
+.panel-fro .dash-connected,
+.panel-fro .dash-collection,
+.panel-fro .dash-donors,
+.panel-fro .dash-assigned {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px !important;
+}
+
+/* Trim the icon and the gaps so the number and caption share a clean
+   baseline without the card growing past its grid row. */
+.panel-fro .dash-connected > div:first-child,
+.panel-fro .dash-collection > div:first-child,
+.panel-fro .dash-donors > div:first-child,
+.panel-fro .dash-assigned > div:first-child {
+  margin-bottom: 2px !important;
+  gap: 8px !important;
+}
+
+.panel-fro .dash-connected > div:first-child > svg:not(.lucide),
+.panel-fro .dash-collection > div:first-child > svg:not(.lucide),
+.panel-fro .dash-donors > div:first-child > svg:not(.lucide),
+.panel-fro .dash-assigned > div:first-child > svg:not(.lucide) {
+  width: 26px;
+  height: 26px;
+  padding: 5px;
+  border-radius: 8px;
+}
+
+.panel-fro .dash-connected > div:nth-child(2),
+.panel-fro .dash-collection > div:nth-child(2),
+.panel-fro .dash-assigned > div:nth-child(2) {
+  margin-bottom: 4px !important;
+}
+
+.panel-fro .fro-dash-bento button:focus-visible {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+}
+
+/* ── Incentive calendar ─────────────────────────────────────────────────── */
+.panel-fro .fro-dash-calendar {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-fro .fro-cal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.panel-fro .fro-cal-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.panel-fro .fro-cal-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  color: var(--sage);
+  background: color-mix(in srgb, var(--sage) 10%, #fff);
+}
+
+.panel-fro .fro-cal-icon .material-symbols-outlined {
+  font-size: 17px;
+}
+
+.panel-fro .fro-cal-title h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
+.panel-fro .fro-cal-title p {
+  margin: 2px 0 0;
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+
+.panel-fro .fro-cal-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.panel-fro .fro-cal-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-fro .fro-cal-arrow {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.panel-fro .fro-cal-arrow svg {
+  width: 16px;
+  height: 16px;
+}
+
+.panel-fro .fro-cal-arrow:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.panel-fro .fro-cal-arrow:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+
+.panel-fro .fro-cal-arrow:focus-visible {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+}
+
+.panel-fro .fro-cal-count {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--sage);
+  background: color-mix(in srgb, var(--sage) 9%, #fff);
+  white-space: nowrap;
+}
+
+.panel-fro .fro-aki-cal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.panel-fro .fro-aki-week,
+.panel-fro .fro-aki-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.panel-fro .fro-aki-weekday {
+  text-align: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.panel-fro .fro-aki-cell {
+  position: relative;
+  min-height: 50px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  overflow: hidden;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.panel-fro .fro-aki-cell.is-empty {
+  border-color: transparent;
+  background: transparent;
+}
+
+.panel-fro .fro-aki-cell.is-eligible {
+  background: color-mix(in srgb, var(--sage) 7%, #fff);
+  border-color: color-mix(in srgb, var(--sage) 24%, var(--line));
+}
+
+.panel-fro .fro-aki-cell.is-today {
+  box-shadow: inset 0 0 0 2px var(--sage);
+}
+
+.panel-fro .fro-aki-cell:hover:not(.is-empty) {
+  background: color-mix(in srgb, var(--sage) 10%, #fff);
+  border-color: color-mix(in srgb, var(--sage) 32%, var(--line));
+}
+
+.panel-fro .fro-aki-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 4px;
+}
+
+.panel-fro .fro-aki-day {
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.panel-fro .fro-aki-cell.is-eligible .fro-aki-day {
+  color: var(--sage);
+}
+
+.panel-fro .fro-aki-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--sage);
+}
+
+.panel-fro .fro-aki-amount {
+  max-width: 100%;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-fro .fro-aki-amount-compact,
+.panel-fro .fro-aki-pill-compact {
+  display: none;
+}
+
+.panel-fro .fro-aki-pill {
+  font-size: 7.5px;
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 1px 5px;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: #166534;
+  background: #dcfce7;
+}
+
+.panel-fro .fro-aki-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-size: 9px;
+  color: var(--ink-soft);
+}
+
+.panel-fro .fro-aki-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.panel-fro .fro-aki-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  display: inline-block;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.panel-fro .fro-aki-legend i.is-eligible {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.panel-fro .fro-aki-legend i.is-today {
+  border: 2px solid var(--sage);
+  border-radius: 50%;
+  background: transparent;
+}
+
+@media (max-width: 380px) {
+  .panel-fro .fro-aki-amount {
+    font-size: 9px;
+  }
+
+  .panel-fro .fro-aki-pill {
+    font-size: 7px;
+    padding: 1px 3px;
+  }
+}
+
+/* Only while the collections drawer narrows the board. Closing the drawer
+   restores the full calendar exactly as it was. */
+.panel-fro .fro-dash-calendar.is-compact .fro-cal-head {
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-cal-title p {
+  display: none;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-cal-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-cal-title h3 {
+  font-size: 12px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-cal-arrow {
+  width: 26px;
+  height: 26px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-cal-arrow svg {
+  width: 14px;
+  height: 14px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-cal-count {
+  padding: 3px 8px;
+  font-size: 9.5px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-cal {
+  gap: 6px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-week,
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-grid {
+  gap: 4px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-cell {
+  min-height: 36px;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-day {
+  font-size: 9px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-dot {
+  width: 4px;
+  height: 4px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-amount {
+  font-size: 8.5px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-pill {
+  font-size: 6.5px;
+  padding: 0 3px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-legend {
+  gap: 8px;
+  font-size: 8px;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-amount-full,
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-pill-full {
+  display: none;
+}
+
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-amount-compact,
+.panel-fro .fro-dash-calendar.is-compact .fro-aki-pill-compact {
+  display: inline;
+}
+
+/* The month grid is seven columns at every width. At phone widths its inner
+   cells were narrower than '₹11,550' / 'AKI ₹180', so the ellipsis ate the last
+   digits — the values on the mobile calendar were unreadable. Give the digits
+   the cell padding back instead of letting them truncate. */
+@media (max-width: 600px) {
+  .panel-fro .fro-aki-cell {
+    padding: 6px 4px;
+  }
+
+  .panel-fro .fro-aki-amount {
+    font-size: 9px;
+  }
+
+  .panel-fro .fro-aki-pill {
+    font-size: 7px;
+    padding: 1px 3px;
+  }
+}
+
+@media (max-width: 360px) {
+  .panel-fro .fro-aki-week,
+  .panel-fro .fro-aki-grid {
+    gap: 3px;
+  }
+
+  .panel-fro .fro-aki-cell {
+    padding: 5px 2px;
+  }
+
+  .panel-fro .fro-aki-amount {
+    font-size: 8.5px;
+  }
+
+  .panel-fro .fro-aki-pill {
+    font-size: 6.5px;
+    padding: 0 2px;
+  }
+}
+
+/* ── Dashboard dialogs (My Collections, recurring donors) ────────────────── */
+/* Portalled to <body> so the fixed backdrop genuinely covers the viewport:
+   as a child of the transformed .main it was clipped under the mobile topbar. */
+.fro-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(11, 30, 54, 0.48);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.fro-modal {
+  width: min(var(--fro-modal-w, 520px), 100%);
+  max-height: min(82vh, 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(11, 30, 54, 0.32);
+  outline: none;
+}
+
+/* Collections opens as a floating panel on the right; the dashboard beside
+   it gives up the same width instead of being covered by a backdrop. */
+.fro-drawer {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 3000;
+  width: min(380px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 16px;
+  outline: none;
+  animation: fro-drawer-in .28s cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes fro-drawer-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+/* Transparent click-catcher: anything outside the panel closes it without
+   dimming the page. */
+.fro-drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 2999;
+  background: transparent;
+}
+
+.panel-fro .fro-dashboard {
+  transition: padding-right .28s cubic-bezier(.22, 1, .36, 1);
+}
+
+@media (min-width: 1100px) {
+  .panel-fro .fro-dashboard.is-drawer-open {
+    padding-right: 412px;
+  }
+}
+
+/* The board keeps its 12-column proportions while narrowed: the cards get
+   smaller, never wider. */
+
+.fro-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+}
+
+.fro-modal-heading {
+  min-width: 0;
+}
+
+.fro-modal-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.fro-modal-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+
+.fro-modal-x {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fro-modal-x:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+
+.fro-drawer-close {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.fro-drawer-close:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+
+.fro-modal-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 18px;
+}
+
+.fro-filter {
+  display: flex;
+  flex: 0 1 96px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fro-filter-search {
+  flex: 1 1 140px;
+  min-width: 90px;
+}
+
+.fro-filter-search .fro-modal-search-input {
+  height: 32px;
+  padding: 6px 9px;
+  font-size: 10.5px;
+}
+
+@media (max-width: 520px) {
+  .fro-modal-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .fro-filter {
+    flex: 1 1 42%;
+  }
+}
+
+.fro-filter > span {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.fro-filter select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+.fro-filter select:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.fro-filter .dropdown {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.fro-filter .dropdown-trigger {
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.fro-filter .dropdown-trigger svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: .55;
+}
+
+.fro-filter .dropdown.open .dropdown-trigger,
+.fro-filter .dropdown-trigger:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.fro-filter .dropdown-menu {
+  z-index: 5000;
+  max-height: 300px;
+  overflow-y: auto;
+  border-radius: 8px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.fro-filter .dropdown-menu::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.fro-filter .dropdown-item {
+  padding: 6px 9px;
+  font-size: 11px;
+}
+
+.fro-modal-seg {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--bg);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.fro-modal-seg::-webkit-scrollbar {
+  display: none;
+}
+
+.fro-modal-seg button {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fro-modal-seg button[aria-pressed="true"] {
+  background: var(--sage);
+  color: #fff;
+}
+
+.fro-modal-seg button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.fro-modal-search {
+  padding: 10px 18px 0;
+}
+
+.fro-modal-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.fro-modal-search-input::placeholder {
+  color: var(--ink-soft);
+}
+
+.fro-modal-search-input:focus {
+  border-color: var(--sage);
+  box-shadow: 0 0 0 3px var(--sage-soft);
+}
+
+.fro-modal-body {
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.fro-modal :is(button, input):focus-visible {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+}
+
+.panel-fro .fro-dash-bento .card:hover,
+.panel-fro .fro-dash-center > *:hover {
+  border-color: transparent !important;
+}
+
+.panel-fro .fro-dash-bento .card:focus-within {
+  border-color: var(--sage) !important;
+}
+
+.panel-fro .dash-active {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-fro .dash-active .fro-donor-summary {
+  flex: 1;
+}
+
+.panel-fro .fro-dash-action {
+  transition: transform 150ms ease, filter 150ms ease, box-shadow 150ms ease;
+}
+
+.panel-fro .fro-dash-action:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.02);
+  box-shadow: 0 4px 10px -6px rgba(16, 24, 40, 0.20);
+}
+
+.panel-fro .fro-dash-action:active {
+  transform: translateY(1px);
+}
+
+.panel-fro .fro-dash-center > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-fro .fro-dash-trend {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.panel-fro .fro-dash-bottom {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 14px;
+  margin-top: 0;
+  align-items: stretch;
+}
+
+.panel-fro .fro-dash-bottom > * {
+  min-width: 0;
+}
+
+.panel-fro .fro-dash-bottom .card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px -22px rgba(16, 24, 40, 0.22);
+  padding: 16px 18px;
+  overflow: hidden;
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .panel-fro .fro-dash-bottom {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .panel-fro .fro-dash-top {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.panel-fro .fro-dash-notices {
+  margin-top: 14px;
+}
+
+/* Below roughly 980px the 12-column board turns into slivers; stack it. */
+@media (max-width: 980px) {
+  .panel-fro .fro-dash-bento {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    min-height: 0;
+  }
+
+  .panel-fro .fro-dash-top {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .panel-fro .dash-target,
+  .panel-fro .dash-collected,
+  .panel-fro .dash-remaining,
+  .panel-fro .dash-connected,
+  .panel-fro .dash-collection,
+  .panel-fro .dash-donors,
+  .panel-fro .dash-assigned,
+  .panel-fro .fro-dash-center,
+  .panel-fro .fro-dash-calendar {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+}
+
+/* FRO leads: the wireframe layout — a floating rail, a top card, then a wide
+   list card and a narrower side card, all on the graph-paper ground. */
+.panel-fro .my-leads-shell {
+  padding: 16px !important;
+  gap: 16px !important;
+}
+
+.panel-fro .my-leads-shell .perf-strip {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.panel-fro .my-leads-shell .my-leads-bottom {
+  gap: 16px !important;
+}
+
+@media (min-width: 821px) {
+  .panel-fro .my-leads-shell .my-leads-bottom {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 360px) !important;
+  }
+}
+
+.panel-fro .my-leads-shell .my-leads-pane {
+  border: 1px solid var(--line) !important;
+  border-radius: 16px !important;
+  background: #fff !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04) !important;
+}
+
+/* The right rail is a column of separate surfaces: the 2×2 metric tiles and
+   Suspense are deliberately not fused into one tall card. */
+.panel-fro .my-leads-shell .my-leads-pane.fro-leads-side {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  gap: 12px;
+}
+
+.panel-fro .my-leads-shell .fro-suspense-section {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.panel-fro .fro-suspense-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.panel-fro .fro-suspense-toggle:hover {
+  background: #f1f5f9;
+}
+
+.panel-fro .fro-suspense-toggle-track {
+  position: relative;
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: #dbe3ee;
+  flex-shrink: 0;
+  transition: background 180ms ease;
+}
+
+.panel-fro .fro-suspense-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .2);
+  transition: transform 180ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.panel-fro .fro-suspense-toggle.is-on {
+  background: transparent;
+}
+
+.panel-fro .fro-suspense-toggle.is-on .fro-suspense-toggle-track {
+  background: var(--sage);
+}
+
+.panel-fro .fro-suspense-toggle.is-on .fro-suspense-toggle-knob {
+  transform: translateX(13px);
+}
+
+.panel-fro .fro-suspense-card {
+  background: var(--sus-bg, #fff);
+  border: 0;
+  border-radius: 14px;
+  transition: transform 170ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.panel-fro .fro-suspense-card.is-clickable:hover {
+  transform: scale(1.012);
+}
+
+.panel-fro .fro-suspense-card.is-clickable:active {
+  transform: scale(1);
+}
+
+.panel-fro .fro-suspense-stamp {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  z-index: 3;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 1px solid #d9a441;
+  border-radius: 3px;
+  outline: 1px solid rgba(217, 164, 65, .28);
+  outline-offset: 1px;
+  background: #fff7e6;
+  color: #a16207;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-6deg);
+  pointer-events: none;
+}
+
+.panel-fro .fro-suspense-stamp .material-symbols-outlined {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.panel-fro .fro-suspense-chevron {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #f1f5f9;
+  color: #64748b;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.panel-fro .fro-suspense-card.is-clickable:hover .fro-suspense-chevron {
+  background: var(--sage);
+  color: #fff;
+}
+
+.panel-fro .my-leads-pane .detail-card {
+  background: transparent !important;
+  border: 0 !important;
+}
+
+@media (max-width: 820px) {
+  .sb-pin { display: none !important; }
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ),
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .snav-item,
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .ico,
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .sb-collapse,
+  .panel-ngo-admin .app > .main,
+  .panel-ngo-admin .app > .main > .topbar {
+    transition: none !important;
+  }
+
+  :is(
+    .panel-sa .app > .sa-sidebar,
+    .panel-ngo-admin .app > .sidebar,
+    .panel-hr .app > .sidebar,
+    .panel-recruiter .app > .sidebar,
+    .panel-fro .app > .sidebar,
+    .panel-event-head .app > .sidebar
+  ) .snav-item:hover {
+    transform: none;
+  }
+}

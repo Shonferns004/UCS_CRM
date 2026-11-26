@@ -16,6 +16,7 @@ import Candidates from './components/Candidates'
 import RecruiterDailyReport from './components/RecruiterDailyReport'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
+import SidebarFooter from '../../components/admin-sidebar/SidebarFooter'
 import { ChatIcon } from '../../components/chat/chatIcons'
 
 const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'))
@@ -30,27 +31,34 @@ const NAV = [
   { id:'chat',       path:'/recruiter/chat',       label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
 ]
 
-function Sidebar({ open, onClose }) {
+function Sidebar({ open, onClose, onOpenSettings }) {
   const location = useLocation()
+
   return (
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
-      <aside className={`sidebar ${open ? 'open' : ''}`}>
-        <div className="sidebar-brand">
-          <div className="brand-mark">U</div>
-          <div><h1>UFS</h1><span>Recruiter Panel</span></div>
+      <aside className={`sidebar${open ? ' open' : ''}`}>
+        <div className="sb-header">
+          <div className="sb-mark">RC</div>
+          <div className="sb-brand"><h1>UFS</h1><span>Recruiter Panel</span></div>
         </div>
-        <nav className="sidebar-nav">
-          {NAV.map(n => { const Icon = n.icon;
+        <nav className="sidebar-nav" aria-label="Recruiter navigation">
+          {NAV.map((n) => {
+            const Icon = n.icon
             const active = location.pathname === n.path
             return (
-            <NavLink key={n.id} to={n.path} className={`snav-item ${active ? 'active' : ''}`}
-              onClick={() => onClose?.()}>
-              <Icon className="ico" /> <span>{n.label}</span>
-              {n.id === 'chat' && <ChatNavBadge quiet />}
-            </NavLink>
-          )})}
+              <NavLink key={n.id} to={n.path} className={`snav-item${active ? ' active' : ''}`}
+                onClick={() => onClose?.()}>
+                <span className="ico"><Icon /></span>
+                <span className="sb-item-body">
+                  <span className="sb-item-label">{n.label}</span>
+                  {n.id === 'chat' && <ChatNavBadge quiet />}
+                </span>
+              </NavLink>
+            )
+          })}
         </nav>
+        <SidebarFooter onSettings={onOpenSettings} onNavigate={onClose} />
       </aside>
     </>
   )
@@ -114,7 +122,7 @@ function AppShell() {
   return (
     <div className="app">
       <NoticePopup />
-      <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} onOpenSettings={() => { setMenuOpen(false); setShowSettings(true) }} />
       <div className="main">
         <div className="mobile-top">
           <button className="hamburger" onClick={() => setMenuOpen(true)}><span /><span /><span /></button>
@@ -151,20 +159,20 @@ function AppShell() {
               )}
             </div>
           </div>
-          <NotificationDrawer topOffset={66}
-            open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
-            sections={drawerSections}
-            onItemClick={() => setDrawerOpen(false)}
-          />
-          <SettingsDrawer
-            open={showSettings}
-            onClose={() => setShowSettings(false)}
-            themes={themes}
-            themeName={themeName}
-            onThemeChange={(key) => setThemeName(key)}
-          />
         </header>
+        <NotificationDrawer topOffset={66}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          sections={drawerSections}
+          onItemClick={() => setDrawerOpen(false)}
+        />
+        <SettingsDrawer
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          themes={themes}
+          themeName={themeName}
+          onThemeChange={(key) => setThemeName(key)}
+        />
         <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           <Suspense fallback={<div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'60vh',color:'var(--ink-soft)',fontSize:13}}>Loading...</div>}>
           <Routes>

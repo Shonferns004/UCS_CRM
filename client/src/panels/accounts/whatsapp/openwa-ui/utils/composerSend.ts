@@ -21,6 +21,8 @@ export interface ComposerAttachment {
   base64: string;
   mimetype: string;
   filename?: string;
+  /** True for a recording: the gateway sends it as a push-to-talk voice note (waveform included). */
+  ptt?: boolean;
 }
 
 export interface OptimisticMetadata {
@@ -53,13 +55,14 @@ export function buildMediaSendPayload(
   attachment: ComposerAttachment,
   caption: string | undefined,
   replyingTo: QuotableMessage | null | undefined,
-): { base64: string; mimetype: string; filename?: string; caption?: string; quotedMessageId?: string } {
+): { base64: string; mimetype: string; filename?: string; caption?: string; ptt?: boolean; quotedMessageId?: string } {
   const quotedMessageId = quotedIdOf(replyingTo);
   return {
     base64: attachment.base64,
     mimetype: attachment.mimetype,
     filename: attachment.filename,
     caption,
+    ...(attachment.ptt ? { ptt: true } : {}),
     ...(quotedMessageId ? { quotedMessageId } : {}),
   };
 }

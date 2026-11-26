@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_palette.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -43,26 +44,24 @@ class _SplashPageState extends State<SplashPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFFFFFF),
-      body: SafeArea(child: Center(
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, child) {
-            return Opacity(
-              opacity: _logoFade.value,
-              child: Transform.scale(
-                scale: 0.9 + (_logoScale.value * 0.1),
-                child: child,
-              ),
-            );
-          },
-          child: Image.asset(
-            'assets/logo/logo.png',
-            width: 120,
-            height: 120,
+      backgroundColor: AppPalette.iceBlue,
+      body: SafeArea(
+        child: Center(
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return Opacity(
+                opacity: _logoFade.value,
+                child: Transform.scale(
+                  scale: 0.9 + (_logoScale.value * 0.1),
+                  child: child,
+                ),
+              );
+            },
+            child: Image.asset('assets/logo/logo.png', width: 120, height: 120),
           ),
         ),
-      )),
+      ),
     );
   }
 }

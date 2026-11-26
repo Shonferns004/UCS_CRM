@@ -1,9 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+
+import '../theme/app_palette.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/skeleton_loader.dart';
 
 class ScannerPage extends StatefulWidget {
@@ -13,26 +20,24 @@ class ScannerPage extends StatefulWidget {
   State<ScannerPage> createState() => _ScannerPageState();
 }
 
-class _ScannerPageState extends State<ScannerPage>
-    with SingleTickerProviderStateMixin {
+class _ScannerPageState extends State<ScannerPage> {
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
   );
   bool _detected = false;
-  late final AnimationController _scanAnim;
-  late final Animation<double> _scanLine;
+  bool _torchOn = false;
 
   Position? _cachedPosition;
 
   @override
   void initState() {
     super.initState();
-    _scanAnim = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
-    _scanLine = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _scanAnim, curve: Curves.easeInOut),
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+      ),
     );
     _controller.addListener(_onControllerUpdate);
     _prefetchLocation();
@@ -40,6 +45,14 @@ class _ScannerPageState extends State<ScannerPage>
 
   Future<void> _prefetchLocation() async {
     try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
@@ -56,9 +69,23 @@ class _ScannerPageState extends State<ScannerPage>
     }
   }
 
+  Future<void> _toggleTorch() async {
+    HapticFeedback.selectionClick();
+    try {
+      await _controller.toggleTorch();
+      if (mounted) setState(() => _torchOn = !_torchOn);
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
-    _scanAnim.dispose();
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+      ),
+    );
     _controller.dispose();
     super.dispose();
   }
@@ -73,9 +100,7 @@ class _ScannerPageState extends State<ScannerPage>
       map = Map<String, dynamic>.from(jsonDecode(raw));
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid QR code format')),
-        );
+        AppToast.error('Invalid QR code format');
       }
       _detected = false;
       return;
@@ -84,9 +109,7 @@ class _ScannerPageState extends State<ScannerPage>
     final code = map['code']?.toString();
     if (code == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid QR code data')),
-        );
+        AppToast.error('Invalid QR code data');
       }
       _detected = false;
       return;
@@ -111,12 +134,7 @@ class _ScannerPageState extends State<ScannerPage>
     if (pos == null) {
       _detected = false;
       _controller.start();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not get location. Make sure GPS is enabled.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      AppToast.warning('Could not get location. Make sure GPS is enabled.');
       return;
     }
     Navigator.pop(context, {
@@ -130,57 +148,147 @@ class _ScannerPageState extends State<ScannerPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            MobileScanner(
-              controller: _controller,
-              onDetect: _onDetect,
-              placeholderBuilder: (context, child) => const Center(
+      backgroundColor: AppPalette.ink,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          MobileScanner(
+            controller: _controller,
+            onDetect: _onDetect,
+            placeholderBuilder: (context, child) => const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SkeletonLoader(
+                    child: SkeletonBlock(
+                      width: 48,
+                      height: 48,
+                      borderRadius: 24,
+                      color: Colors.white24,
+                    ),
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    'Starting camera...',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
+            ),
+            errorBuilder: (context, error, child) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    SkeletonLoader(
-                      child: SkeletonBlock(width: 48, height: 48, borderRadius: 24, color: Colors.white24),
+                    const Icon(
+                      TablerIcons.camera_off,
+                      color: Colors.white70,
+                      size: 46,
                     ),
-                    SizedBox(height: 16),
-                    Text('Starting camera...', style: TextStyle(color: Colors.white70)),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Camera unavailable',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Allow camera access in settings to scan QR codes.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.55),
+                        fontSize: 12.5,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              errorBuilder: (context, error, child) => const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+            ),
+          ),
+          const _ScanOverlay(),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: SizedBox(
+                  height: 46,
+                  child: Stack(
+                    alignment: Alignment.center,
                     children: [
-                      Icon(Icons.error_outline, color: Colors.white70, size: 48),
-                      SizedBox(height: 16),
-                      Text('Camera unavailable', style: TextStyle(color: Colors.white70)),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _GlassIconButton(
+                          icon: TablerIcons.arrow_left,
+                          onTap: () => Navigator.pop(context),
+                        ),
+                      ),
+                      const Text(
+                        'Scan QR Code',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: _GlassIconButton(
+                          icon: _torchOn
+                              ? TablerIcons.bolt_off
+                              : TablerIcons.bolt,
+                          active: _torchOn,
+                          onTap: _toggleTorch,
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
             ),
-            Positioned.fill(child: _ScanOverlay(scanLine: _scanLine)),
-            Positioned(
-              top: 48,
-              left: 16,
-              child: GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Icon(Icons.arrow_back, color: Colors.white, size: 22),
-                ),
-              ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GlassIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool active;
+
+  const _GlassIconButton({
+    required this.icon,
+    required this.onTap,
+    this.active = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipOval(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Material(
+          color: active
+              ? AppPalette.aqua.withValues(alpha: 0.9)
+              : Colors.black.withValues(alpha: 0.3),
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(icon, size: 21, color: Colors.white),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -188,8 +296,7 @@ class _ScannerPageState extends State<ScannerPage>
 }
 
 class _ScanOverlay extends StatelessWidget {
-  final Animation<double> scanLine;
-  const _ScanOverlay({required this.scanLine});
+  const _ScanOverlay();
 
   @override
   Widget build(BuildContext context) {
@@ -197,39 +304,16 @@ class _ScanOverlay extends StatelessWidget {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final height = constraints.maxHeight;
-        if (width <= 0 || height <= 0) return const SizedBox();
+        if (width <= 0 || height <= 0) return const SizedBox.shrink();
 
-        final scanSize = width * 0.7;
-        final left = (width - scanSize) / 2;
-        final top = (height - scanSize) / 2;
-        final scanRect = Rect.fromLTWH(left, top, scanSize, scanSize);
+        final side = math.min(width * 0.68, 282.0);
+        final left = (width - side) / 2;
+        final top = (height - side) / 2 - 18;
+        final scanRect = Rect.fromLTWH(left, top, side, side);
 
-        return AnimatedBuilder(
-          animation: scanLine,
-          builder: (_, child) => CustomPaint(
-            painter: _OverlayPainter(
-              scanRect: scanRect,
-              scanLineValue: scanLine.value,
-            ),
-            child: child,
-          ),
-          child: Column(
-            children: [
-              const Spacer(),
-              Padding(
-                padding: EdgeInsets.only(bottom: height * 0.22),
-                child: const Text(
-                  'Align QR code within the frame',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        return CustomPaint(
+          size: Size(width, height),
+          painter: _OverlayPainter(scanRect: scanRect),
         );
       },
     );
@@ -238,49 +322,63 @@ class _ScanOverlay extends StatelessWidget {
 
 class _OverlayPainter extends CustomPainter {
   final Rect scanRect;
-  final double scanLineValue;
 
-  _OverlayPainter({required this.scanRect, this.scanLineValue = 0});
+  _OverlayPainter({required this.scanRect});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final overlayPaint = Paint()..color = Colors.black.withValues(alpha: 0.55);
-    final path = Path()
+    const radius = Radius.circular(28);
+
+    final dimPaint = Paint()..color = Colors.black.withValues(alpha: 0.58);
+    final dimPath = Path()
       ..fillType = PathFillType.evenOdd
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..addRRect(RRect.fromRectAndRadius(scanRect, const Radius.circular(12)));
-    canvas.drawPath(path, overlayPaint);
+      ..addRRect(RRect.fromRectAndRadius(scanRect, radius));
+    canvas.drawPath(dimPath, dimPaint);
 
-    final lineY = scanRect.top + scanRect.height * scanLineValue;
-    final linePaint = Paint()
-      ..color = const Color(0xFF2563eb).withValues(alpha: 0.6)
-      ..strokeWidth = 2.0;
-    canvas.drawLine(
-      Offset(scanRect.left + 4, lineY),
-      Offset(scanRect.right - 4, lineY),
-      linePaint,
-    );
+    final framePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.24)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    canvas.drawRRect(RRect.fromRectAndRadius(scanRect, radius), framePaint);
 
     final cornerPaint = Paint()
-      ..color = const Color(0xFF2563eb)
-      ..strokeWidth = 3.5
+      ..color = AppPalette.aqua
       ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
       ..strokeCap = StrokeCap.round;
-    const cornerLen = 22.0;
-    final r = scanRect;
 
-    canvas.drawLine(r.topLeft, Offset(r.left + cornerLen, r.top), cornerPaint);
-    canvas.drawLine(r.topLeft, Offset(r.left, r.top + cornerLen), cornerPaint);
-    canvas.drawLine(r.topRight, Offset(r.right - cornerLen, r.top), cornerPaint);
-    canvas.drawLine(r.topRight, Offset(r.right, r.top + cornerLen), cornerPaint);
-    canvas.drawLine(r.bottomLeft, Offset(r.left + cornerLen, r.bottom), cornerPaint);
-    canvas.drawLine(r.bottomLeft, Offset(r.left, r.bottom - cornerLen), cornerPaint);
-    canvas.drawLine(r.bottomRight, Offset(r.right - cornerLen, r.bottom), cornerPaint);
-    canvas.drawLine(r.bottomRight, Offset(r.right, r.bottom - cornerLen), cornerPaint);
+    const cornerLen = 28.0;
+    const cornerRadius = 22.0;
+    final r = scanRect;
+    final cornerPaths = <Path>[
+      Path()
+        ..moveTo(r.left, r.top + cornerLen)
+        ..lineTo(r.left, r.top + cornerRadius)
+        ..quadraticBezierTo(r.left, r.top, r.left + cornerRadius, r.top)
+        ..lineTo(r.left + cornerLen, r.top),
+      Path()
+        ..moveTo(r.right - cornerLen, r.top)
+        ..lineTo(r.right - cornerRadius, r.top)
+        ..quadraticBezierTo(r.right, r.top, r.right, r.top + cornerRadius)
+        ..lineTo(r.right, r.top + cornerLen),
+      Path()
+        ..moveTo(r.left, r.bottom - cornerLen)
+        ..lineTo(r.left, r.bottom - cornerRadius)
+        ..quadraticBezierTo(r.left, r.bottom, r.left + cornerRadius, r.bottom)
+        ..lineTo(r.left + cornerLen, r.bottom),
+      Path()
+        ..moveTo(r.right - cornerLen, r.bottom)
+        ..lineTo(r.right - cornerRadius, r.bottom)
+        ..quadraticBezierTo(r.right, r.bottom, r.right, r.bottom - cornerRadius)
+        ..lineTo(r.right, r.bottom - cornerLen),
+    ];
+    for (final path in cornerPaths) {
+      canvas.drawPath(path, cornerPaint);
+    }
   }
 
   @override
   bool shouldRepaint(covariant _OverlayPainter oldDelegate) =>
-      scanRect != oldDelegate.scanRect ||
-      scanLineValue != oldDelegate.scanLineValue;
+      scanRect != oldDelegate.scanRect;
 }

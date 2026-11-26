@@ -8,6 +8,7 @@ class MiniCalendar extends StatelessWidget {
   final ValueChanged<String>? onDateSelected;
   final Map<String, List<String>> calendarDates;
   final Set<String> deductedSundays;
+  final Set<String> forfeitedHolidays;
 
   const MiniCalendar({
     super.key,
@@ -18,6 +19,7 @@ class MiniCalendar extends StatelessWidget {
     this.onDateSelected,
     this.calendarDates = const {},
     this.deductedSundays = const {},
+    this.forfeitedHolidays = const {},
   });
 
   @override
@@ -48,6 +50,15 @@ class MiniCalendar extends StatelessWidget {
                 final key = '${year}-${month.toString().padLeft(2, '0')}-${dayNum.toString().padLeft(2, '0')}';
                 final status = statusByDate[key];
                 final calTypes = calendarDates[key] ?? <String>[];
+                // A declared holiday is a paid day. Attendance history has no row
+                // for it, so without this override a weekday holiday falls into
+                // the red “no status = absent” branch below.
+                final effectiveStatus = forfeitedHolidays.contains(key)
+                    ? 'absent'
+                    : calTypes.contains('holiday')
+                        && (status == null || status == 'absent' || status == 'leave')
+                        ? 'holiday'
+                        : status;
                 final wd = DateTime(year, month, dayNum).weekday;
                 final isWeekend = wd == DateTime.saturday || wd == DateTime.sunday;
                 final isToday = isCurrentMonth && dayNum == now.day;
@@ -59,8 +70,8 @@ class MiniCalendar extends StatelessWidget {
                 bool hasBorder = false;
                 bool filled = false;
 
-                if (status != null) {
-                  switch (status) {
+                if (effectiveStatus != null) {
+                  switch (effectiveStatus) {
                     case 'present':
                       bg = const Color(0xFFaff1ca);
                       fg = const Color(0xFF0a5135);
