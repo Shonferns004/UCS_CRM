@@ -714,6 +714,52 @@ async function getMyStationScope(workerId, restrictPairs = null) {
   return { scope, stationNames, allowedNgoIds, tempStationScopes };
 }
 
+// Follow Ups / Callbacks / Promises / Overdue must see every lead the worker
+// actually OWNS. Station ownership alone is not enough: after station
+// transfers/renames/deletes a live assignment can sit on a station that has no
+// fro_station_assignments row for its worker (or has none at all), and the
+// station-scoped queries then returned nothing. Union the worker's own live
+// assignments into the scope; the owner filter in each handler still guarantees
+// only this worker's rows are returned.
+async function getMyFollowUpScope(workerId, restrictPairs = null) {
+  const base = await getMyStationScope(workerId, restrictPairs);
+  const scope = [...base.scope];
+  try {
+    const { rows } = await db._pool.query(
+      `SELECT DISTINCT ngo_id, station
+         FROM fro_assignments
+        WHERE fro_worker_id = $1
+          AND station IS NOT NULL
+          AND (status IS NULL OR status <> 'reassigned')`,
+      [workerId],
+    );
+    let extra = (rows || []).map(r => ({ station: r.station, ngo_id: r.ngo_id }));
+    if (restrictPairs && restrictPairs.length > 0) {
+      const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
+      extra = extra.filter(s => allowed.has(`${s.ngo_id ?? ''}|${String(s.station).trim()}`));
+    }
+    if (await isOldDonorsHidden()) {
+      extra = extra.filter(s => isFreshStation(s.station));
+    }
+    const seen = new Set(scope.map(s => `${s.ngo_id ?? ''}|${String(s.station).trim()}`));
+    for (const s of extra) {
+      const key = `${s.ngo_id ?? ''}|${String(s.station).trim()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        scope.push(s);
+      }
+    }
+  } catch (e) {
+    console.warn('[follow-up scope] ownership union skipped:', e?.message || String(e));
+  }
+  return {
+    ...base,
+    scope,
+    stationNames: scope.map(s => s.station),
+    allowedNgoIds: [...new Set(scope.map(s => s.ngo_id).filter(Boolean))],
+  };
+}
+
 function withStationNgoPairs(queryBuilder, scope, stationCol = 'station', ngoCol = 'ngo_id') {
   if (!scope || scope.length === 0) return queryBuilder;
   const validPairs = scope.filter(s => s.ngo_id && s.station);
@@ -5431,7 +5477,7 @@ async function fetchWipedFollowUps({ monthKey, stationNames, myScope, user }) {
 export const getFroScheduled = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyFollowUpScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const { data: contacts, error } = await withStationNgoPairs(
@@ -5464,9 +5510,27 @@ export const getFroScheduled = async (req, res) => {
 
     const ownerContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`)
       .filter(c => !loanSets.outIds.has(Number(c.fro_assignments?.id)));
+
+    // Leads whose station was cleared (e.g. a deleted station) still belong to
+    // their owner. The station-scoped query cannot see them, so fetch the
+    // worker's own station-less scheduled contacts separately.
+    let orphanContacts = [];
+    if (!froActPairs(req) && !(await isOldDonorsHidden())) {
+      const { data: orphan, error: orphanErr } = await db
+        .from('fro_scheduled_contacts')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, fro_worker_id, batch_type, ngos(name))')
+        .eq('is_completed', false)
+        .eq('fro_assignments.fro_worker_id', workerId)
+        .is('fro_assignments.station', null)
+        .order('scheduled_at', { ascending: true });
+      if (orphanErr) throw orphanErr;
+      orphanContacts = orphan || [];
+    }
+
     const contactById = new Map();
     for (const c of ownerContacts) contactById.set(c.id, c);
     for (const c of loanedContacts) contactById.set(c.id, c);
+    for (const c of orphanContacts) contactById.set(c.id, c);
     const scopedContacts = [...contactById.values()];
 
     const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
@@ -5554,7 +5618,7 @@ export const getFroScheduled = async (req, res) => {
 export const getFroCallbacks = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyFollowUpScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const { data: assignments, error } = await withStationNgoPairs(
@@ -5653,7 +5717,7 @@ export const getFroCallbacks = async (req, res) => {
 export const getFroPromises = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyFollowUpScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const { data: assignments, error } = await withStationNgoPairs(
@@ -5769,7 +5833,7 @@ const FRO_OVERDUE_OPEN_STATUSES = [
 export const getFroOverdue = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyFollowUpScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const today = istDateString(new Date());
