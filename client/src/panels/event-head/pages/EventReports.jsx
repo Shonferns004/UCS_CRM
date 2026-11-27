@@ -766,6 +766,7 @@ const BSCT_PHOTO_H = 153
 const BSCT_TEXT_TOP = 158
 
 const BSCT_HEAD_FONT = "Impact, 'Arial Narrow', 'Oswald', sans-serif"
+const BSCT_HAPPY_FONT = "Oswald, 'Arial Narrow', sans-serif"
 const BSCT_NUM_FONT = "Georgia, 'Times New Roman', serif"
 // Width of `text` at a 1px font size, measured with the real font stack, so the
 // title and the footer count can be fitted to their space whatever font the
@@ -814,7 +815,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
   // added unless it already ends with one. Empty box = the line is left out.
   const typed = String(happyCount ?? '').trim()
   const countTxt = typed ? (typed.endsWith('+') ? typed : `${typed}+`) : ''
-  const footW = 54 * textEm('HAPPY FAMILY', BSCT_HEAD_FONT) + 14 + 62 * textEm(countTxt, BSCT_NUM_FONT, 'italic 800')
+  const footW = 54 * textEm('HAPPY FAMILY', BSCT_HAPPY_FONT, '700') + 14 + 62 * textEm(countTxt, BSCT_NUM_FONT, 'italic 700')
   const footK = Math.min(1, 590 / Math.max(1, footW))
   const innerW = BSCT_SLOT_W - BSCT_BORDER * 2
   const innerH = BSCT_SLOT_H - BSCT_BORDER * 2
@@ -844,9 +845,9 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
       </div>
       {/* "HAPPY FAMILY <count>" in the footer, right aligned like the artwork */}
       {countTxt && (
-        <div style={{ position: 'absolute', right: `${((BSCT_W - 1108) / BSCT_W) * 100}%`, top: `${((1446 - cut) / Hp) * 100}%`, height: `${(90 / Hp) * 100}%`, display: 'flex', alignItems: 'center', gap: px(14 * footK), whiteSpace: 'nowrap', pointerEvents: 'none' }}>
-          <span style={{ fontFamily: BSCT_HEAD_FONT, fontWeight: 800, fontSize: px(60 * footK), lineHeight: 1.1, color: '#2a6fc0', letterSpacing: '4px', }}>HAPPY FAMILY</span>
-          <span style={{ fontFamily: BSCT_NUM_FONT, fontStyle: 'italic', fontWeight: 800, fontSize: px(62 * footK), lineHeight: 1.1, color: '#0f2547' }}>{countTxt}</span>
+        <div style={{ position: 'absolute', right: `${((BSCT_W - 1108) / BSCT_W) * 100}%`, top: `${((BSCT_H - BSCT_FOOT_H + 36 - cut) / Hp) * 100}%`, height: `${(90 / Hp) * 100}%`, display: 'flex', alignItems: 'center', gap: px(14 * footK), whiteSpace: 'nowrap', pointerEvents: 'none' }}>
+          <span style={{ fontFamily: BSCT_HAPPY_FONT, fontWeight: 700, fontSize: px(60 * footK), lineHeight: 1.1, color: '#2a6fc0', letterSpacing: '4px', }}>HAPPY FAMILY</span>
+          <span style={{ fontFamily: BSCT_NUM_FONT, fontStyle: 'italic', fontWeight: 700, fontSize: px(62 * footK), lineHeight: 1.1, color: '#0f2547' }}>{countTxt}</span>
         </div>
       )}
       {rows.map((ev, i) => {
@@ -1152,9 +1153,10 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, happyCount, ca
   }
   // BSCT: the programmes are laid straight onto the report-card artwork, 20 per
   // template page, instead of the generic 5-column grid.
-  if (theme.name === 'BSCT' && rows.length > 0) {
+  if (theme.name === 'BSCT') {
     const pages = []
-    for (let i = 0; i < rows.length; i += BSCT_PER_PAGE) pages.push(rows.slice(i, i + BSCT_PER_PAGE))
+    if (rows.length === 0) pages.push([])
+    else for (let i = 0; i < rows.length; i += BSCT_PER_PAGE) pages.push(rows.slice(i, i + BSCT_PER_PAGE))
     return (
       <div ref={cardRef} className="eh-ngo-card bsct-pages" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {pages.map((chunk, pi) => (

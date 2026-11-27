@@ -4,13 +4,14 @@ import {
   Tooltip, CartesianGrid, Legend,
 } from 'recharts'
 import { fetchSocialLeadsOverview } from '../../../api/socialLeads'
+import './socialLeads.css'
 
 // Social Media panel → Leads Report.
 //
-// One read-only overview of the leads the digital team brings in (Meta lead ads,
-// Google lead forms, WhatsApp bulk replies, bulk email, LinkedIn). The KPI cards,
-// trend and tables all read the same backend aggregation, so nothing on screen
-// can disagree with another number. Spend / CPL appear only when a Meta ad
+// A LeadPulse-style overview of the leads the digital team brings in (Meta lead
+// ads, Google lead forms, WhatsApp bulk replies, bulk email, LinkedIn). Every
+// number comes from the backend aggregation, so the KPIs, charts and tables can
+// never disagree with each other. Spend / CPL appear only when a Meta ad
 // account is configured; the lead counts work regardless.
 
 const num = (n) => Number(n || 0).toLocaleString('en-IN')
@@ -25,13 +26,14 @@ const fmtDate = (d) => {
   return Number.isNaN(dt.getTime()) ? '—' : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 }
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—')
+const safe = (n, d = 0) => (Number.isFinite(Number(n)) ? Number(n) : d)
 
 const SOURCE_COLOR = {
-  meta: '#0866ff',
-  google: '#ea4335',
-  whatsapp: '#25d366',
-  email: '#6366f1',
-  linkedin: '#0a66c2',
+  meta: '#2563eb',
+  google: '#d97706',
+  whatsapp: '#059669',
+  email: '#7c3aed',
+  linkedin: '#0891b2',
 }
 const SOURCE_LABEL = {
   meta: 'Meta',
@@ -40,28 +42,15 @@ const SOURCE_LABEL = {
   email: 'Email replies',
   linkedin: 'LinkedIn',
 }
+const TIER_OPTIONS = [
+  { value: '', label: 'All tiers' },
+  { value: 'interested', label: 'Hot / Interested' },
+  { value: 'review', label: 'Review' },
+  { value: 'low', label: 'Low / Standard' },
+]
 
-const card = {
-  background: 'var(--card-bg)',
-  border: '1px solid var(--line)',
-  borderRadius: 12,
-  padding: 16,
-}
-const label = {
-  fontSize: 10.5,
-  fontWeight: 800,
-  letterSpacing: 0.5,
-  textTransform: 'uppercase',
-  color: 'var(--ink-soft)',
-}
-const selectStyle = {
-  padding: '7px 10px',
-  borderRadius: 8,
-  border: '1px solid var(--line)',
-  background: 'var(--card-bg)',
-  color: 'var(--ink)',
-  fontSize: 12,
-  fontFamily: 'inherit',
+function KpiIcon({ color, bg, children }) {
+  return <span className="sl-kpi-icon" style={{ background: bg, color }}>{children}</span>
 }
 
 export default function SocialLeadsReport() {
@@ -71,6 +60,7 @@ export default function SocialLeadsReport() {
   const [source, setSource] = useState('')
   const [ngo, setNgo] = useState('')
   const [platform, setPlatform] = useState('')
+  const [tier, setTier] = useState('')
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
   const [data, setData] = useState(null)
@@ -88,7 +78,7 @@ export default function SocialLeadsReport() {
     let alive = true
     setLoading(true)
     setError('')
-    const params = { source, platform, q: debounced }
+    const params = { source, platform, tier, q: debounced }
     if (ngo) params.ngo = ngo
     // An explicit from/to range wins server-side; only send `days` when the
     // range is not fully set so the rolling window stays the default.
@@ -103,10 +93,21 @@ export default function SocialLeadsReport() {
       .catch((e) => { if (alive) setError(e?.message || 'Could not load the leads overview.') })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [days, from, to, source, ngo, platform, debounced])
+  }, [days, from, to, source, ngo, platform, tier, debounced])
 
   useEffect(() => load(), [load])
-  useEffect(() => { setPage(1) }, [days, from, to, source, ngo, platform, debounced])
+  useEffect(() => { setPage(1) }, [days, from, to, source, ngo, platform, tier, debounced])
+
+  const resetFilters = () => {
+    setDays('30')
+    setFrom('')
+    setTo('')
+    setSource('')
+    setNgo('')
+    setPlatform('')
+    setTier('')
+    setSearch('')
+  }
 
   const totals = data?.totals || {}
   const series = data?.series || []
@@ -120,8 +121,9 @@ export default function SocialLeadsReport() {
   const insights = adsMeta?.totals || null
 
   const sourceMax = Math.max(1, ...bySource.map((s) => s.leads))
-  const qualityTotal = Math.max(1, (totals.interested || 0) + (totals.review || 0) + (totals.low || 0) + (totals.unscored || 0))
-  const placedRate = totals.leads ? (totals.placed || 0) / totals.leads : 0
+  const qualityTotal = Math.max(1, safe(totals.interested) + safe(totals.review) + safe(totals.low) + safe(totals.unscored))
+  const placedRate = totals.leads ? safe(totals.placed) / totals.leads : 0
+  const custom = Boolean(data?.custom)
 
   const pageCount = Math.max(1, Math.ceil(recent.length / PAGE_SIZE))
   const safePage = Math.min(page, pageCount)
@@ -132,11 +134,11 @@ export default function SocialLeadsReport() {
 
   const funnelSteps = funnel
     ? [
-      { label: 'Impressions', value: funnel.impressions || 0, color: '#93c5fd' },
-      { label: 'Clicks', value: funnel.clicks || 0, color: '#60a5fa' },
-      { label: 'Meta leads', value: funnel.meta_leads || 0, color: '#3b82f6' },
-      { label: 'CRM leads', value: funnel.crm_leads || totals.leads || 0, color: '#2563eb' },
-      { label: 'Placed', value: funnel.placed_leads || totals.placed || 0, color: '#4f46e5' },
+      { label: 'Impressions served', value: funnel.impressions || 0, color: '#93c5fd' },
+      { label: 'Ad clicks', value: funnel.clicks || 0, color: '#60a5fa' },
+      { label: 'Meta lead submits', value: funnel.meta_leads || 0, color: '#3b82f6' },
+      { label: 'CRM ingested', value: funnel.crm_leads || totals.leads || 0, color: '#2563eb' },
+      { label: 'Placed in station', value: funnel.placed_leads || totals.placed || 0, color: '#4f46e5' },
     ]
     : [
       { label: 'Captured leads', value: totals.leads || 0, color: '#3b82f6' },
@@ -146,10 +148,10 @@ export default function SocialLeadsReport() {
   const funnelMax = Math.max(1, ...funnelSteps.map((s) => s.value))
 
   const exportCsv = () => {
-    const header = ['Date', 'Name', 'Phone', 'Email', 'Source', 'Platform', 'Campaign', 'Form', 'NGO', 'Status', 'Placed']
+    const header = ['Date', 'Name', 'Phone', 'Email', 'Source', 'Platform', 'Campaign', 'Form', 'NGO', 'Status', 'Tier', 'Placed']
     const rows = recent.map((r) => [
       r.created_at ? new Date(r.created_at).toISOString().slice(0, 10) : '',
-      r.name, r.phone, r.email, r.source, r.platform, r.campaign_name, r.form_name, r.ngo, r.status, r.placed ? 'yes' : 'no',
+      r.name, r.phone, r.email, r.source, r.platform, r.campaign_name, r.form_name, r.ngo, r.status, r.label, r.placed ? 'yes' : 'no',
     ])
     const csv = [header, ...rows]
       .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
@@ -164,63 +166,50 @@ export default function SocialLeadsReport() {
   }
 
   if (loading && !data) {
-    return <div style={{ padding: 24, color: 'var(--ink-soft)', fontSize: 13 }}>Loading leads overview…</div>
+    return <div className="social-leads"><div className="sl-card sl-empty">Loading leads overview…</div></div>
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Filters */}
-      <div style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-        <div>
-          <div style={label}>Period</div>
+    <div className="social-leads">
+      {/* ── Filter toolbar ─────────────────────────────────────────── */}
+      <div className="sl-toolbar">
+        <label className="sl-field">
+          <span>Period</span>
           <select
+            className="sl-select"
             value={from && to ? 'custom' : days}
             onChange={(e) => { setDays(e.target.value); setFrom(''); setTo('') }}
-            style={selectStyle}
           >
             <option value="7">Last 7 days</option>
             <option value="30">Last 30 days</option>
             <option value="90">Last 90 days</option>
             {from && to && <option value="custom">Custom range</option>}
           </select>
-        </div>
-        <div>
-          <div style={label}>From</div>
-          <input
-            type="date"
-            value={from}
-            max={to || undefined}
-            onChange={(e) => setFrom(e.target.value)}
-            style={selectStyle}
-          />
-        </div>
-        <div>
-          <div style={label}>To</div>
-          <input
-            type="date"
-            value={to}
-            min={from || undefined}
-            onChange={(e) => setTo(e.target.value)}
-            style={selectStyle}
-          />
-        </div>
-        {from && to && (
-          <div style={{ alignSelf: 'flex-end' }}>
-            <button onClick={() => { setFrom(''); setTo('') }} style={{ ...selectStyle, cursor: 'pointer', fontWeight: 700 }}>
-              Clear range
-            </button>
-          </div>
-        )}
-        <div>
-          <div style={label}>Source</div>
-          <select value={source} onChange={(e) => setSource(e.target.value)} style={selectStyle}>
+        </label>
+
+        <label className="sl-field">
+          <span>From</span>
+          <input className="sl-input" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+
+        <label className="sl-field">
+          <span>To</span>
+          <input className="sl-input" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+        </label>
+
+        <label className="sl-field">
+          <span>Source</span>
+          <select className="sl-select" value={source} onChange={(e) => setSource(e.target.value)}>
             <option value="">All sources</option>
-            {(data?.sources || []).map((s) => <option key={s.source} value={s.source}>{SOURCE_LABEL[s.key] || s.source}</option>)}
+            {(data?.sources || []).map((s) => (
+              <option key={s.source} value={s.source}>{SOURCE_LABEL[s.key] || s.source}</option>
+            ))}
           </select>
-        </div>
-        <div>
-          <div style={label}>NGO</div>
-          <select value={ngo} onChange={(e) => setNgo(e.target.value)} style={selectStyle}>
+        </label>
+
+        <label className="sl-field">
+          <span>NGO</span>
+          <select className="sl-select" value={ngo} onChange={(e) => setNgo(e.target.value)}>
             <option value="">All NGOs</option>
             {(data?.ngo_options || [
               { ngo: 'BSCT' }, { ngo: 'AFLF' }, { ngo: 'MANN' }, { ngo: 'Unmapped' },
@@ -230,122 +219,163 @@ export default function SocialLeadsReport() {
               </option>
             ))}
           </select>
-        </div>
-        <div>
-          <div style={label}>Platform</div>
-          <select value={platform} onChange={(e) => setPlatform(e.target.value)} style={selectStyle}>
+        </label>
+
+        <label className="sl-field">
+          <span>Platform</span>
+          <select className="sl-select" value={platform} onChange={(e) => setPlatform(e.target.value)}>
             <option value="">All</option>
             <option value="fb">Facebook</option>
             <option value="ig">Instagram</option>
           </select>
-        </div>
-        <div style={{ flex: 1, minWidth: 180 }}>
-          <div style={label}>Search</div>
+        </label>
+
+        <label className="sl-field">
+          <span>Intent tier</span>
+          <select className="sl-select" value={tier} onChange={(e) => setTier(e.target.value)}>
+            {TIER_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </label>
+
+        <label className="sl-field sl-search">
+          <span>Search</span>
           <input
+            className="sl-input"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Name, phone, email or campaign"
-            style={{ ...selectStyle, width: '100%', boxSizing: 'border-box' }}
           />
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <button onClick={load} disabled={loading} style={{ ...selectStyle, cursor: 'pointer', fontWeight: 700 }}>
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
-          <button onClick={exportCsv} disabled={!recent.length} style={{ ...selectStyle, cursor: 'pointer', fontWeight: 700 }}>
-            Export CSV
-          </button>
+        </label>
+
+        <div className="sl-toolbar-actions">
+          <button className="sl-btn" type="button" onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
+          <button className="sl-btn" type="button" onClick={resetFilters}>Reset</button>
+          <button className="sl-btn sl-btn-primary" type="button" onClick={exportCsv} disabled={!recent.length}>Export CSV</button>
         </div>
       </div>
 
-      {error && (
-        <div style={{ ...card, borderColor: '#fecaca', background: '#fef2f2', color: '#b91c1c', fontSize: 13 }}>{error}</div>
-      )}
+      {error && <div className="sl-error">{error}</div>}
 
-      {/* KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14 }}>
-        <div style={card}>
-          <div style={label}>Total leads</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
-            <span style={{ fontSize: 30, fontWeight: 800, color: 'var(--ink)', letterSpacing: -1 }}>{num(totals.leads)}</span>
+      {/* ── KPI row ────────────────────────────────────────────────── */}
+      <div className="sl-kpis">
+        <div className="sl-kpi">
+          <div className="sl-kpi-top">
+            <span className="sl-kpi-label">Total leads</span>
+            <KpiIcon color="#4f46e5" bg="#eef2ff">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+            </KpiIcon>
+          </div>
+          <div className="sl-kpi-value">
+            {num(totals.leads)}
             {totals.change_pct != null && (
-              <span style={{ fontSize: 11, fontWeight: 700, color: totals.change_pct >= 0 ? '#047857' : '#b91c1c', background: totals.change_pct >= 0 ? '#ecfdf5' : '#fef2f2', border: `1px solid ${totals.change_pct >= 0 ? '#a7f3d0' : '#fecaca'}`, padding: '2px 8px', borderRadius: 999 }}>
-                {totals.change_pct >= 0 ? '▲' : '▼'} {Math.abs(totals.change_pct)}%
+              <span className={`sl-delta ${totals.change_pct > 0 ? 'up' : totals.change_pct < 0 ? 'down' : 'flat'}`}>
+                {totals.change_pct > 0 ? '▲' : totals.change_pct < 0 ? '▼' : '■'} {Math.abs(totals.change_pct)}%
               </span>
             )}
           </div>
-          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-soft)' }}>
-            {data?.custom
-              ? `${num(totals.range_end)} on ${fmtDate(data?.to)} · vs ${num(totals.previous)} prev period`
-              : `${num(totals.today)} today · vs ${num(totals.previous)} prev period`}
+          <div className="sl-kpi-sub">
+            <span>{custom ? `${num(totals.range_end)} on ${fmtDate(data?.to)}` : `${num(totals.today)} today`}</span>
+            <span>vs {num(totals.previous)} prev</span>
           </div>
         </div>
 
-        <div style={card}>
-          <div style={label}>Hot / interested</div>
-          <div style={{ fontSize: 30, fontWeight: 800, color: '#047857', letterSpacing: -1, marginTop: 8 }}>{num(totals.hot)}</div>
-          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-soft)' }}>avg intent score {totals.avg_score || 0} · {num(totals.scored)} scored</div>
+        <div className="sl-kpi">
+          <div className="sl-kpi-top">
+            <span className="sl-kpi-label">Hot / interested</span>
+            <KpiIcon color="#b45309" bg="#fffbeb">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" /></svg>
+            </KpiIcon>
+          </div>
+          <div className="sl-kpi-value">{num(totals.hot)}</div>
+          <div className="sl-kpi-sub">
+            <span>Avg score {totals.avg_score || 0}</span>
+            <span>{num(totals.scored)} scored</span>
+          </div>
         </div>
 
-        <div style={card}>
-          <div style={label}>Placed in station</div>
-          <div style={{ fontSize: 30, fontWeight: 800, color: '#4f46e5', letterSpacing: -1, marginTop: 8 }}>{num(totals.placed)}</div>
-          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-soft)' }}>{pct(placedRate)} placement rate</div>
+        <div className="sl-kpi">
+          <div className="sl-kpi-top">
+            <span className="sl-kpi-label">Station placed</span>
+            <KpiIcon color="#0891b2" bg="#ecfeff">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 12 2 2 4-4" /><circle cx="12" cy="12" r="9" /></svg>
+            </KpiIcon>
+          </div>
+          <div className="sl-kpi-value">{num(totals.placed)}</div>
+          <div className="sl-kpi-sub">
+            <span>{pct(placedRate)} placement</span>
+            <span>{num(totals.mapped)} mapped</span>
+          </div>
         </div>
 
-        <div style={card}>
-          <div style={label}>Platform split</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8 }}>
-            <span style={{ fontSize: 24, fontWeight: 800, color: '#0866ff' }}>{num(totals.facebook)} <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>FB</span></span>
+        <div className="sl-kpi">
+          <div className="sl-kpi-top">
+            <span className="sl-kpi-label">Social split</span>
+            <KpiIcon color="#7c3aed" bg="#f5f3ff">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 3v9h9" /></svg>
+            </KpiIcon>
+          </div>
+          <div className="sl-kpi-value">
+            <span style={{ color: '#2563eb' }}>{num(totals.facebook)}</span>
+            <small>FB</small>
             <span style={{ color: '#cbd5e1' }}>/</span>
-            <span style={{ fontSize: 24, fontWeight: 800, color: '#db2777' }}>{num(totals.instagram)} <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>IG</span></span>
+            <span style={{ color: '#db2777' }}>{num(totals.instagram)}</span>
+            <small>IG</small>
           </div>
-          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-soft)' }}>{num(totals.google)} Google leads · {num(totals.mapped)} mapped to an NGO</div>
+          <div className="sl-kpi-sub">
+            <span>{num(totals.google)} Google</span>
+            <span>{num(totals.unscored)} unscored</span>
+          </div>
         </div>
 
-        <div style={card}>
-          <div style={label}>Spend / CPL (Meta)</div>
-          {insights ? (
-            <>
-              <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ink)', letterSpacing: -1, marginTop: 8 }}>{money(insights.cpl)}</div>
-              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-soft)' }}>Spend {money(insights.spend)} · {num(insights.clicks)} clicks</div>
-            </>
-          ) : (
-            <>
-              <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink-soft)', marginTop: 8 }}>—</div>
-              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-soft)' }}>
-                {data?.custom
-                  ? 'Spend & CPL are shown for the rolling 7/30/90-day views'
-                  : 'Connect a Meta ad account to load spend & CPL'}
-              </div>
-            </>
-          )}
+        <div className="sl-kpi">
+          <div className="sl-kpi-top">
+            <span className="sl-kpi-label">Meta spend / CPL</span>
+            <KpiIcon color="#059669" bg="#ecfdf5">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+            </KpiIcon>
+          </div>
+          <div className="sl-kpi-value">{insights ? money(insights.cpl) : '—'}</div>
+          <div className="sl-kpi-sub">
+            {insights
+              ? <><span>Spend {money(insights.spend)}</span><span>{num(insights.clicks)} clicks</span></>
+              : <span>{custom ? 'Custom range: rolling-period metric' : 'Connect a Meta ad account'}</span>}
+          </div>
         </div>
 
-        <div style={card}>
-          <div style={label}>Lead quality</div>
-          <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', background: '#f1f5f9', marginTop: 12 }}>
-            <div style={{ width: `${((totals.interested || 0) / qualityTotal) * 100}%`, background: '#059669' }} />
-            <div style={{ width: `${((totals.review || 0) / qualityTotal) * 100}%`, background: '#f59e0b' }} />
-            <div style={{ width: `${((totals.low || 0) / qualityTotal) * 100}%`, background: '#cbd5e1' }} />
-            <div style={{ width: `${((totals.unscored || 0) / qualityTotal) * 100}%`, background: '#e2e8f0' }} />
+        <div className="sl-kpi">
+          <div className="sl-kpi-top">
+            <span className="sl-kpi-label">Lead quality</span>
+            <KpiIcon color="#64748b" bg="#f1f5f9">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="M7 14l3-3 3 3 4-6" /></svg>
+            </KpiIcon>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 8 }}>
-            <span>Hot {num(totals.interested)}</span>
-            <span>Review {num(totals.review)}</span>
-            <span>Low {num(totals.low)}</span>
+          <div className="sl-bar" style={{ marginTop: 4, height: 10 }}>
+            <i style={{ width: `${(safe(totals.interested) / qualityTotal) * 100}%`, background: '#059669', float: 'left' }} />
+            <i style={{ width: `${(safe(totals.review) / qualityTotal) * 100}%`, background: '#d97706', float: 'left' }} />
+            <i style={{ width: `${(safe(totals.low) / qualityTotal) * 100}%`, background: '#cbd5e1', float: 'left' }} />
+            <i style={{ width: `${(safe(totals.unscored) / qualityTotal) * 100}%`, background: '#e2e8f0', float: 'left' }} />
+          </div>
+          <div className="sl-kpi-sub">
+            <span>Hot {num(totals.interested)} · Review {num(totals.review)}</span>
+            <span>Low {num(totals.low)} · — {num(totals.unscored)}</span>
           </div>
         </div>
       </div>
 
-      {/* Trend + source mix */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 14 }}>
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 12 }}>Leads per day by source</div>
-          <div style={{ width: '100%', height: 260 }}>
+      {/* ── Trend + channel mix ────────────────────────────────────── */}
+      <div className="sl-grid-2">
+        <div className="sl-card">
+          <div className="sl-card-head">
+            <div>
+              <h3 className="sl-card-title">Leads ingestion &amp; trajectory</h3>
+              <div className="sl-card-sub">Daily leads by source, with hot and placed lines</div>
+            </div>
+            <span className="sl-pill">{data?.days || 30}-day view</span>
+          </div>
+          <div className="sl-chart">
             <ResponsiveContainer>
               <ComposedChart data={series} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                 <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
                 <Tooltip labelFormatter={fmtDate} />
@@ -356,121 +386,230 @@ export default function SocialLeadsReport() {
                 <Bar dataKey="email" name="Email" stackId="s" fill={SOURCE_COLOR.email} />
                 <Bar dataKey="linkedin" name="LinkedIn" stackId="s" fill={SOURCE_COLOR.linkedin} />
                 <Line type="monotone" dataKey="hot" name="Hot" stroke="#059669" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="placed" name="Placed" stroke="#4f46e5" strokeWidth={2} dot={false} strokeDasharray="4 3" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 12 }}>Source mix</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {bySource.map((s) => (
-              <div key={s.source}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginBottom: 3 }}>
-                  <span style={{ fontWeight: 700 }}>{SOURCE_LABEL[s.key] || s.source}</span>
-                  <span style={{ color: 'var(--ink-soft)' }}>{num(s.leads)} · {pct(totals.leads ? s.leads / totals.leads : 0)}</span>
+        <div className="sl-card">
+          <div className="sl-card-head">
+            <div>
+              <h3 className="sl-card-title">Channel mix</h3>
+              <div className="sl-card-sub">Share of volume + placement yield</div>
+            </div>
+            <span className="sl-pill">{num(totals.leads)} leads</span>
+          </div>
+          <div className="sl-mix">
+            {bySource.map((s) => {
+              const share = totals.leads ? s.leads / totals.leads : 0
+              const yieldPct = s.leads ? s.placed / s.leads : 0
+              return (
+                <div key={s.source}>
+                  <div className="sl-mix-head">
+                    <span className="sl-mix-name">
+                      <span className="sl-dot" style={{ background: SOURCE_COLOR[s.key] || '#94a3b8' }} />
+                      {SOURCE_LABEL[s.key] || s.source}
+                    </span>
+                    <span className="sl-mix-meta">{num(s.leads)} · {pct(share)}</span>
+                  </div>
+                  <div className="sl-bar">
+                    <i style={{ width: `${(s.leads / sourceMax) * 100}%`, background: SOURCE_COLOR[s.key] || '#94a3b8' }} />
+                  </div>
+                  <div className="sl-mix-head" style={{ marginTop: 3, marginBottom: 0 }}>
+                    <span className="sl-soft" style={{ fontSize: 10.5 }}>Placed {num(s.placed)}</span>
+                    <span className="sl-soft" style={{ fontSize: 10.5 }}>Yield {pct(yieldPct)}</span>
+                  </div>
                 </div>
-                <div style={{ height: 8, borderRadius: 999, background: '#f1f5f9', overflow: 'hidden' }}>
-                  <div style={{ width: `${(s.leads / sourceMax) * 100}%`, height: '100%', background: SOURCE_COLOR[s.key] || '#94a3b8' }} />
-                </div>
-              </div>
-            ))}
-            {!bySource.length && <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No leads in this period.</div>}
+              )
+            })}
+            {!bySource.length && <div className="sl-empty">No leads in this period.</div>}
           </div>
         </div>
       </div>
 
-      {/* Funnel + NGO */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14 }}>
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 12 }}>Conversion funnel</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {funnelSteps.map((step) => (
-              <div key={step.label}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginBottom: 3 }}>
-                  <span>{step.label}</span>
-                  <span style={{ fontWeight: 700 }}>{num(step.value)}</span>
+      {/* ── Funnel + NGO matrix ────────────────────────────────────── */}
+      <div className="sl-grid-eq">
+        <div className="sl-card">
+          <div className="sl-card-head">
+            <div>
+              <h3 className="sl-card-title">Conversion funnel</h3>
+              <div className="sl-card-sub">{funnel ? 'Meta ad impressions through station placement' : 'Captured leads through station placement'}</div>
+            </div>
+            <span className="sl-pill">{pct(placedRate)} placed</span>
+          </div>
+          <div className="sl-funnel">
+            {funnelSteps.map((step, i) => (
+              <div className="sl-funnel-row" key={step.label}>
+                <div className="sl-funnel-head">
+                  <span><b style={{ color: 'var(--ink-soft)', marginRight: 6 }}>{i + 1}</b>{step.label}</span>
+                  <b>{num(step.value)}</b>
                 </div>
-                <div style={{ height: 12, borderRadius: 999, background: '#f1f5f9', overflow: 'hidden' }}>
-                  <div style={{ width: `${Math.max(1.5, (step.value / funnelMax) * 100)}%`, height: '100%', background: step.color }} />
+                <div className="sl-bar" style={{ height: 10 }}>
+                  <i style={{ width: `${Math.max(1.5, (step.value / funnelMax) * 100)}%`, background: step.color }} />
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 12 }}>Leads by NGO</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {byNgo.map((n) => (
-              <div key={n.ngo} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
-                <span style={{ fontWeight: 600 }}>{n.ngo}</span>
-                <span style={{ color: 'var(--ink-soft)' }}>{num(n.leads)} leads · {num(n.placed)} placed</span>
-              </div>
-            ))}
-            {!byNgo.length && <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No leads in this period.</div>}
+        <div className="sl-card">
+          <div className="sl-card-head">
+            <div>
+              <h3 className="sl-card-title">NGO &amp; station fulfilment</h3>
+              <div className="sl-card-sub">Leads and placements per partner</div>
+            </div>
+            <span className="sl-pill">{byNgo.length} partners</span>
+          </div>
+          <div className="sl-ngo">
+            {byNgo.map((n) => {
+              const rate = n.leads ? n.placed / n.leads : 0
+              return (
+                <div className="sl-ngo-row" key={n.ngo}>
+                  <div className="sl-ngo-head">
+                    <span className="sl-ngo-name">
+                      {n.ngo}
+                      {n.ngo === 'Unmapped'
+                        ? <span className="sl-tag">QUEUE</span>
+                        : <span className="sl-tag">{n.placed} placed</span>}
+                    </span>
+                    <span className="sl-ngo-meta">{num(n.leads)} leads · {pct(rate)}</span>
+                  </div>
+                  <div className="sl-bar">
+                    <i style={{ width: `${Math.max(1.5, rate * 100)}%`, background: n.ngo === 'Unmapped' ? '#d97706' : 'var(--primary)' }} />
+                  </div>
+                </div>
+              )
+            })}
+            {!byNgo.length && <div className="sl-empty">No leads in this period.</div>}
           </div>
         </div>
       </div>
 
-      {/* Campaign + form tables */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14 }}>
-        <TableCard title="Campaign performance" columns={['Campaign', 'Source', 'Leads', 'Hot', 'Placed']}
-          rows={byCampaign.map((c) => [
-            c.campaign_name || c.campaign_id || '—',
-            SOURCE_LABEL[c.key] || c.source,
-            num(c.leads), num(c.hot), num(c.placed),
-          ])} />
-        <TableCard title="Form performance" columns={['Form', 'NGO', 'Leads', 'Hot', 'Placed']}
-          rows={byForm.map((f) => [
-            f.form_name || f.form_id || '—',
-            f.ngo || '—',
-            num(f.leads), num(f.hot), num(f.placed),
-          ])} />
-      </div>
-
-      {/* Recent leads */}
-      <div style={card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div style={label}>Recent leads</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{num(recent.length)} shown · {data?.from} → {data?.to}</div>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-            <thead>
-              <tr style={{ background: 'var(--bg)', textAlign: 'left' }}>
-                {['Date', 'Name', 'Phone', 'Source', 'Platform', 'Campaign', 'NGO', 'Status', 'Placed'].map((h) => (
-                  <th key={h} style={{ padding: '7px 8px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: 'var(--ink-soft)', borderBottom: '1px solid var(--line)' }}>{h}</th>
+      {/* ── Campaign + form tables ─────────────────────────────────── */}
+      <div className="sl-grid-eq">
+        <div className="sl-card">
+          <div className="sl-card-head">
+            <div>
+              <h3 className="sl-card-title">Campaign performance</h3>
+              <div className="sl-card-sub">Top campaigns by leads</div>
+            </div>
+            <span className="sl-pill">{byCampaign.length} campaigns</span>
+          </div>
+          <div className="sl-table-wrap">
+            <table className="sl-table">
+              <thead>
+                <tr>
+                  <th>Campaign</th>
+                  <th>Source</th>
+                  <th className="num">Leads</th>
+                  <th className="num">Hot</th>
+                  <th className="num">Placed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byCampaign.map((c, i) => (
+                  <tr key={`${c.source}-${c.campaign_id || c.campaign_name || i}`}>
+                    <td className="sl-clip sl-strong" title={c.campaign_name || c.campaign_id}>{c.campaign_name || c.campaign_id || '—'}</td>
+                    <td><SourceBadge sourceKey={data?.sources?.find((s) => s.source === c.source)?.key} text={c.source} /></td>
+                    <td className="num sl-strong">{num(c.leads)}</td>
+                    <td className="num">{num(c.hot)}</td>
+                    <td className="num">{num(c.placed)}</td>
+                  </tr>
                 ))}
+                {!byCampaign.length && <tr><td colSpan={5}><div className="sl-empty">No campaigns yet.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="sl-card">
+          <div className="sl-card-head">
+            <div>
+              <h3 className="sl-card-title">Form performance</h3>
+              <div className="sl-card-sub">Lead assets by NGO</div>
+            </div>
+            <span className="sl-pill">{byForm.length} forms</span>
+          </div>
+          <div className="sl-table-wrap">
+            <table className="sl-table">
+              <thead>
+                <tr>
+                  <th>Form</th>
+                  <th>NGO</th>
+                  <th className="num">Leads</th>
+                  <th className="num">Hot</th>
+                  <th className="num">Placed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byForm.map((f, i) => (
+                  <tr key={`${f.source}-${f.form_id || f.form_name || i}`}>
+                    <td className="sl-clip sl-strong" title={f.form_name || f.form_id}>{f.form_name || f.form_id || '—'}</td>
+                    <td className="sl-soft">{f.ngo || '—'}</td>
+                    <td className="num sl-strong">{num(f.leads)}</td>
+                    <td className="num">{num(f.hot)}</td>
+                    <td className="num">{num(f.placed)}</td>
+                  </tr>
+                ))}
+                {!byForm.length && <tr><td colSpan={5}><div className="sl-empty">No forms yet.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Live feed ──────────────────────────────────────────────── */}
+      <div className="sl-card">
+        <div className="sl-feed-head">
+          <div>
+            <h3 className="sl-card-title">Live inbound leads</h3>
+            <div className="sl-card-sub">{num(recent.length)} shown · {data?.from} → {data?.to}</div>
+          </div>
+          <span className="sl-pill">{loading ? 'Syncing…' : 'Up to date'}</span>
+        </div>
+        <div className="sl-table-wrap">
+          <table className="sl-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Lead</th>
+                <th>Phone</th>
+                <th>Source</th>
+                <th>Platform</th>
+                <th>Campaign</th>
+                <th>NGO</th>
+                <th>Status</th>
+                <th>Placed</th>
               </tr>
             </thead>
             <tbody>
               {paged.map((r) => (
-                <tr key={r.id} style={{ borderTop: '1px solid var(--line)' }}>
-                  <td style={{ padding: '7px 8px', color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{fmtDateTime(r.created_at)}</td>
-                  <td style={{ padding: '7px 8px', fontWeight: 600 }}>{r.name || '—'}</td>
-                  <td style={{ padding: '7px 8px', color: 'var(--ink-soft)' }}>{r.phone || '—'}</td>
-                  <td style={{ padding: '7px 8px' }}>{SOURCE_LABEL[data?.sources?.find((s) => s.source === r.source)?.key] || r.source}</td>
-                  <td style={{ padding: '7px 8px' }}>{r.platform || '—'}</td>
-                  <td style={{ padding: '7px 8px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.campaign_name}>{r.campaign_name || '—'}</td>
-                  <td style={{ padding: '7px 8px' }}>{r.ngo || '—'}</td>
-                  <td style={{ padding: '7px 8px', color: 'var(--ink-soft)' }}>{r.status || '—'}</td>
-                  <td style={{ padding: '7px 8px' }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, color: r.placed ? '#047857' : '#94a3b8' }}>{r.placed ? 'Placed' : '—'}</span>
+                <tr key={r.id}>
+                  <td className="sl-soft" style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(r.created_at)}</td>
+                  <td className="sl-strong" style={{ whiteSpace: 'nowrap' }}>{r.name || '—'}</td>
+                  <td className="sl-soft" style={{ whiteSpace: 'nowrap' }}>{r.phone || '—'}</td>
+                  <td><SourceBadge sourceKey={data?.sources?.find((s) => s.source === r.source)?.key} text={r.source} /></td>
+                  <td className="sl-soft">{r.platform || '—'}</td>
+                  <td className="sl-clip" title={r.campaign_name}>{r.campaign_name || '—'}</td>
+                  <td>{r.ngo || '—'}</td>
+                  <td className="sl-soft">{r.status || '—'}</td>
+                  <td>
+                    {r.placed
+                      ? <span className="sl-badge ok">Placed</span>
+                      : <span className="sl-badge idle">—</span>}
                   </td>
                 </tr>
               ))}
-              {!paged.length && (
-                <tr><td colSpan={9} style={{ padding: 18, textAlign: 'center', color: 'var(--ink-soft)' }}>No leads match this view.</td></tr>
-              )}
+              {!paged.length && <tr><td colSpan={9}><div className="sl-empty">No leads match this view.</div></td></tr>}
             </tbody>
           </table>
         </div>
         {pageCount > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 12 }}>
-            <button disabled={safePage <= 1} onClick={() => setPage(safePage - 1)} style={{ ...selectStyle, cursor: 'pointer' }}>Prev</button>
-            <span style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>Page {safePage} / {pageCount}</span>
-            <button disabled={safePage >= pageCount} onClick={() => setPage(safePage + 1)} style={{ ...selectStyle, cursor: 'pointer' }}>Next</button>
+          <div className="sl-pager">
+            <button className="sl-btn" type="button" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>Prev</button>
+            <span>Page {safePage} / {pageCount}</span>
+            <button className="sl-btn" type="button" disabled={safePage >= pageCount} onClick={() => setPage(safePage + 1)}>Next</button>
           </div>
         )}
       </div>
@@ -478,31 +617,7 @@ export default function SocialLeadsReport() {
   )
 }
 
-function TableCard({ title, columns, rows }) {
-  return (
-    <div style={card}>
-      <div style={{ ...label, marginBottom: 10 }}>{title}</div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-          <thead>
-            <tr>
-              {columns.map((c, i) => (
-                <th key={c} style={{ textAlign: i > 1 ? 'right' : 'left', padding: '6px 8px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: 'var(--ink-soft)', borderBottom: '1px solid var(--line)' }}>{c}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, ri) => (
-              <tr key={ri} style={{ borderTop: '1px solid var(--line)' }}>
-                {row.map((cell, ci) => (
-                  <td key={ci} style={{ padding: '7px 8px', textAlign: ci > 1 ? 'right' : 'left', maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={String(cell)}>{cell}</td>
-                ))}
-              </tr>
-            ))}
-            {!rows.length && <tr><td colSpan={columns.length} style={{ padding: 14, textAlign: 'center', color: 'var(--ink-soft)' }}>Nothing yet.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
+function SourceBadge({ sourceKey, text }) {
+  const key = sourceKey || 'other'
+  return <span className={`sl-badge src-${key}`}>{SOURCE_LABEL[key] || text}</span>
 }
