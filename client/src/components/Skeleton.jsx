@@ -104,6 +104,39 @@ export function SkeletonMyLeads() {
   )
 }
 
+export function SkeletonLeadCards({ count = 6 }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {Array.from({ length: count }).map((_, i) => {
+        const nameWidth = `${46 + (i % 3) * 9}%`;
+        return (
+          <div
+            key={i}
+            className="lead-skel-card"
+            style={{ animationDelay: `${i * 70}ms` }}
+            aria-hidden="true"
+          >
+            <div className="sk lead-skel-avatar" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="sk" style={{ height: 13, width: nameWidth, borderRadius: 6, marginBottom: 8 }} />
+              <div className="sk" style={{ height: 9, width: '30%', borderRadius: 5, marginBottom: 10 }} />
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <div className="sk" style={{ height: 16, width: 108, borderRadius: 999 }} />
+                <div className="sk" style={{ height: 16, width: 82, borderRadius: 999 }} />
+                <div className="sk" style={{ height: 16, width: 60, borderRadius: 999 }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+              <div className="sk" style={{ height: 12, width: 92, borderRadius: 6 }} />
+              <div className="sk" style={{ height: 18, width: 66, borderRadius: 999 }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SkeletonDashboard() {
   const StatCard = ({ compact = false, index = 0 }) => (
     <div style={{ background: 'var(--card-bg, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 10, padding: compact ? '14px 16px' : '16px 18px', minHeight: compact ? 64 : 82, boxSizing: 'border-box' }}>

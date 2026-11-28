@@ -2330,38 +2330,97 @@
 .panel-fro .fro-filter-bar {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: .5em;
   min-width: 0;
   flex-wrap: nowrap;
+  /* Fluid type: the strip is only 3/5 of the shell, so when the browser scales
+     (zoom / narrow window) every control, gap and font shrinks together. */
+  font-size: clamp(9px, 1.15vw, 12px);
+}
+
+/* Search stays put; only the filter rail scrolls horizontally. */
+.panel-fro .fro-filter-scroll {
+  display: flex;
+  align-items: center;
+  gap: .4em;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.panel-fro .fro-filter-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.panel-fro .fro-filter-scroll-btn {
+  flex: 0 0 auto;
+  width: 2.4em;
+  height: 2.4em;
+  padding: 0;
+  border: 1px solid #e6ebf3;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--sage);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px -3px rgba(16, 24, 40, .25);
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+}
+.panel-fro .fro-filter-scroll-btn svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+.panel-fro .fro-filter-scroll-btn:hover:not(:disabled) {
+  background: var(--sage);
+  border-color: var(--sage);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--sage) 65%, transparent);
+}
+.panel-fro .fro-filter-scroll-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.panel-fro .fro-filter-scroll-btn:disabled {
+  opacity: .3;
+  cursor: default;
+  box-shadow: none;
+  background: #f8fafc;
+  color: var(--ink-soft);
 }
 
 .panel-fro .fro-filter-search {
   position: relative;
-  flex: 1 1 160px;
-  min-width: 120px;
-  max-width: 280px;
+  flex: 0 0 18em;
+  width: 18em;
+  min-width: 18em;
+  max-width: 18em;
 }
 
 .panel-fro .fro-filter-search > .material-symbols-outlined {
   position: absolute;
-  left: 11px;
+  left: .95em;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 16px;
+  font-size: 1.3em;
   color: #94a3b8;
   pointer-events: none;
 }
 
 .panel-fro .fro-filter-search input {
   width: 100%;
-  height: 36px;
-  padding: 0 32px 0 33px;
+  height: 3.2em;
+  padding: 0 2.6em 0 2.7em;
   border: 1px solid #e6ebf3;
-  border-radius: 11px;
+  border-radius: .95em;
   background: #fff;
   color: var(--ink);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 1em;
   font-weight: 500;
   outline: none;
   box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
@@ -2408,30 +2467,44 @@
 
 .panel-fro .fro-filter-bar .dropdown {
   position: relative;
-  flex: 0 1 auto;
-  min-width: 76px;
-  max-width: 148px;
+  flex: 0 0 auto;
+  min-width: 8.8em;
+  max-width: 13em;
+}
+/* Keep the labels readable; the rail scrolls instead of clipping them. */
+.panel-fro .fro-filter-bar .fro-dd-view {
+  min-width: 10em;
+}
+.panel-fro .fro-filter-bar .fro-dd-data {
+  min-width: 6.4em;
+}
+.panel-fro .fro-filter-bar .fro-dd-category {
+  min-width: 10.4em;
+}
+.panel-fro .fro-filter-bar .fro-dd-end {
+  min-width: 8.4em;
 }
 
 .panel-fro .fro-filter-bar .dropdown-trigger {
   position: relative;
   width: 100%;
-  height: 36px;
+  height: 3.2em;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 27px 0 11px;
+  gap: .5em;
+  padding: 0 2.3em 0 .95em;
   border: 1px solid #e6ebf3;
-  border-radius: 11px;
+  border-radius: .95em;
   background: #fff;
   color: var(--ink);
   font-family: inherit;
-  font-size: 11px;
+  font-size: 1em;
   font-weight: 700;
   text-align: left;
   outline: none;
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
   box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
   transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
 }
@@ -2450,11 +2523,28 @@
 
 .panel-fro .fro-filter-bar .dropdown-trigger > svg {
   position: absolute;
-  right: 10px;
-  width: 12px;
-  height: 12px;
-  opacity: .5;
-  transition: transform 160ms ease, opacity 160ms ease;
+  right: .7em;
+  width: 1.1em;
+  height: 1.1em;
+  opacity: .8;
+  padding: .12em;
+  border-radius: 50%;
+  background: #f1f5f9;
+  box-sizing: content-box;
+  pointer-events: none;
+  transition: transform 160ms ease, opacity 160ms ease, background 160ms ease;
+}
+
+.panel-fro .fro-filter-bar .dropdown-trigger-label,
+.panel-fro .fro-filter-bar .dropdown-trigger-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: .5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panel-fro .fro-filter-bar .dropdown.open .dropdown-trigger > svg {
@@ -2463,16 +2553,16 @@
 }
 
 .panel-fro .fro-filter-bar .dropdown-menu {
-  top: calc(100% + 7px);
+  top: calc(100% + .6em);
   left: 0;
   right: auto;
   width: max-content;
-  min-width: max(100%, 168px);
-  max-width: 240px;
-  max-height: 280px;
-  padding: 5px;
+  min-width: max(100%, 14em);
+  max-width: 20em;
+  max-height: 24em;
+  padding: .4em;
   border: 1px solid #e9eef6;
-  border-radius: 13px;
+  border-radius: 1.1em;
   background: #fff;
   box-shadow: 0 18px 44px -18px rgba(15, 23, 42, .34), 0 2px 6px rgba(15, 23, 42, .05);
   z-index: 5000;
@@ -2493,10 +2583,10 @@
 .panel-fro .fro-filter-bar .dropdown-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 11.5px;
+  gap: .8em;
+  padding: .65em .85em;
+  border-radius: .7em;
+  font-size: .96em;
   font-weight: 600;
   color: var(--ink-soft);
   transition: background 120ms ease, color 120ms ease;
@@ -2536,13 +2626,13 @@
 }
 
 .panel-fro .fro-dd-badge {
-  min-width: 18px;
-  height: 17px;
-  padding: 0 5px;
-  border-radius: 6px;
+  min-width: 1.6em;
+  height: 1.5em;
+  padding: 0 .45em;
+  border-radius: .55em;
   background: #eef2f7;
   color: #64748b;
-  font-size: 9.5px;
+  font-size: .82em;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   display: inline-flex;
@@ -2563,14 +2653,14 @@
 
 .panel-fro .fro-filter-action {
   flex: 0 0 auto;
-  height: 36px;
-  padding: 0 12px;
+  height: 3.2em;
+  padding: 0 1em;
   border: 1px solid #e6ebf3;
-  border-radius: 11px;
+  border-radius: .95em;
   background: #fff;
   color: var(--ink-soft);
   font: inherit;
-  font-size: 10.5px;
+  font-size: 1em;
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
@@ -2594,14 +2684,32 @@
    restrained lift on hover, and a hairline accent that only appears when the
    row is actually being considered. */
 .panel-fro .fro-lead-scroll {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: #c7d2e2 transparent;
+  scrollbar-gutter: stable;
 }
 
 .panel-fro .fro-lead-scroll::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+  width: 10px;
+  height: 10px;
+}
+
+.panel-fro .fro-lead-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;
+}
+
+.panel-fro .fro-lead-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #dbe3ee, #bcc9da);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+.panel-fro .fro-lead-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sage) 70%, #fff), var(--sage));
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 .panel-fro .fro-lead-card {
@@ -2706,28 +2814,9 @@
   box-shadow: 0 5px 12px -6px color-mix(in srgb, var(--sage) 65%, transparent);
 }
 
-/* The leads pane is only 3/5 of the shell, so below this viewport width the
-   strip cannot honestly stay one line: fold it into a search row plus evenly
-   sized dropdowns. */
-@media (max-width: 1180px) {
-  .panel-fro .fro-filter-bar {
-    flex-wrap: wrap;
-  }
-
-  .panel-fro .fro-filter-search {
-    flex: 1 1 100%;
-    max-width: none;
-  }
-
-  .panel-fro .fro-filter-bar .dropdown {
-    flex: 1 1 calc(33.333% - 5px);
-    max-width: none;
-  }
-
-  .panel-fro .fro-filter-action {
-    flex: 1 1 auto;
-  }
-}
+/* The filter strip stays on ONE line at every zoom level; the row scrolls
+   horizontally without a visible scrollbar instead of folding into two rows
+   (the zoomed-in layout used to hide the last filters below the fold). */
 
 .panel-fro .fro-donor-tabs::-webkit-scrollbar {
   width: 0;
@@ -3958,11 +4047,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 36px;
+  width: 3.4em;
+  height: 3.2em;
   padding: 0;
   border: 0;
-  border-radius: 10px;
+  border-radius: .85em;
   background: transparent;
   cursor: pointer;
   transition: background 160ms ease;
@@ -3974,8 +4063,8 @@
 
 .panel-fro .fro-suspense-toggle-track {
   position: relative;
-  width: 30px;
-  height: 17px;
+  width: 2.6em;
+  height: 1.5em;
   border-radius: 999px;
   background: #dbe3ee;
   flex-shrink: 0;
@@ -3984,10 +4073,10 @@
 
 .panel-fro .fro-suspense-toggle-knob {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 13px;
-  height: 13px;
+  top: .18em;
+  left: .18em;
+  width: 1.14em;
+  height: 1.14em;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, .2);
@@ -4003,7 +4092,7 @@
 }
 
 .panel-fro .fro-suspense-toggle.is-on .fro-suspense-toggle-knob {
-  transform: translateX(13px);
+  transform: translateX(1.1em);
 }
 
 .panel-fro .fro-suspense-card {

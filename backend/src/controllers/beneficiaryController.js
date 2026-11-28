@@ -21,7 +21,7 @@ import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
 import { getCatalogItem } from '../models/bnfCatalogModel.js';
-import { extractAadhaarFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
+import { extractDocumentFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
 import { randomInt, timingSafeEqual } from 'crypto';
 import db from '../config/db.js';
 
@@ -828,28 +828,50 @@ export const parseAadhaarPhotoController = async (req, res) => {
       return res.status(400).json({ message: 'image is required' });
     }
 
-    // side: 'front' | 'back' | anything else → 'all' (scrape every visible
-    // detail, used when a single uploaded Aadhaar document must autofill).
+    // doc_type selects the extraction profile. Aadhaar stays the default so the
+    // existing add/edit flows keep working; UDID and disability certificates use
+    // the same endpoint with a different profile.
+    const aliases = {
+      aadhar: 'aadhaar',
+      'aadhaar card': 'aadhaar',
+      'udid card': 'udid',
+      'unique disability id': 'udid',
+      'disability certificate': 'disability',
+      'certificate of disability': 'disability',
+      document: 'generic',
+      doc: 'generic',
+    };
+    const rawDocType = String(req.body?.doc_type || req.body?.docType || 'aadhaar').trim().toLowerCase();
+    const docType = aliases[rawDocType] || rawDocType;
+    if (!['aadhaar', 'udid', 'disability', 'generic', 'auto'].includes(docType)) {
+      return res.status(400).json({
+        message: 'Unsupported doc_type.',
+        detail: 'Use aadhaar, udid, disability, generic or auto.',
+      });
+    }
+
+    // side: 'front' | 'back' | anything else -> 'all' (scrape every visible
+    // detail, used when a single uploaded document must autofill).
     const sideKey = side === 'front' ? 'front' : side === 'back' ? 'back' : 'all';
-    const { fields, via, errors } = await extractAadhaarFromPhoto(String(image), sideKey);
+    const { fields, via, warnings } = await extractDocumentFromPhoto(String(image), docType, sideKey);
     if (!fields || Object.keys(fields).length === 0) {
       return res.status(422).json({
-        message: 'Could not read this card. Make sure the photo is sharp, well-lit, and shows the whole Aadhaar card.',
-        detail: errors.join('; ') || 'No OCR engine returned usable text.',
+        message: 'Could not read this document. Make sure the photo is sharp, well-lit, and shows the whole document.',
+        detail: Array.isArray(warnings) ? warnings.join('; ') : 'Indra OCR returned no usable fields.',
       });
     }
 
     await logAuditEvent({
       entity_type: 'aadhaar_scan',
       action: 'AADHAAR_PHOTO_SCANNED',
-      details: { found: Object.keys(fields).filter((k) => fields[k]).length, via },
+      details: { found: Object.keys(fields).filter((k) => fields[k]).length, via, doc_type: docType },
       performed_by: req.user?.name || req.user?.email || 'system',
     });
 
     const discarded = [...new Set([...ALL_KEYS].filter((k) => !(k in fields)))];
-    console.log(`[aadhaar OCR] via=${via} found=${Object.keys(fields).join(',')} missing=${discarded.join(',')}`);
-    return res.json(fields);
+    console.log(`[ocr] via=${via} doc_type=${docType} found=${Object.keys(fields).join(',')} missing=${discarded.join(',')}`);
+    return res.json({ ...fields, doc_type: docType });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(error.statusCode || 500).json({ message: error.message });
   }
 };

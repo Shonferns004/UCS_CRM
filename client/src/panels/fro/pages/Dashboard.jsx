@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import gsap from 'gsap'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Coins, Medal, BarChart3 } from 'lucide-react'
 import { getMyDashboard, getMyCollections, getMonthlyDonors, getMyLeadLoans } from '../api/donors'
 import { getMyTarget } from '../api/target'
 import RecentNotices from '../../../components/RecentNotices'
@@ -43,6 +43,85 @@ const fmtStamp = (v) => {
 
 const Icon = ({ children, color }) => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color || 'var(--ink)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
+)
+
+// Compact quality-of-work tile for the Recent Notices column. Keeps the same
+// card language as the rest of the bento (soft tint, strong number, tiny caps).
+const MiniMetric = ({ value, label, hint, tone, bg, icon, toggle }) => (
+  <div
+    style={{
+      minWidth: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 4,
+      height: '100%',
+      padding: '9px 11px',
+      borderRadius: 14,
+      border: `1px solid ${tone}22`,
+      background: bg,
+      boxShadow: '0 1px 2px rgba(16,24,40,.05)',
+    }}
+  >
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
+      <span
+        style={{
+          width: 26, height: 26, borderRadius: 9, background: '#fff', color: tone,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 1px 2px rgba(16,24,40,.10)', flexShrink: 0,
+        }}
+      >
+        <Icon color={tone}>{icon}</Icon>
+      </span>
+      <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.03em', lineHeight: 1, color: tone }}>
+        {Number(value || 0).toLocaleString('en-IN')}
+      </span>
+    </div>
+    <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {label}
+    </div>
+    {toggle ? (
+      <div
+        role="group"
+        aria-label={`${label} period`}
+        style={{
+          display: 'flex',
+          width: '100%',
+          gap: 2,
+          padding: 2,
+          borderRadius: 999,
+          background: `color-mix(in srgb, ${tone} 9%, #fff)`,
+          border: `1px solid ${tone}22`,
+        }}
+      >
+        {toggle.options.map(opt => {
+          const active = toggle.value === opt.value
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => toggle.onChange(opt.value)}
+              aria-pressed={active}
+              style={{
+                flex: '1 1 0', minWidth: 0, border: 0, borderRadius: 999,
+                padding: '3px 0', fontFamily: 'inherit', fontSize: 8.5,
+                fontWeight: 800, lineHeight: 1.5, cursor: 'pointer',
+                background: active ? tone : 'transparent',
+                color: active ? '#fff' : 'var(--ink-soft)',
+                boxShadow: active ? '0 1px 3px rgba(16,24,40,.20)' : 'none',
+                transition: 'background 140ms ease, color 140ms ease',
+              }}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
+      </div>
+    ) : hint && (
+      <div style={{ fontSize: 9, color: 'var(--ink-soft)', opacity: .8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {hint}
+      </div>
+    )}
+  </div>
 )
 
 const pad2 = n => String(n).padStart(2, '0')
@@ -309,7 +388,7 @@ function DashboardSkeleton() {
 // Dashboard and My Leads — not a genuine reload.
 const DASH_FRESH_MS = 60 * 1000
 
-export default function Dashboard() {
+export default function Dashboard({ tempStations = [], onOpenIncentive, onOpenLeaderboard, onOpenData }) {
   // Scoped to the signed-in worker, and resolved per render rather than at
   // module load. A shared global key would hand one FRO another's dashboard
   // numbers, and skipping the refetch would keep that wrong page on screen for a
@@ -359,6 +438,8 @@ export default function Dashboard() {
   const [collectionsMonthLabel, setCollectionsMonthLabel] = useState('')
   const [connectedView, setConnectedView] = useState('daily')
   const [donationView, setDonationView] = useState('today')
+  const [reactivationView, setReactivationView] = useState('today')
+  const [categoryUpgradeView, setCategoryUpgradeView] = useState('month')
   // The calendar can step back through earlier months without changing the
   // current-month KPIs at the top of the board.
   const [calendarMonth, setCalendarMonth] = useState(istMonthKey())
@@ -637,11 +718,73 @@ return (
         <div>
           <div className="fro-dash-kicker">Field officer workspace</div>
           <h1 className="fro-dash-title">Dashboard</h1>
-          <p className="fro-dash-sub">
-            Today at a glance{me?.name ? ` · ${me.name}` : ''}
+          <p className="fro-dash-sub" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span>Today at a glance{me?.name ? ` · ${me.name}` : ''}</span>
+            {tempStations.length > 0 && (
+              <span
+                title={tempStations.map(s => `${s.station}${s.ngo_name ? ` · ${s.ngo_name}` : ''}`).join(', ') + ' — temporary access; donor ownership stays with the permanent FRO.'}
+                style={{
+                  display: 'inline-flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 1,
+                  marginLeft: 8,
+                  marginTop: 2,
+                  padding: '3px 9px',
+                  border: '2px dashed #1d4ed8',
+                  borderRadius: 7,
+                  background: 'rgba(239,246,255,.78)',
+                  color: '#1e40af',
+                  lineHeight: 1.15,
+                  transform: 'rotate(-6deg)',
+                  transformOrigin: 'center',
+                  outline: '1px solid rgba(29,78,216,.26)',
+                  outlineOffset: 2,
+                  boxShadow: 'inset 0 0 0 1px rgba(29,78,216,.14)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: '.12em', textTransform: 'uppercase' }}>
+                  Temporary access
+                </span>
+                {tempStations.map((s) => {
+                  const expiry = s.temp_expires_at
+                    ? new Date(s.temp_expires_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
+                    : '';
+                  return (
+                    <span key={`${s.ngo_id || ''}|${s.station}`} style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.02em' }}>
+                      {s.station}{expiry ? ` · until ${expiry} IST` : ''}
+                    </span>
+                  );
+                })}
+              </span>
+            )}
           </p>
         </div>
         <div className="fro-dash-head-side">
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginRight: 2 }}>
+            {[
+              { label: 'Incentive', Icon: Coins, onClick: onOpenIncentive, color: '#b45309' },
+              { label: 'Leaderboard', Icon: Medal, onClick: onOpenLeaderboard, color: '#7c3aed' },
+              { label: 'Data', Icon: BarChart3, onClick: onOpenData, color: '#2563eb' },
+            ].map(({ label, Icon: HeadIcon, onClick, color }) => (
+              <button
+                key={label}
+                type="button"
+                title={label}
+                aria-label={label}
+                onClick={() => onClick?.()}
+                style={{
+                  width: 30, height: 30, padding: 0, borderRadius: 9,
+                  border: '1px solid var(--line)', background: '#fff', color,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', boxShadow: '0 1px 2px rgba(16,24,40,.05)',
+                }}
+              >
+                <HeadIcon size={15} strokeWidth={2} />
+              </button>
+            ))}
+          </div>
           {ds.is_active !== undefined && (
             <span className={`fro-status-pill${ds.is_punched_in ? ' is-live' : ''}`}>
               <span className="fro-status-dot" />
@@ -918,8 +1061,40 @@ return (
         </div>
       </div>
 
-        <div className="fro-dash-center">
-          <RecentNotices showAll fill containerStyle={{ marginTop: 0, height: '100%', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, borderRadius: 16, border: 'none' }} />
+        <div className="fro-dash-center" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ flex: '1 1 auto', minHeight: 0, display: 'flex' }}>
+            <RecentNotices showAll fill containerStyle={{ marginTop: 0, height: '100%', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, borderRadius: 16, border: 'none', flex: 1 }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, flex: '0 0 auto', height: 92 }}>
+            <MiniMetric
+              value={reactivationView === 'today'
+                ? ds?.reactivations?.inactive_to_active_today
+                : ds?.reactivations?.inactive_to_active_monthly}
+              label="Inactive → Active"
+              tone="#15803d"
+              bg="#f0fdf4"
+              toggle={{
+                value: reactivationView,
+                onChange: setReactivationView,
+                options: [{ value: 'today', label: 'Today' }, { value: 'month', label: 'Month' }],
+              }}
+              icon={<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="m17 11 2 2 4-4" /></>}
+            />
+            <MiniMetric
+              value={categoryUpgradeView === 'today'
+                ? ds?.category_upgrades?.today
+                : ds?.category_upgrades?.monthly}
+              label="Category Upgrades"
+              tone="#b45309"
+              bg="#fffbeb"
+              toggle={{
+                value: categoryUpgradeView,
+                onChange: setCategoryUpgradeView,
+                options: [{ value: 'today', label: 'Today' }, { value: 'month', label: 'Month' }],
+              }}
+              icon={<><path d="M3 17l6-6 4 4 8-8" /><path d="M14 7h7v7" /></>}
+            />
+          </div>
         </div>
 
         <div className={`card fro-dash-calendar${showCollections ? ' is-compact' : ''}`}>

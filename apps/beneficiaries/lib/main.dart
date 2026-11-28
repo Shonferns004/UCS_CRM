@@ -8,7 +8,6 @@ import 'services/api_service.dart';
 import 'services/backend_switcher.dart';
 import 'features/auth/login_page.dart';
 import 'features/home/home_page.dart';
-import 'features/beneficiaries/aadhaar_ocr_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,7 +60,6 @@ class BeneficiariesApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       home: const AuthGate(),
-      // home: AadhaarOcrPage(),
     );
   }
 }
