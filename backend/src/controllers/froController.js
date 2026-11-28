@@ -1356,6 +1356,127 @@ export const getDashboard = async (req, res) => {
       froReactivatedMonthly = [...froMonthDonorSet].filter(id => !fyBeforeMonthDonorsSet.has(id)).length;
     }
 
+    // ── Quality-of-work cards (this month) ────────────────────────────────
+    // Inactive → Active: a donor credited to this worker this month whose last
+    // receipt in the SAME NGO was at least 12 months before the month started.
+    // Category upgrade: the donor's per-NGO average category moved up between
+    // the start of the month and now. Both are computed from the same receipt
+    // history, so a new donor (no prior receipt) is excluded from both.
+    let inactiveToActiveMonthly = 0;
+    let inactiveToActiveToday = 0;
+    let categoryUpgradesMonthly = 0;
+    let categoryUpgradesToday = 0;
+    try {
+      const pairs = new Map();
+      const todayPairs = new Map();
+      for (const r of collectedRows || []) {
+        const donorId = Number(r.donor_id);
+        const project = String(r.project_id || '').toLowerCase();
+        if (!donorId || !project) continue;
+        const key = `${donorId}|${project}`;
+        const day = String(r.receipt_date || '').slice(0, 10);
+        const prev = pairs.get(key);
+        if (!prev) {
+          pairs.set(key, { donorId, project, firstDate: day || startDay });
+        } else if (day && day < prev.firstDate) {
+          prev.firstDate = day;
+        }
+        if (day === todayDay) {
+          const tp = todayPairs.get(key);
+          if (!tp) todayPairs.set(key, { donorId, project, firstDate: day });
+        }
+      }
+      if (pairs.size > 0) {
+        const donorIds = [...new Set([...pairs.values()].map(p => p.donorId))];
+        const historyRows = [];
+        for (let i = 0; i < donorIds.length; i += 1000) {
+          const chunk = donorIds.slice(i, i + 1000);
+          const { rows } = await db._pool.query(
+            `SELECT donor_id, lower(project_id) AS project, receipt_date, amount
+               FROM receipts
+              WHERE donor_id = ANY($1::int[])
+                AND voided_at IS NULL
+                AND COALESCE(amount, 0) > 0
+                AND receipt_date <= $2`,
+            [chunk, endDay],
+          );
+          historyRows.push(...(rows || []));
+        }
+
+        const history = new Map();
+        for (const r of historyRows) {
+          const key = `${Number(r.donor_id)}|${String(r.project || '').toLowerCase()}`;
+          if (!history.has(key)) history.set(key, { prior: [], all: [] });
+          const h = history.get(key);
+          h.all.push(r);
+          if (String(r.receipt_date).slice(0, 10) < startDay) h.prior.push(r);
+        }
+
+        const categoryRank = (count, total) => {
+          if (!count || !total) return 0;
+          const avg = Number(total) / Number(count);
+          if (avg >= 5000) return 4;
+          if (avg >= 2000) return 3;
+          if (avg >= 500) return 2;
+          if (avg >= 251) return 1;
+          return 0;
+        };
+        const reactivated = new Set();
+        const upgraded = new Set();
+
+        for (const { donorId, project, firstDate } of pairs.values()) {
+          const h = history.get(`${donorId}|${project}`);
+          if (!h || h.prior.length === 0) continue;
+          const priorTotal = h.prior.reduce((s, x) => s + Number(x.amount || 0), 0);
+          const allTotal = h.all.reduce((s, x) => s + Number(x.amount || 0), 0);
+          const beforeRank = categoryRank(h.prior.length, priorTotal);
+          const afterRank = categoryRank(h.all.length, allTotal);
+          if (afterRank > beforeRank) upgraded.add(donorId);
+
+          const lastPrior = h.prior.reduce((max, x) => {
+            const d = String(x.receipt_date).slice(0, 10);
+            return d > max ? d : max;
+          }, '');
+          const cutoff = new Date(`${firstDate}T00:00:00Z`);
+          cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 1);
+          const cutoffDay = cutoff.toISOString().slice(0, 10);
+          if (lastPrior && lastPrior <= cutoffDay) reactivated.add(donorId);
+        }
+
+        inactiveToActiveMonthly = reactivated.size;
+        categoryUpgradesMonthly = upgraded.size;
+
+        // Today's reactivations use the same history but the prior window is
+        // "before today", not "before this month" — a donor who already donated
+        // earlier this month was not inactive when they donated again today.
+        const reactivatedToday = new Set();
+        const upgradedToday = new Set();
+        for (const { donorId, project, firstDate } of todayPairs.values()) {
+          const h = history.get(`${donorId}|${project}`);
+          if (!h || h.all.length === 0) continue;
+          const priorToday = h.all.filter(x => String(x.receipt_date).slice(0, 10) < todayDay);
+          if (priorToday.length === 0) continue;
+          const priorTodayTotal = priorToday.reduce((s, x) => s + Number(x.amount || 0), 0);
+          const allTodayTotal = h.all.reduce((s, x) => s + Number(x.amount || 0), 0);
+          if (categoryRank(h.all.length, allTodayTotal) > categoryRank(priorToday.length, priorTodayTotal)) {
+            upgradedToday.add(donorId);
+          }
+          const lastPrior = priorToday.reduce((max, x) => {
+            const d = String(x.receipt_date).slice(0, 10);
+            return d > max ? d : max;
+          }, '');
+          const cutoff = new Date(`${firstDate}T00:00:00Z`);
+          cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 1);
+          const cutoffDay = cutoff.toISOString().slice(0, 10);
+          if (lastPrior && lastPrior <= cutoffDay) reactivatedToday.add(donorId);
+        }
+        inactiveToActiveToday = reactivatedToday.size;
+        categoryUpgradesToday = upgradedToday.size;
+      }
+    } catch (e) {
+      console.warn('[dashboard] quality metrics failed:', e?.message || String(e));
+    }
+
     // Active/inactive by RECENCY, matching the Status column in My Leads:
     // active when the donor's last donation (profile history OR a scoped log)
     // falls inside the selected window. The old cadence-bucket rule counted
@@ -1440,6 +1561,12 @@ export const getDashboard = async (req, res) => {
         monthly: reactivatedMonthly,
         fro_today: froReactivatedToday,
         fro_monthly: froReactivatedMonthly,
+        inactive_to_active_monthly: inactiveToActiveMonthly,
+        inactive_to_active_today: inactiveToActiveToday,
+      },
+      category_upgrades: {
+        monthly: categoryUpgradesMonthly,
+        today: categoryUpgradesToday,
       },
       donors: {
         active: activeDonors,
@@ -8829,6 +8956,11 @@ export const getMyDisposedLeads = async (req, res) => {
       if (dndA !== dndB) return dndA - dndB;
       return new Date(a.disposed_at || 0) - new Date(b.disposed_at || 0);
     });
+    // History rows are rendered by the same donor cards as My Leads, so they
+    // need the same per-NGO labels (category, frequency, status, last-donation
+    // age, BSCT tag). Without this the fallback/history rows looked blank while
+    // pending leads above them had chips.
+    await attachDonorNgoLabels(result);
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });

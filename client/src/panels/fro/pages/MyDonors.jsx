@@ -6,7 +6,7 @@ import { api, isImpersonating, getUser } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { openLeadWhatsApp } from '../utils/leadWhatsApp';
 import { Dropdown } from '../../../components/ui';
-import { SkeletonMyLeads } from '../../../components/Skeleton';
+import { SkeletonLeadCards } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
 import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
@@ -371,7 +371,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   // must show it even though the monthly rollover archived its call log. The
   // toggle narrows the book to the current month when the FRO wants that.
   const [historyAllTime, setHistoryAllTime] = useState(true);
-  const [dataTab, setDataTab] = useState('new');
+  const [dataTab, setDataTab] = useState('old');
   const [isTempStationView, setIsTempStationView] = useState(false);
   // High Tier tab is shown only to FROs who actually hold high-tier allotment.
   // Kept sticky per session (only ever turns on) so the tab cannot flicker away
@@ -458,6 +458,9 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   const [selectedNgo, setSelectedNgo] = useState(savedView?.selectedNgo || null);
   const [donationStatusFilter, setDonationStatusFilter] = useState(savedView?.donationStatusFilter || 'all');
   const [donationCategoryFilter, setDonationCategoryFilter] = useState(savedView?.donationCategoryFilter || 'all');
+  const [donationFrequencyFilter, setDonationFrequencyFilter] = useState(savedView?.donationFrequencyFilter || 'all');
+  const filterRailRef = useRef(null);
+  const [filterRailScroll, setFilterRailScroll] = useState({ left: false, right: false });
   // MY LEADS list view: the currently opened lead (null = showing the list).
   const [activeDonor, setActiveDonor] = useState(null);
   // Deep link from the topbar bell: /fro/my-leads?alert=<assignmentId>.
@@ -465,17 +468,64 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   // refresh does not reopen it.
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Whether the MY LEADS list includes donors the backend flagged as suppressed
-  // (DND, donated this month, or already worked/closed). Default OFF so
-  // the working stack stays clean, but every one of those donors is reachable in
-  // one click and always counted — nothing is silently missing.
-  const [listShowSuppressed, setListShowSuppressed] = useState(false);
   const [listView, setListView] = useState('leads'); // 'leads' | 'followups' | 'history'
 
   // Filter icon next to the search box: hides the New/Old/SS + NGO/station row
   // until the FRO asks for it, so the header stays one clean line.
   const [waLeads, setWaLeads] = useState([]);
   const [showWaLeads, setShowWaLeads] = useState(false);
+
+  const updateFilterRail = useCallback(() => {
+    const el = filterRailRef.current;
+    if (!el) return;
+    setFilterRailScroll({
+      left: el.scrollLeft > 2,
+      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2,
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = filterRailRef.current;
+    if (!el) return;
+    updateFilterRail();
+    el.addEventListener('scroll', updateFilterRail, { passive: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateFilterRail) : null;
+    if (ro) ro.observe(el);
+    window.addEventListener('resize', updateFilterRail);
+    return () => {
+      el.removeEventListener('scroll', updateFilterRail);
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', updateFilterRail);
+    };
+  }, [updateFilterRail]);
+
+  useEffect(() => {
+    const t = setTimeout(updateFilterRail, 0);
+    return () => clearTimeout(t);
+  }, [listView, dataTab, selectedNgo, selectedStation, donationStatusFilter, donationCategoryFilter, donationFrequencyFilter, showWaLeads, updateFilterRail]);
+
+  // PC mice have a vertical wheel only: over the filter rail, translate it to
+  // horizontal scroll so the controls can be reached without a touchpad.
+  useEffect(() => {
+    const el = filterRailRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (el.scrollWidth <= el.clientWidth + 2) return;
+      if (e.target?.closest?.('.dropdown-menu')) return;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  const scrollFilterRail = (direction) => {
+    const el = filterRailRef.current;
+    if (!el) return;
+    const delta = Math.max(160, Math.round(el.clientWidth * 0.7)) * direction;
+    el.scrollBy({ left: delta, behavior: 'smooth' });
+  };
   const [waSource, setWaSource] = useState('whatsapp');
 
   // Deep link from the topbar bell: /fro/my-leads?alert=<assignmentId>.
@@ -674,7 +724,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   // has scrolled deep back to the top mid-task.
   useEffect(() => {
     setVisibleCount(LEADS_PAGE_SIZE);
-  }, [listView, dataTab, selectedStation, selectedNgo, searchQuery, listShowSuppressed]);
+  }, [listView, dataTab, selectedStation, selectedNgo, searchQuery]);
 
   // Grow the render window as the FRO reaches the bottom of the list. Reading
   // `hasMoreRef` (rather than the item count) keeps this handler free of the
@@ -730,7 +780,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         // (the classic "only shows after opening incognito" symptom). Drop the
         // stale filter and surface the real queue instead of an empty list.
         const staleFilterActive = !!((selectedStation && selectedStation !== 'all') || selectedNgo)
-          && donationStatusFilter === 'all' && donationCategoryFilter === 'all';
+          && donationStatusFilter === 'all' && donationCategoryFilter === 'all' && donationFrequencyFilter === 'all';
         if (staleFilterActive && sortedDonors.length === 0) {
           const br = await getMyDonors(null, null, {
             newOnly: tab === 'new',
@@ -758,7 +808,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         // High Tier is a separate bucket and never shunts to/from New/Old — an
         // empty High Tier tab stays put so it reads as "nothing allotted here".
         if (tab !== 'high_tier' && sortedDonors.length === 0 && !manualTabSwitchRef.current && !autoFallbackAttemptedRef.current
-          && donationStatusFilter === 'all' && donationCategoryFilter === 'all') {
+          && donationStatusFilter === 'all' && donationCategoryFilter === 'all' && donationFrequencyFilter === 'all') {
           autoFallbackAttemptedRef.current = true;
           const otherTab = tab === 'new' ? 'old' : 'new';
           const alt = await getMyDonors(null, null, {
@@ -1408,7 +1458,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   const saveViewState = () => {
     localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({
       selectedStation, selectedNgo, dataTab,
-      donationStatusFilter, donationCategoryFilter,
+      donationStatusFilter, donationCategoryFilter, donationFrequencyFilter,
       donorId: donor?.id || null,
       donorIdx: donor ? index : null,
     }));
@@ -2110,7 +2160,8 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     const suppressedCount = donors.filter(d => d.is_suppressed).length;
     const closedCount = donors.filter(d => !d.is_suppressed && d.suppress_reason).length;
     const visible = donors.filter(d => {
-      if (!listShowSuppressed && d.is_suppressed) return false;
+      if (d.is_suppressed) return false;
+      if (donationFrequencyFilter !== 'all' && String(d.donation_frequency_label || '') !== donationFrequencyFilter) return false;
       return true;
     });
 
@@ -2194,6 +2245,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       + (showHistoryFallback ? historyFallbackLeads.length : historyInlineItems.length);
     const historyScoped = historyLeads.filter(d => inActiveBucket(d, dataTab));
     const historyFiltered = isHistory ? historyScoped.filter(d => {
+      if (donationFrequencyFilter !== 'all' && String(d.donation_frequency_label || '') !== donationFrequencyFilter) return false;
       // Do NOT hide a lead that produced a donation this month: it is used, and
       // History is exactly where it belongs. (Hiding it made donated leads look
       // like they had vanished from both Leads and History.)
@@ -2285,19 +2337,6 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       }
     };
 
-    const activeFilterCount =
-      (selectedNgo ? 1 : 0)
-      + (selectedStation && selectedStation !== 'all' ? 1 : 0)
-      + (donationStatusFilter !== 'all' ? 1 : 0)
-      + (donationCategoryFilter !== 'all' ? 1 : 0);
-
-    const resetFilters = () => {
-      setSelectedNgo(null);
-      setSelectedStation('all');
-      setDonationStatusFilter('all');
-      setDonationCategoryFilter('all');
-    };
-
     const viewFilterValue = isOverdueTab ? 'overdue' : listView;
     const dataFilterValue = showWaLeads ? 'ss' : dataTab;
     const viewFilterOptions = [
@@ -2313,6 +2352,17 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       { value: 'new', label: 'New' },
       { value: 'old', label: 'Old' },
       { value: 'ss', label: 'SS Leads', badge: waLeads.length },
+    ];
+    // Frequency filter: only the buckets the FRO actually works with. Older
+    // "3 Month / 6 Month / 12 Month / More than yearly / No donation / Not
+    // available" labels are deliberately dropped.
+    const frequencyOptions = [
+      { value: 'all', label: 'All freq.' },
+      { value: 'One-Time Donor', label: 'One-time' },
+      { value: '2 Month Donor', label: '2 Month' },
+      { value: 'Quarterly Donor (3 Months)', label: 'Quarterly' },
+      { value: 'Half-Yearly Donor (6 Months)', label: 'Half-Yearly' },
+      { value: 'Yearly Donor (12 Months)', label: 'Yearly' },
     ];
     const filterBadge = (badge, tone) => (badge ? (
       <span className={`fro-dd-badge${tone === 'danger' ? ' is-danger' : ''}`}>{badge}</span>
@@ -2357,6 +2407,20 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               )}
             </div>
 
+            {(filterRailScroll.left || filterRailScroll.right) && (
+              <button
+                type="button"
+                className="fro-filter-scroll-btn"
+                onClick={() => scrollFilterRail(-1)}
+                disabled={!filterRailScroll.left}
+                aria-label="Scroll filters left"
+                title="Scroll filters left"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+              </button>
+            )}
+
+            <div className="fro-filter-scroll" ref={filterRailRef}>
             <Dropdown
               className="fro-dd-filter fro-dd-view"
               value={viewFilterValue}
@@ -2364,6 +2428,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               options={viewFilterOptions}
               renderOption={renderFilterOption}
               renderValue={renderFilterValue}
+              menuFixed
             />
             <Dropdown
               className="fro-dd-filter fro-dd-data"
@@ -2383,12 +2448,14 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               options={dataFilterOptions}
               renderOption={renderFilterOption}
               renderValue={renderFilterValue}
+              menuFixed
             />
 
-            <Dropdown className="fro-dd-filter" value={selectedNgo || ''} onChange={e => { setSelectedNgo(e.target.value || null); setSelectedStation('all'); }} options={[{ value: '', label: 'All NGOs' }, ...ngoList.map(n => ({ value: n.ngo_id, label: n.ngo_name }))]} />
-            <Dropdown className="fro-dd-filter" value={selectedStation || 'all'} onChange={e => setSelectedStation(e.target.value || 'all')} options={[{ value: 'all', label: 'All stations' }, ...stationList.map(s => ({ value: s, label: s }))]} />
-            <Dropdown className="fro-dd-filter" value={donationStatusFilter} onChange={e => setDonationStatusFilter(e.target.value)} options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} />
-            <Dropdown className="fro-dd-filter fro-dd-end" value={donationCategoryFilter} onChange={e => setDonationCategoryFilter(e.target.value)} options={[{ value: 'all', label: 'All categories' }, { value: 'premium', label: 'Premium' }, { value: 'high', label: 'High Value' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low Value' }, { value: 'below', label: 'Below Low' }]} />
+            <Dropdown className="fro-dd-filter" value={selectedNgo || ''} onChange={e => { setSelectedNgo(e.target.value || null); setSelectedStation('all'); }} options={[{ value: '', label: 'All NGOs' }, ...ngoList.map(n => ({ value: n.ngo_id, label: n.ngo_name }))]} menuFixed />
+            <Dropdown className="fro-dd-filter" value={selectedStation || 'all'} onChange={e => setSelectedStation(e.target.value || 'all')} options={[{ value: 'all', label: 'All stations' }, ...stationList.map(s => ({ value: s, label: s }))]} menuFixed />
+            <Dropdown className="fro-dd-filter" value={donationStatusFilter} onChange={e => setDonationStatusFilter(e.target.value)} options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} menuFixed />
+            <Dropdown className="fro-dd-filter fro-dd-category" value={donationCategoryFilter} onChange={e => setDonationCategoryFilter(e.target.value)} options={[{ value: 'all', label: 'All categories' }, { value: 'premium', label: 'Premium' }, { value: 'high', label: 'High Value' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low Value' }, { value: 'below', label: 'Below Low' }]} menuFixed />
+            <Dropdown className="fro-dd-filter fro-dd-end" value={donationFrequencyFilter} onChange={e => setDonationFrequencyFilter(e.target.value)} options={frequencyOptions} menuFixed />
 
             <button
               type="button"
@@ -2404,20 +2471,19 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               </span>
             </button>
 
-            {listView === 'leads' && suppressedCount > 0 && (
-              <button type="button" className={`fro-filter-action${listShowSuppressed ? ' is-on' : ''}`} onClick={() => setListShowSuppressed(v => !v)}
-                title={listShowSuppressed ? 'Hide held-back leads' : `Show the ${suppressedCount} leads held back`}>
-                {listShowSuppressed ? 'Showing all leads' : `Hidden: ${suppressedCount}`}
+            </div>
+
+            {(filterRailScroll.left || filterRailScroll.right) && (
+              <button
+                type="button"
+                className="fro-filter-scroll-btn"
+                onClick={() => scrollFilterRail(1)}
+                disabled={!filterRailScroll.right}
+                aria-label="Scroll filters right"
+                title="Scroll filters right"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
               </button>
-            )}
-            {listView === 'history' && (
-              <button type="button" className={`fro-filter-action${historyAllTime ? ' is-on' : ''}`} onClick={() => setHistoryAllTime(v => !v)}
-                title={historyAllTime ? "Show only this month's disposed leads" : 'Show disposed leads from all months'}>
-                {historyAllTime ? 'All months' : 'This month'}
-              </button>
-            )}
-            {activeFilterCount > 0 && (
-              <button type="button" className="fro-filter-action" onClick={resetFilters}>Reset</button>
             )}
           </div>
 
@@ -2643,17 +2709,8 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               <b>{dataTab === 'old' ? 'Old' : 'New'} data is finished.</b> Showing {dataTab === 'old' ? 'old' : 'new'} History donors below — oldest first, so the latest disposed is last. Their disposition was not reset.
             </div>
           )}
-          {historyInlineItems.length > 0 && (
-            <div style={{ fontSize: 10.5, color: '#475569', lineHeight: 1.5, padding: '8px 10px', marginBottom: 8, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-              Your <b>old history</b> is shown below the pending old leads — {historyInlineItems.length} disposed lead(s), newest disposed last.
-            </div>
-          )}
           {loading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="sk" style={{ height: 56, borderRadius: 'var(--radius-sm)' }} />
-              ))}
-            </div>
+            <SkeletonLeadCards count={6} />
           ) : listView === 'leads' && historyFallbackLoading && donors.length === 0 ? (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
               Looking for History leads…
@@ -2676,12 +2733,28 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
             </div>
           ) : listItems.length === 0 ? (
             listView === 'leads' && donors.length === 0 ? (
-              <div className="fro-empty-state" style={{ padding: '34px 20px', marginTop: 4 }}>
-                <div className="fro-empty-icon">
-                  <span className="material-symbols-outlined" style={{ fontSize: 36, color: 'var(--sage)', opacity: .5 }}>{dataTab === 'new' ? 'fiber_new' : dataTab === 'high_tier' ? 'workspace_premium' : 'history'}</span>
+              <div className="fro-empty-state" style={{ padding: '40px 20px 34px', marginTop: 4 }}>
+                <div className="fro-empty-stamp" aria-hidden="true">
+                  <div className="fro-empty-stamp-inner">
+                    <span className="fro-empty-stamp-top">NO DATA</span>
+                    <span className="fro-empty-stamp-mid">
+                      {dataTab === 'high_tier' ? 'HIGH TIER' : 'ALLOTTED'}
+                    </span>
+                    <span className="fro-empty-stamp-bottom">
+                      {stations.length === 0
+                        ? 'NO STATION'
+                        : dataTab === 'new'
+                          ? 'NEW DATA'
+                          : dataTab === 'high_tier'
+                            ? 'HIGH TIER'
+                            : 'OLD DATA'}
+                    </span>
+                  </div>
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No {dataTab === 'new' ? 'new' : dataTab === 'high_tier' ? 'high tier' : 'old'} data allotted</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 280, textAlign: 'center', lineHeight: 1.5 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, marginTop: 18, marginBottom: 4 }}>
+                  No {dataTab === 'new' ? 'new' : dataTab === 'high_tier' ? 'high tier' : 'old'} data allotted
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', maxWidth: 300, textAlign: 'center', lineHeight: 1.55 }}>
                   {stations.length === 0
                     ? 'You are not assigned to any station yet. Ask your Admin to assign you to a station.'
                     : (dataTab === 'new'
@@ -2691,18 +2764,18 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                         : 'Old data will appear here once uploaded to your station.')}
                 </div>
                 {(autoFallbackAttemptedRef.current && dataTab !== 'high_tier') && (
-                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 280, textAlign: 'center', lineHeight: 1.5, marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 300, textAlign: 'center', lineHeight: 1.5, marginTop: 4 }}>
                     No new or old data is currently available at your station. Contact your admin if you expect data here.
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                   {dataTab === 'new' ? (
                     <button onClick={() => switchTab('old')} className="fro-empty-switch">
-                      <span className="material-symbols-outlined" style={{ fontSize: 13 }}>history</span> Try Old Data tab
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>history</span> Try Old Data tab
                     </button>
                   ) : (
                     <button onClick={() => switchTab('new')} className="fro-empty-switch">
-                      <span className="material-symbols-outlined" style={{ fontSize: 13 }}>fiber_new</span> Try New Data tab
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>fiber_new</span> Try New Data tab
                     </button>
                   )}
                 </div>
@@ -2871,7 +2944,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                     : `Showing ${renderedItems.length} of ${allottedTotal || total || donors.length} allotted lead(s)`
                     + (hasMoreRef.current ? ' · scroll for more' : ' · all shown')
                     + (closedCount ? ` · ${closedCount} already worked${dataTab === 'high_tier' ? '' : ' — filter by status'}` : '')
-                    + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (${dataTab === 'high_tier' ? 'DND, donated, completed' : 'DND, donated this month'}) \u2014 use "Hidden: ${suppressedCount}" to view` : '')
+                    + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (${dataTab === 'high_tier' ? 'DND, donated, completed' : 'DND, donated this month'})` : '')
                     + (dataTab === 'high_tier' && highTierStats
                       ? ` \u00b7 batch: ${highTierStats.batch_rows} row(s) distributed`
                         + (highTierStats.duplicate_rows ? `, ${highTierStats.duplicate_rows} duplicate (same donor + NGO)` : '')

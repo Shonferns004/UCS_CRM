@@ -1,11 +1,52 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 
-export function Dropdown({ value, onChange, options, placeholder, renderOption, renderValue, customTrigger, customValue, onCustomChange, menuInset, searchable, className }) {
+export function Dropdown({ value, onChange, options, placeholder, renderOption, renderValue, customTrigger, customValue, onCustomChange, menuInset, searchable, className, menuFixed = false }) {
   const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState(null)
   const [query, setQuery] = useState('')
   const inputRef = useRef(null)
   const searchRef = useRef(null)
   const ref = useRef(null)
+
+  const positionMenu = useCallback(() => {
+    const el = ref.current
+    const r = el?.getBoundingClientRect()
+    if (!r) return
+    const fs = parseFloat(window.getComputedStyle(el).fontSize) || 12
+    const maxWidth = Math.round(fs * 20)
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - maxWidth - 8))
+    setMenuStyle({
+      position: 'fixed',
+      top: Math.round(r.bottom + fs * 0.6),
+      left: Math.round(left),
+      right: 'auto',
+      minWidth: Math.round(Math.max(r.width, fs * 14)),
+      maxWidth,
+    })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open || !menuFixed) return
+    positionMenu()
+  }, [open, menuFixed, positionMenu])
+
+  useEffect(() => {
+    if (!open || !menuFixed) return
+    const closeOnScroll = (e) => {
+      // Scrolling the menu itself must not dismiss it; any other scroll
+      // (page, filter rail, donor list) should, because a fixed menu would
+      // otherwise float away from its trigger.
+      if (ref.current?.contains(e.target)) return
+      setOpen(false)
+    }
+    const closeOnResize = () => setOpen(false)
+    window.addEventListener('scroll', closeOnScroll, true)
+    window.addEventListener('resize', closeOnResize)
+    return () => {
+      window.removeEventListener('scroll', closeOnScroll, true)
+      window.removeEventListener('resize', closeOnResize)
+    }
+  }, [open, menuFixed])
 
   useEffect(() => {
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
@@ -22,16 +63,24 @@ export function Dropdown({ value, onChange, options, placeholder, renderOption, 
   }, [open, searchable])
 
   const selected = options.find(o => (typeof o === 'string' ? o : o.value) === value)
+  const selectedLabel = selected ? (typeof selected === 'string' ? selected : selected.label) : (placeholder || 'Select...')
   const filtered = searchable && query ? options.filter(o => (typeof o === 'string' ? o : (o.label || o.value)).toLowerCase().includes(query.toLowerCase())) : options
 
   return (
     <div className={`dropdown${open ? ' open' : ''}${className ? ` ${className}` : ''}${menuInset ? ' menu-inset' : ''}`} ref={ref}>
-      <button type="button" className="dropdown-trigger" aria-haspopup="listbox" aria-expanded={open} onClick={() => { setOpen(!open); setQuery('') }}>
-        {renderValue ? renderValue(selected) : (selected ? (typeof selected === 'string' ? selected : selected.label) : (placeholder || 'Select...'))}
+      <button type="button" className="dropdown-trigger" aria-haspopup="listbox" aria-expanded={open} title={selectedLabel} onClick={() => { setOpen(!open); setQuery('') }}>
+        {renderValue ? (
+          <span className="dropdown-trigger-value">{renderValue(selected)}</span>
+        ) : (
+          <span className="dropdown-trigger-label">{selectedLabel}</span>
+        )}
         <ChevronDown />
       </button>
       {open && (
-        <div className="dropdown-menu">
+        <div
+          className={`dropdown-menu${menuFixed ? ' dropdown-menu-fixed' : ''}`}
+          style={menuFixed ? (menuStyle || { position: 'fixed', top: -9999, left: -9999 }) : undefined}
+        >
           {searchable && (
             <div className="dropdown-item" style={{ padding: 6 }}>
               <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search..." style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontFamily: 'inherit', fontSize: 13, outline: 'none', background: 'var(--paper)', color: 'var(--ink)' }} onClick={e => e.stopPropagation()} />

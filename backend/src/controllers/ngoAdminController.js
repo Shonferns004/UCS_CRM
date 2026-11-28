@@ -2436,44 +2436,113 @@ export const updateStationNgos = async (req, res) => {
   }
 };
 
+let ownershipAuditReady = false;
+const ensureOwnershipAuditTable = async (client) => {
+  if (ownershipAuditReady) return;
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS fro_ownership_changes (
+      id bigserial PRIMARY KEY,
+      assignment_id integer NOT NULL,
+      donor_id integer,
+      ngo_id uuid,
+      station text,
+      old_fro_worker_id uuid,
+      new_fro_worker_id uuid,
+      change_type text NOT NULL,
+      changed_by text,
+      changed_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_fro_ownership_changes_assignment
+      ON fro_ownership_changes (assignment_id)
+  `);
+  ownershipAuditReady = true;
+};
+
 export const reassignStationFro = async (req, res) => {
+  const client = await db._pool.connect();
   try {
     const { id } = req.params;
-    const { fro_worker_id } = req.body;
-    if (!fro_worker_id) {
-      return res.status(400).json({ message: 'fro_worker_id is required' });
+    const body = req.body || {};
+    if (!Object.prototype.hasOwnProperty.call(body, 'fro_worker_id')) {
+      return res.status(400).json({ message: 'fro_worker_id is required (use null to unassign)' });
+    }
+    const newFro = body.fro_worker_id ? String(body.fro_worker_id) : null;
+
+    const allowed = await getUserNgoIds(req.user);
+    const { rows } = await client.query(
+      `SELECT id, station, ngo_id FROM fro_station_assignments WHERE id = $1`,
+      [id],
+    );
+    const stationRow = rows[0];
+    if (!stationRow) return res.status(404).json({ message: 'Station assignment not found' });
+    if (!allowed.map(String).includes(String(stationRow.ngo_id))) {
+      return res.status(403).json({ message: 'Access denied for this NGO' });
     }
 
-    const access = await getUserNgoAccess(req.user.id, req.user.role);
-    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
-    const ngoId = ngoIds[0] || req.user.ngo_id;
-    if (!ngoId) return res.status(400).json({ message: 'No NGO assigned' });
+    const changedBy = String(req.user?.name || req.user?.id || 'admin');
+    await client.query('BEGIN');
+    await ensureOwnershipAuditTable(client);
 
-    // Get station info
-    const { data: stationAssign } = await db
-      .from('fro_station_assignments')
-      .select('station')
-      .eq('id', id)
-      .single();
-    if (!stationAssign) return res.status(404).json({ message: 'Station assignment not found' });
+    // Station row (the label/scope) and the donor rows move together. The
+    // donor update is in place: status/disposition, logs, receipts and
+    // assigned_at are deliberately untouched. The old reassignStationDonors
+    // helper marked every row 'reassigned' and inserted new 'pending' rows,
+    // which wiped dispositions — never use that for an owner change.
+    await client.query(
+      `UPDATE fro_station_assignments
+          SET fro_worker_id = $1, updated_at = now()
+        WHERE id = $2`,
+      [newFro, id],
+    );
+    const upd = await client.query(
+      `WITH tgt AS (
+         SELECT a.id, a.donor_id, a.ngo_id, a.station, a.fro_worker_id
+           FROM fro_assignments a
+          WHERE a.ngo_id = $1
+            AND btrim(a.station) = btrim($2)
+            AND (a.status IS NULL OR a.status <> 'reassigned')
+            AND a.fro_worker_id IS DISTINCT FROM $3
+          FOR UPDATE
+       ),
+       audit AS (
+         INSERT INTO fro_ownership_changes
+           (assignment_id, donor_id, ngo_id, station, old_fro_worker_id, new_fro_worker_id, change_type, changed_by)
+         SELECT id, donor_id, ngo_id, station, fro_worker_id, $3, 'station_ui', $4
+           FROM tgt
+       )
+       UPDATE fro_assignments a
+          SET fro_worker_id = $3
+         FROM tgt t
+        WHERE a.id = t.id
+       RETURNING a.id`,
+      [stationRow.ngo_id, stationRow.station, newFro, changedBy],
+    );
 
-    // Update station assignment
-    await upsertStationAssignment(fro_worker_id, ngoId, stationAssign.station, req.user.id);
-
-    // Reassign donors in this station
-    const { reassignStationDonors } = await import('../models/froAssignmentModel.js');
-    const newAssignments = await reassignStationDonors(ngoId, stationAssign.station, fro_worker_id, await resolveAssignedBy(req.user));
-
-    // Moves every donor in the station, so both the station list and the
-    // disposition roll-up are now wrong, not just the FRO label.
+    await client.query('COMMIT');
     bustStationCache();
+    if (newFro) {
+      try {
+        const { invalidateFroCaches } = await import('./froController.js');
+        invalidateFroCaches(newFro);
+      } catch { /* cache TTL is the backstop */ }
+    }
 
     return res.json({
-      message: `Station reassigned. ${newAssignments.length} donors assigned to new FRO.`,
-      count: newAssignments.length,
+      message: newFro
+        ? `Station reassigned. ${upd.rowCount || 0} donor(s) moved to the new FRO.`
+        : `Station unassigned. ${upd.rowCount || 0} donor(s) are now unassigned.`,
+      count: upd.rowCount || 0,
+      station: stationRow.station,
+      ngo_id: stationRow.ngo_id,
+      fro_worker_id: newFro,
     });
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
     return res.status(500).json({ message: error.message });
+  } finally {
+    client.release();
   }
 };
 

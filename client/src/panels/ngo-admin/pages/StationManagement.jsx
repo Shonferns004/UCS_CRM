@@ -3633,6 +3633,7 @@ export default function StationManagement() {
 
   const renderStationRow = (s, ngo) => {
     const ngoName = ngo?.name || s.ngos?.[0]?.ngo_name;
+    const rowAssign = (s.ngos || []).find(n => String(n.ngo_id) === String(ngo?.id)) || (s.ngos || [])[0];
     const ngoCol = ngoColor(ngoName);
     const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
     const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
@@ -3707,7 +3708,7 @@ export default function StationManagement() {
               <SearchableSelect
                 options={froWorkers}
                 value={s.fro_worker_id || ''}
-                onChange={(val) => handleFroChange(s.station, val)}
+                onChange={(val) => handleFroChange(s.station, val, rowAssign?.assignment_id)}
                 placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
               />
             </div>
@@ -3928,15 +3929,40 @@ export default function StationManagement() {
     }
   };
 
-  const handleFroChange = async (station, froWorkerId) => {
+  const handleFroChange = async (station, froWorkerId, assignmentId) => {
     const s = stations.find(st => st.station === station);
     if (!s) return;
+    if (String(froWorkerId || '') === String(s.fro_worker_id || '')) return;
+    const rowAssign = assignmentId
+      ? (s.ngos || []).find(n => String(n.assignment_id) === String(assignmentId))
+      : (s.ngos || [])[0];
+    const ngoId = rowAssign?.ngo_id || null;
+    const workerName = froWorkers.find(w => String(w.id) === String(froWorkerId))?.name || 'new FRO';
+
+    // Moving a station's FRO also moves that station's live donors. The old
+    // update-ngos call only changed the station label, which is exactly why the
+    // lead owner and the station FRO drifted apart.
+    if (assignmentId) {
+      const verb = froWorkerId ? `move all live donors of ${station} to ${workerName}` : `unassign ${station} and all its live donors`;
+      if (!window.confirm(`Are you sure you want to ${verb}?\n\nDispositions, call logs and receipts stay unchanged.`)) return;
+      try {
+        const r = await apiPut(`/ngo-admin/station-assignments/${assignmentId}/reassign`, {
+          fro_worker_id: froWorkerId || null,
+        });
+        toast(r.message || 'Station updated', 'success');
+        fetchData(undefined, undefined, { fresh: true });
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+      return;
+    }
+
     try {
       await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, {
-        ngo_id: s.ngos[0]?.ngo_id || null,
+        ngo_id: ngoId,
         fro_worker_id: froWorkerId,
       });
-      fetchData();
+      fetchData(undefined, undefined, { fresh: true });
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -4268,7 +4294,7 @@ export default function StationManagement() {
                       <SearchableSelect
                         options={froWorkers}
                         value={s.fro_worker_id || ''}
-                        onChange={(val) => handleFroChange(s.station, val)}
+                        onChange={(val) => handleFroChange(s.station, val, (s.ngos || [])[0]?.assignment_id)}
                         placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
                       />
                     </div>

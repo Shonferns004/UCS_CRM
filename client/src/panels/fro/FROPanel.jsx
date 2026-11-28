@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Users, Gift, Ticket, MessagesSquare, Coins, Trophy, Medal } from 'lucide-react'
+import { LayoutDashboard, Users, Gift, Ticket, MessagesSquare, Trophy } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -533,7 +533,7 @@ function WorkAnniversaryPopup() {
   )
 }
 
-function Sidebar({ open, onClose, si, onOpenSettings, user }) {
+function Sidebar({ open, onClose, si, onOpenSettings, user, onOpenIncentive, onOpenRace, onOpenStats }) {
   const location = useLocation()
   const nav = [...NAV_BASE]
   // One sidebar entry for WhatsApp. The assigned numbers are a small switcher inside the
@@ -707,6 +707,23 @@ export default function FROPanel() {
       } finally {
         setAkiLoading(false);
       }
+    }
+  };
+
+  const openStats = async () => {
+    setShowStats(true);
+    setShowTarget(false);
+    setStatsLoading(true);
+    try {
+      const [d, t] = await Promise.all([
+        getMyDashboard().catch((err) => { console.error('Error:', err.message); }),
+        getMyTarget().catch((err) => { console.error('Error:', err.message); }),
+      ]);
+      setStatsData({ dash: d, target: t });
+    } catch (e) {
+      console.error('Error:', e.message);
+    } finally {
+      setStatsLoading(false);
     }
   };
 
@@ -1130,7 +1147,16 @@ useEffect(() => onFroAction((action) => {
     <CallProvider userId={user?.id} operatorId={user?.impersonation ? user?.imposter_id : null}>
     <PauseGate />
     <div className="app">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} si={si} user={user} onOpenSettings={() => { setSidebarOpen(false); setShowSettings(true) }} />
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        si={si}
+        user={user}
+        onOpenSettings={() => { setSidebarOpen(false); setShowSettings(true) }}
+        onOpenIncentive={openAki}
+        onOpenRace={() => setRaceOpen(true)}
+        onOpenStats={openStats}
+      />
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -1162,22 +1188,6 @@ useEffect(() => onFroAction((action) => {
             />
             <BirthdayPopup />
             <WorkAnniversaryPopup />
-            <div onClick={openAki} title="Aaj Ka Incentive (AKI)" style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s' }}>
-              <Coins size={20} strokeWidth={2} color="var(--ink-soft)" style={{ color: '#B45309' }} />
-            </div>
-            {/* Collection Race. Sits immediately after the AKI coin so the two
-                "what am I earning / where do I stand" icons read as one cluster,
-                and opens the same racing board the NGO-admin header shows rather
-                than navigating away from whatever the FRO was doing. */}
-            <div onClick={() => setRaceOpen(true)} title="Collection Race" aria-label="Collection Race"
-              style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s', display: 'flex' }}>
-              <Medal size={20} strokeWidth={2} style={{ color: '#b45309' }} />
-            </div>
-            <div style={{ position:'relative' }}>
-              <div onClick={async () => { setShowStats(true); setShowTarget(false); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch((err) => { console.error('Error:', err.message); }), getMyTarget().catch((err) => { console.error('Error:', err.message); })]);             setStatsData({ dash: d, target: t }); } catch (e) { console.error('Error:', e.message); } finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" strokeLinecap="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              </div>
-            </div>
             {/* The Acting FRO (work-as) button that used to sit here was
                 retired with the feature — Temporary Data Access is granted
                 from the admin panel now. */}
@@ -1222,21 +1232,6 @@ useEffect(() => onFroAction((action) => {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
             <span>OWNER: <b>{userName}</b> · ACTING FRO: <b>{user?.imposter_name || 'you'}</b>{Array.isArray(user?.act_stations) && user.act_stations.length > 0 && <> · Stations: <b>{[...new Set(user.act_stations.map(s => s.station))].join(', ')}</b></>} · Credit goes to <b>{user?.imposter_name || 'you'}</b></span>
             <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit Acting FRO</button>
-          </div>
-        )}
-        {!impersonating && location.pathname === '/fro/dashboard' && tempStations.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', background: 'rgba(29,78,216,.08)', borderBottom: '1px solid var(--line)', fontSize: 12, color: 'var(--ink)', flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 600 }}>Temporary access:</span>
-            {tempStations.map(s => (
-              <span
-                key={`${s.ngo_id}|${s.station}`}
-                title={s.ngo_name ? `${s.station} · ${s.ngo_name}` : s.station}
-                style={{ padding: '2px 9px', borderRadius: 999, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', fontSize: 11.5, fontWeight: 600 }}
-              >
-                {s.station}{s.temp_allowed_count ? ` · ${s.temp_allowed_count}` : ''}{s.temp_expires_at ? ` · until ${new Date(s.temp_expires_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} IST` : ''}
-              </span>
-            ))}
-            <span style={{ color: 'var(--ink-soft)', fontSize: 11 }}>Donor ownership stays with the permanent FRO.</span>
           </div>
         )}
         {!impersonating && tempDeniedMsg && (
@@ -1353,7 +1348,17 @@ useEffect(() => onFroAction((action) => {
         <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
+            <Route
+              path="dashboard"
+              element={(
+                <Dashboard
+                  tempStations={tempStations}
+                  onOpenIncentive={openAki}
+                  onOpenLeaderboard={() => setRaceOpen(true)}
+                  onOpenData={openStats}
+                />
+              )}
+            />
             <Route path="station-whatsapp" element={<StationWhatsApp />} />
             <Route path="my-leads" element={<MyLeadsSuspense />} />
             <Route path="suspense" element={<FroSuspense />} />

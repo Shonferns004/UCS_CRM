@@ -49,15 +49,25 @@ class ApiService {
     return _handleResponse(res);
   }
 
-  /// Sends a card photo (base64) to the backend which reads the details with
-  /// Gemini vision and returns the fields scraped from it (name/dob/gender/
-  /// address_line_1/aadhaar_number). `side` picks the extraction scope:
-  /// 'front', 'back', or 'all' (default). The photo is sent once and never
-  /// persisted on the device.
+  /// Sends a card/document photo (base64) to the backend, which forwards it to
+  /// the local Indra OCR service and returns the fields the form understands.
+  /// [docType] is one of aadhaar, udid, disability, generic or auto.
+  /// The photo is sent once and never persisted by the OCR service.
+  static Future<Map<String, dynamic>> parseDocumentPhoto(
+    String base64, {
+    String docType = 'aadhaar',
+    String side = 'all',
+  }) async {
+    return post('/beneficiaries/documents/parse-photo',
+        body: {'image': base64, 'side': side, 'doc_type': docType},
+        timeout: const Duration(seconds: 90));
+  }
+
+  /// Aadhaar-only helper kept for the existing edit flow.
   static Future<Map<String, dynamic>> parseAadhaarPhoto(String base64,
       {String side = 'all'}) async {
     return post('/beneficiaries/aadhaar/parse-photo',
-        body: {'image': base64, 'side': side}, timeout: const Duration(seconds: 60));
+        body: {'image': base64, 'side': side}, timeout: const Duration(seconds: 90));
   }
 
   static Future<Map<String, dynamic>> patch(String path, {Map<String, dynamic>? body}) async {
